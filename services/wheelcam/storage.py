@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import TEMPLATE_VERSION, WheelSpec, default_sources
+from .models import TEMPLATE_VERSION, WheelSpec, default_sources, migrate_spec
 
 
 def now():
@@ -44,6 +44,13 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at);
             """)
+            # Drafts saved under an older template are upgraded once; job snapshots stay untouched.
+            for row in db.execute("SELECT id, spec, sources FROM projects").fetchall():
+                migrated = migrate_spec(json.loads(row["spec"]), json.loads(row["sources"]))
+                if migrated:
+                    spec, sources = migrated
+                    db.execute("UPDATE projects SET spec=?,sources=?,revision=revision+1,updated_at=? WHERE id=?",
+                               (json.dumps(spec), json.dumps(sources, ensure_ascii=False), now(), row["id"]))
 
     @contextmanager
     def connection(self):

@@ -1,31 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Box, Check, CheckCircle2, ChevronDown, CircleDashed, Clock3, FileImage, FolderOpen, Hexagon, ImagePlus, Info, Layers3, Plus, RefreshCw, Save, SlidersHorizontal, Sparkles, X } from 'lucide-react';
-import { api } from './types';
+import { api, TEMPLATE_VERSION } from './types';
 import type { Job, Project, Sources, Spec, Summary } from './types';
 import { Viewer } from './Viewer';
 
 type Field = { key: keyof Spec; label: string; min: number; max: number; step: number; unit: string };
+// Ranges mirror WheelSpec in services/wheelcam/models.py; the API remains the authority.
 const groups: { title: string; fields: Field[] }[] = [
-  { title: '轮毂尺寸', fields: [
-    { key: 'outer_diameter_mm', label: '实际外径', min: 380, max: 600, step: 1, unit: 'mm' },
-    { key: 'width_mm', label: '整体宽度', min: 150, max: 280, step: 1, unit: 'mm' },
-    { key: 'rim_wall_mm', label: '轮辋壁厚', min: 6, max: 16, step: .5, unit: 'mm' },
+  { title: '轮辋规格', fields: [
+    { key: 'rim_diameter_in', label: '轮辋直径', min: 17, max: 22, step: 1, unit: '英寸' },
+    { key: 'rim_width_in', label: '轮辋宽度', min: 7, max: 11, step: .5, unit: 'J' },
+    { key: 'offset_et_mm', label: '偏距 ET', min: -20, max: 70, step: 1, unit: 'mm' },
+    { key: 'rim_wall_mm', label: '轮辋壁厚', min: 4.5, max: 10, step: .5, unit: 'mm' },
   ] },
   { title: '轮辐造型', fields: [
     { key: 'spoke_count', label: '轮辐数量', min: 5, max: 10, step: 1, unit: '根' },
-    { key: 'spoke_width_mm', label: '轮辐宽度', min: 24, max: 52, step: 1, unit: 'mm' },
-    { key: 'spoke_thickness_mm', label: '轮辐厚度', min: 12, max: 26, step: 1, unit: 'mm' },
-    { key: 'dish_mm', label: '轮辐凹深', min: 12, max: 55, step: 1, unit: 'mm' },
-    { key: 'sweep_deg', label: '轮辐偏转', min: -18, max: 18, step: 1, unit: '°' },
+    { key: 'spoke_width_hub_mm', label: '根部宽度', min: 22, max: 60, step: 1, unit: 'mm' },
+    { key: 'spoke_width_rim_mm', label: '外端宽度', min: 14, max: 50, step: 1, unit: 'mm' },
+    { key: 'spoke_thickness_mm', label: '根部厚度', min: 16, max: 40, step: 1, unit: 'mm' },
+    { key: 'sweep_deg', label: '轮辐偏转', min: -25, max: 25, step: 1, unit: '°' },
+    { key: 'face_curve', label: '凹面曲率', min: 0, max: 1, step: .05, unit: '' },
+  ] },
+  { title: '截面与圆角', fields: [
+    { key: 'spoke_crown_mm', label: '正面拱高', min: 0, max: 6, step: .5, unit: 'mm' },
+    { key: 'spoke_fillet_mm', label: '截面棱边圆角', min: 1, max: 6, step: .5, unit: 'mm' },
+    { key: 'junction_fillet_mm', label: '连接处圆角', min: 0, max: 8, step: .5, unit: 'mm' },
+    { key: 'pocket_depth_mm', label: '背腔深度', min: 0, max: 24, step: 1, unit: 'mm' },
   ] },
   { title: '中心盘与孔系', fields: [
-    { key: 'hub_diameter_mm', label: '中心盘直径', min: 140, max: 190, step: 1, unit: 'mm' },
-    { key: 'center_bore_mm', label: '中心孔径', min: 45, max: 90, step: .1, unit: 'mm' },
+    { key: 'hub_diameter_mm', label: '中心盘直径', min: 140, max: 200, step: 1, unit: 'mm' },
+    { key: 'hub_thickness_mm', label: '中心盘厚度', min: 30, max: 70, step: 1, unit: 'mm' },
+    { key: 'center_bore_mm', label: '中心孔径', min: 50, max: 90, step: .1, unit: 'mm' },
     { key: 'bolt_count', label: '安装孔数量', min: 4, max: 6, step: 1, unit: '个' },
-    { key: 'bolt_circle_mm', label: '节圆直径 PCD', min: 100, max: 140, step: .1, unit: 'mm' },
-    { key: 'bolt_diameter_mm', label: '安装孔径', min: 10, max: 18, step: .5, unit: 'mm' },
+    { key: 'bolt_circle_mm', label: '节圆直径 PCD', min: 98, max: 140, step: .1, unit: 'mm' },
+    { key: 'bolt_diameter_mm', label: '安装孔径', min: 12, max: 16, step: .5, unit: 'mm' },
   ] },
 ];
+const derivedLabels: Record<string, string> = {
+  outer_diameter_mm: '实际外径', overall_width_mm: '整体宽度', bead_seat_diameter_mm: '胎圈座直径',
+  backspacing_mm: '背距', concavity_mm: '凹面深度', flange_thickness_mm: '轮缘厚度', spoke_length_mm: '轮辐长度',
+};
+const specSummary = (snapshot: Job['snapshot']) => snapshot.template_version === TEMPLATE_VERSION
+  ? `${snapshot.spec.spoke_count} 辐 · ${snapshot.spec.rim_diameter_in}×${snapshot.spec.rim_width_in}J · ET${snapshot.spec.offset_et_mm}`
+  : `${snapshot.spec.spoke_count} 辐 · 旧模板 ${snapshot.template_version}`;
 const sourceLabels = { template: '模板假设', manual: '手动输入', drawing: '图纸标注', measurement: '实物测量' };
 const checkLabels: Record<string, string> = { valid_brep: '实体拓扑有效', single_solid: '单一连通实体', positive_volume: '有效实体体积', envelope_matches: '外廓尺寸一致', step_roundtrip: 'STEP 导出回读一致' };
 const stamp = (value: string) => new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -179,7 +196,7 @@ export function App() {
         <Viewer url={shown ? `/api/builds/${shown.id}/glb` : null} building={!!active}/>
         <div className="model-summary"><div><span>实体数量</span><strong>{shown?.report?.solid_count ?? '—'}<small>个</small></strong></div><div><span>外廓尺寸</span><strong className="dimensions">{shown?.report?.bbox_mm.map((value) => value.toFixed(0)).join(' × ') ?? '—'}<small>mm</small></strong></div><div><span>几何体积</span><strong>{shown?.report ? (shown.report.volume_mm3 / 1e6).toFixed(2) : '—'}<small>L</small></strong></div></div>
         <div className="export-bar"><div><span className="section-eyebrow">工程交接</span><p>{shown ? '导出当前显示版本，保留参数来源' : '生成模型后即可导出'}</p></div><div className="export-actions">{(['step', 'glb', 'recipe'] as const).map((type) => <a key={type} className={`export-link ${!shown ? 'disabled' : ''}`} href={shown ? `/api/builds/${shown.id}/${type}` : undefined} aria-disabled={!shown} download><ArrowDownToLine size={15}/>{type === 'recipe' ? '参数 JSON' : type.toUpperCase()}</a>)}</div></div>
-        <div className="engineering-note"><CircleDashed size={16}/><span>概念模板 · 轮辋截面、过渡圆角与安装座面待设计；尚未验证载荷、毛坯及加工工艺。</span></div>
+        <div className="engineering-note"><CircleDashed size={16}/><span>锻造单片模板 · 轮辋截面为近似标准轮廓；尚未验证载荷、锻坯及加工工艺。</span></div>
       </section>
       <aside className="parameters-panel">
         <div className="panel-tabs" role="tablist" aria-label="模型信息">
@@ -188,9 +205,9 @@ export function App() {
           <button role="tab" aria-selected={tab === 'checks'} onClick={() => setTab('checks')}><CheckCircle2 size={15}/>检查</button>
         </div>
         <div className="parameters-scroll">
-          {tab === 'parameters' && <><div className="template-heading"><div><span className="section-eyebrow">TEMPLATE 01</span><h2>周期轮辐</h2></div><span className="template-symbol"><Hexagon size={24}/></span></div><label className="project-name-label" htmlFor="project-name">项目名称</label><input className="project-name" id="project-name" maxLength={80} value={name} disabled={busy} onChange={(event) => { setName(event.target.value); setDirty(true); }}/><p className="dimension-note">尺寸单位为毫米。实际外径不等于轮胎公称配合直径。</p>{spec && sources && groups.map((group) => <fieldset key={group.title} disabled={busy}><legend>{group.title}</legend>{group.fields.map((field) => <NumberField key={field.key} field={field} value={spec[field.key]} source={sources[field.key]} onChange={(value) => change(field.key, value)} onSource={(kind) => { setSources({ ...sources, [field.key]: { kind, note: `${sourceLabels[kind]}，尚未作工程审核` } }); setDirty(true); }} disabled={busy}/>)}</fieldset>)}</>}
-          {tab === 'history' && <><div className="tab-intro"><h2>模型版本</h2><p>每次生成都保留独立的参数与文件。</p></div>{!project?.jobs.length && <div className="tab-empty"><Clock3 size={30}/><p>生成第一版模型后<br/>在这里查看历史记录</p></div>}{project?.jobs.map((job: Job) => <div className={`history-card ${job.id === shown?.id ? 'selected' : ''}`} key={job.id}><div><strong>{job.snapshot.name}</strong><span className={`job-status ${job.status}`}>{{queued: '排队中', running: '生成中', succeeded: '已生成', failed: '生成失败'}[job.status]}</span></div><small>{stamp(job.created_at)} · {job.id.slice(0, 6)}</small><p>{job.snapshot.spec.spoke_count} 辐 · 外径 {job.snapshot.spec.outer_diameter_mm} mm</p>{job.error && <p className="job-error">{job.error}</p>}<div className="history-actions">{job.status === 'succeeded' && <button onClick={() => setSelectedJob(job.id)}>查看模型<ArrowRight size={13}/></button>}<button disabled={busy} onClick={() => { setSpec(job.snapshot.spec); setSources(job.snapshot.sources); setDirty(true); setTab('parameters'); setNotice('历史参数已载入，保存或生成后形成新版本。'); }}>载入参数</button></div></div>)}</>}
-          {tab === 'checks' && <><div className="tab-intro"><h2>几何检查</h2><p>检查对应当前显示的模型版本。</p></div>{shown?.report ? <><div className="check-status"><CheckCircle2 size={28}/><strong>几何检查通过</strong><span>{shown.id.slice(0, 6)} · {stamp(shown.finished_at || shown.created_at)}</span></div><div className="checks-list">{Object.entries(shown.report.checks).map(([key, valid]) => <div key={key}>{valid ? <Check size={16}/> : <X size={16}/>}<span>{checkLabels[key] || key}</span></div>)}</div><a className="report-link" href={`/api/builds/${shown.id}/report`} download><ArrowDownToLine size={16}/>下载检查报告</a><div className="pending-checks"><h3>待工程确认</h3>{shown.report.limitations.map((item) => <p key={item}><CircleDashed size={14}/>{item}</p>)}</div></> : <div className="tab-empty"><CheckCircle2 size={30}/><p>生成模型后自动检查<br/>实体及 STEP 导出结果</p></div>}</>}
+          {tab === 'parameters' && <><div className="template-heading"><div><span className="section-eyebrow">TEMPLATE 02</span><h2>锻造单片</h2></div><span className="template-symbol"><Hexagon size={24}/></span></div><label className="project-name-label" htmlFor="project-name">项目名称</label><input className="project-name" id="project-name" maxLength={80} value={name} disabled={busy} onChange={(event) => { setName(event.target.value); setDirty(true); }}/><p className="dimension-note">轮辋按“直径 × 宽度 J”标注，其余尺寸单位为毫米；ET 为安装面到轮辋中面的距离，外侧为正。</p>{spec && sources && groups.map((group) => <fieldset key={group.title} disabled={busy}><legend>{group.title}</legend>{group.fields.map((field) => <NumberField key={field.key} field={field} value={spec[field.key]} source={sources[field.key]} onChange={(value) => change(field.key, value)} onSource={(kind) => { setSources({ ...sources, [field.key]: { kind, note: `${sourceLabels[kind]}，尚未作工程审核` } }); setDirty(true); }} disabled={busy}/>)}</fieldset>)}</>}
+          {tab === 'history' && <><div className="tab-intro"><h2>模型版本</h2><p>每次生成都保留独立的参数与文件。</p></div>{!project?.jobs.length && <div className="tab-empty"><Clock3 size={30}/><p>生成第一版模型后<br/>在这里查看历史记录</p></div>}{project?.jobs.map((job: Job) => <div className={`history-card ${job.id === shown?.id ? 'selected' : ''}`} key={job.id}><div><strong>{job.snapshot.name}</strong><span className={`job-status ${job.status}`}>{{queued: '排队中', running: '生成中', succeeded: '已生成', failed: '生成失败'}[job.status]}</span></div><small>{stamp(job.created_at)} · {job.id.slice(0, 6)}</small><p>{specSummary(job.snapshot)}</p>{job.error && <p className="job-error">{job.error}</p>}<div className="history-actions">{job.status === 'succeeded' && <button onClick={() => setSelectedJob(job.id)}>查看模型<ArrowRight size={13}/></button>}<button disabled={busy || job.snapshot.template_version !== TEMPLATE_VERSION} title={job.snapshot.template_version !== TEMPLATE_VERSION ? '旧模板参数无法载入当前模板' : undefined} onClick={() => { setSpec(job.snapshot.spec as Spec); setSources(job.snapshot.sources); setDirty(true); setTab('parameters'); setNotice('历史参数已载入，保存或生成后形成新版本。'); }}>载入参数</button></div></div>)}</>}
+          {tab === 'checks' && <><div className="tab-intro"><h2>几何检查</h2><p>检查对应当前显示的模型版本。</p></div>{shown?.report ? <><div className="check-status"><CheckCircle2 size={28}/><strong>几何检查通过</strong><span>{shown.id.slice(0, 6)} · {stamp(shown.finished_at || shown.created_at)}</span></div><div className="checks-list">{Object.entries(shown.report.checks).map(([key, valid]) => <div key={key}>{valid ? <Check size={16}/> : <X size={16}/>}<span>{checkLabels[key] || key}</span></div>)}</div>{shown.report.derived && <div className="checks-list">{Object.entries(derivedLabels).filter(([key]) => shown.report?.derived?.[key] !== undefined).map(([key, label]) => <div key={key}><Info size={16}/><span>{label} {shown.report!.derived![key]} mm</span></div>)}{shown.report.junction_fillet_applied_mm !== undefined && <div>{shown.report.junction_fillet_applied_mm === shown.report.junction_fillet_requested_mm ? <Check size={16}/> : <CircleDashed size={16}/>}<span>连接圆角 {shown.report.junction_fillet_applied_mm} mm（请求 {shown.report.junction_fillet_requested_mm} mm）</span></div>}</div>}<a className="report-link" href={`/api/builds/${shown.id}/report`} download><ArrowDownToLine size={16}/>下载检查报告</a><div className="pending-checks"><h3>待工程确认</h3>{shown.report.limitations.map((item) => <p key={item}><CircleDashed size={14}/>{item}</p>)}</div></> : <div className="tab-empty"><CheckCircle2 size={30}/><p>生成模型后自动检查<br/>实体及 STEP 导出结果</p></div>}</>}
         </div>
         <div className="build-footer"><button className="build-button" disabled={busy || !!active || !project} onClick={() => void build()}>{active ? <span className="spinner"/> : <Sparkles size={18}/>}<span>{active ? '正在生成模型…' : shown ? '生成新版本' : '生成三维模型'}</span>{!active && <ArrowRight size={17}/>}</button><p>生成前保存参数 · 旧版本始终保留</p></div>
       </aside>
