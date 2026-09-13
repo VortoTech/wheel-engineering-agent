@@ -337,3 +337,7 @@ legend{font-size:14px;padding:0 10px 0 0;color:#cbd4df;letter-spacing:.03em}
 .photo-point-row{display:flex;align-items:center;gap:10px}.photo-point-row input{width:75px}
 .photo-root-editor button{margin:6px 8px 0 0;padding:7px 10px;cursor:pointer}
 .photo-projection{position:relative}.photo-projection [role=status]{position:absolute;top:10px;left:12px;color:white;background:#18212bd9;padding:5px}
+
+.photo-skeleton {margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:8px;}
+.photo-skeleton table {width:100%;font-size:12px;border-collapse:collapse;}
+.photo-skeleton th,.photo-skeleton td {text-align:left;padding:8px;border-bottom:1px solid var(--line);}

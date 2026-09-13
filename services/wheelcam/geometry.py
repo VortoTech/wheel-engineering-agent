@@ -1,4 +1,4 @@
-"""Deterministic concept geometry for template forged-monoblock-v7.
+"""Deterministic concept geometry for template forged-monoblock-v8.
 
 No image inference or manufacturing certification. All dimensions come from template.layout().
 """
@@ -13,6 +13,7 @@ import cadquery as cq
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCP.BRepGProp import BRepGProp
+from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.GProp import GProp_GProps
 from OCP.TopTools import TopTools_ListOfShape
 from OCP.TopoDS import TopoDS
@@ -47,7 +48,23 @@ def _section_wire(frame) -> cq.Wire:
 
 
 def _loft(frames) -> cq.Solid:
-    return cq.Solid.makeLoft([_section_wire(frame) for frame in frames], ruled=False)
+    join = next((i for i,f in enumerate(frames) if f.get("window_join")), None)
+    if join is not None:
+        # Keep dense root sampling from distorting the long, thin outer arms.
+        root = [{k:v for k,v in f.items() if k != "window_join"} for f in frames[:join+1]]
+        tail = [{k:v for k,v in f.items() if k != "window_join"} for f in frames[join:]]
+        return _loft(root).fuse(_loft(tail)).clean()
+    wires = [_section_wire(frame) for frame in frames]
+    if len(wires) > 5:
+        builder = BRepOffsetAPI_ThruSections(True, False)
+        builder.SetMaxDegree(3)
+        for wire in wires:
+            builder.AddWire(wire.wrapped)
+        builder.Build()
+        if not builder.IsDone():
+            raise ValueError("骨架圆弧截面未能形成实体。")
+        return cq.Solid(builder.Shape())
+    return cq.Solid.makeLoft(wires, ruled=False)
 
 
 def _fuse_with_fillet(parts, radius, split_radius):
@@ -152,7 +169,10 @@ def _build_wheel(spec: WheelSpec):
         spoke = spoke.cut(_loft(lay["pockets"]))
     spokes = [spoke.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), spec.spoke_phase_deg + index * 360 / spec.spoke_count)
               for index in range(spec.spoke_count)]
-    body, applied = _fuse_with_fillet([rim, hub, *spokes], spec.junction_fillet_mm,
+    # Shared webs intentionally create spoke/spoke intersections. Applying the old
+    # bulk junction fillet to these edges is both incorrect and very expensive.
+    # Their rounded planform is already in the loft; report the 3D fillet as absent.
+    body, applied = _fuse_with_fillet([rim, hub, *spokes], 0 if spec.paired_window_root_mm else spec.junction_fillet_mm,
                                       (lay["hub_radius"] + lay["well_radius"]) / 2)
     result = body.cut(*_cutters(spec, lay)).clean()
     if spec.valve_diameter_mm:
@@ -240,6 +260,12 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
         limitations.insert(0, f"轮辐连接圆角请求 {spec.junction_fillet_mm:g} mm，实际生成：中心盘侧 "
                               f"{build_info['hub_fillet_applied_mm']:g} mm，轮辋侧 {build_info['rim_fillet_applied_mm']:g} mm")
     report.update(build_info)
+    if spec.spoke_style == "paired":
+        lay = layout(spec)
+        report["skeleton"] = {"window":lay["interspoke_window"], "stations":lay["skeleton_stations"],
+            "note":"当前版本的截面控制宽度，未扣除棱边圆角；不是实体最小厚度。前后厚度沿用假设。"}
+    if spec.paired_window_root_mm:
+        limitations.insert(0, "大窗口圆弧通过密集截面形成相邻组连接，非恒定半径倒圆；顶面与背面连续性、最小壁厚及结构强度仍待工程验证")
     if spec.spoke_style == "paired":
         limitations.insert(0, "双辐为照片人工拟合的单片近似；分体连接、中心盖和周圈螺栓仅外观展示，不参与工程检查")
     if spec.lip_extension_mm:

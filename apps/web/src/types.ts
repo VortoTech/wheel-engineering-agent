@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v7';
+export const TEMPLATE_VERSION = 'forged-monoblock-v8';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -8,6 +8,7 @@ export type Spec = {
   pocket_depth_mm: number; junction_fillet_mm: number;
   valve_diameter_mm: number; valve_angle_deg: number; valve_tilt_deg: number;
   spoke_style: 'single' | 'paired'; paired_gap_mm: number; paired_tip_width_mm: number;
+  paired_window_root_mm: number; paired_window_blend_mm: number;
   paired_root_round_mm: number; paired_gap_flare_mm: number;
   paired_split_start_mm: number; spoke_phase_deg: number;
   paired_shoulder_mm: number; paired_mid_mm: number; paired_tip_inset_mm: number;
@@ -34,6 +35,7 @@ export type Report = {
   artifacts: Record<string, { sha256: string; bytes: number }>;
   derived?: Record<string, number>;
   junction_fillet_requested_mm?: number; junction_fillet_applied_mm?: number;
+  skeleton?: {window:unknown; stations:{fraction:number;radius_mm:number;blade_width_mm:number;depth_mm:number;back_blade_width_mm:number}[];note:string};
   preparation?: PreparationReport;
   handoff?: { status: string; feature_count: number; operation_count: number };
   presentation?: { status: 'display_only'; decorative_fastener_count: number; note: string } | null;

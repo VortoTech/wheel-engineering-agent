@@ -4,6 +4,9 @@ A single image does not calibrate a unique camera. Alternate spoke groups are
 held out, and a pose is adopted only when those groups improve too.
 """
 import math
+import json
+from functools import lru_cache
+from types import SimpleNamespace
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -26,11 +29,17 @@ def project(points, pose):
                      pose['cy']-pose['scale_px']*q[..., 1]/denominator], axis=-1)
 
 
+@lru_cache(maxsize=128)
+def _front_bounds(spec_json):
+    lay = layout(SimpleNamespace(**json.loads(spec_json)))
+    first,last = lay['sections'][0],lay['sections'][-1]
+    return first['r'],last['r'],first['front'],last['front']
+
+
 def front_z(spec, radial):
-    lay = layout(spec)
-    first, last = lay['sections'][0], lay['sections'][-1]
-    t = np.clip((np.asarray(radial)-first['r'])/(last['r']-first['r']), 0, 1)
-    return first['front']+(last['front']-first['front'])*((1-spec.face_curve)*t+spec.face_curve*t*t)
+    r0,r1,z0,z1 = _front_bounds(spec.model_dump_json())
+    t = np.clip((np.asarray(radial)-r0)/(r1-r0), 0, 1)
+    return z0+(z1-z0)*((1-spec.face_curve)*t+spec.face_curve*t*t)
 
 
 def unproject_front(points, pose, spec, theta=None):

@@ -113,6 +113,13 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
           {rootDirty && <p className="photo-help">点位尚未拟合；重新拟合通过后再应用到草稿。</p>}
         </>}
       </div>}
+      {shown?.report?.skeleton && <div className="photo-skeleton">
+        <strong>当前 CAD 的骨架粗细 · {shown.id.slice(0,6)}</strong>
+        <p className="photo-help">{shown.report.skeleton.window ? '大窗口弧形连接已进入实体。底部外移控制连接区大小，过渡终点控制根部向细辐收敛的长度。' : '大窗口弧形连接未启用，可在右侧双辐造型中调整。'}</p>
+        <table><thead><tr><th>位置</th><th>单臂正面宽度</th><th>前后厚度</th></tr></thead><tbody>
+          {shown.report.skeleton.stations.map((s,i)=><tr key={s.fraction}><td>{['辐根过渡','前段','中段','后段','末端'][i]}</td><td>{s.blade_width_mm.toFixed(1)} mm</td><td>{s.depth_mm.toFixed(1)} mm</td></tr>)}
+        </tbody></table><p className="photo-help">{shown.report.skeleton.note}</p>
+      </div>}
       <div className="photo-candidates">
         <strong>{a.status === 'candidates' ? '可核对的双辐候选' : '检测存在歧义，请人工核对'}</strong>
         <p>外圈边缘覆盖 {(a.edge_coverage*100).toFixed(0)}% · 拟合中位残差 {a.edge_residual_px} px（检测图分辨率，非实物精度）</p>
@@ -120,7 +127,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
           <strong>{applied ? '辐条截面已应用 · 以当前 CAD 版本为准' : '辐条截面已拟合 · 待应用生成'}</strong>
           <p>截面宽度偏差 RMS：{(fit.before_rms_ratio!*radius).toFixed(1)} → {(fit.after_rms_ratio!*radius).toFixed(1)} px。各截面支持组数：{fit.stations.map(s => s.support_groups).join(' / ')}。</p>
           <p className="photo-help">按当前外圈对齐计算净间隙与整组宽度；这是候选截面的拟合偏差，不是整轮相似度或实物精度。金色线仍以生成后的 CAD 为准。</p>
-        </div> : <p className="photo-help">{fit?.status === 'superseded_by_manual_points' ? '分叉已按人工点位修正，旧截面拟合指标不再适用。' : fit?.status === 'no_improvement' ? '现有截面已接近本次候选，本次不重复调整轮廓。' : '轮廓证据不足或超出 CAD 约束；本次没有自动修改辐根和中段宽度。'}</p>}
+        </div> : <p className="photo-help">{fit?.status === 'manual_window_active' ? '大窗口曲线已启用，保留已确认的截面宽度；当前识图不重新求解整组宽度。' : fit?.status === 'superseded_by_manual_points' ? '分叉已按人工点位修正，旧截面拟合指标不再适用。' : fit?.status === 'no_improvement' ? '现有截面已接近本次候选，本次不重复调整轮廓。' : '轮廓证据不足或超出 CAD 约束；本次没有自动修改辐根和中段宽度。'}</p>}
         <div className="photo-values">{Object.entries(a.suggested_parameters).map(([key,value]) => <span key={key}>{names[key] || key} <b>{value}</b></span>)}</div>
         <p>{a.scale.basis}。目标模型外径 {a.scale.target_outer_mm.toFixed(1)} mm。</p>
         {a.scale.reference_outer_mm && a.scale.reference_gap_mm !== null && <p>用户填写的参考外径 {a.scale.reference_outer_mm} mm → 外端间隙候选约 {a.scale.reference_gap_mm?.toFixed(1)} mm，尚未核验。</p>}

@@ -151,6 +151,7 @@ def feature_manifest(spec: WheelSpec, snapshot, step_sha256):
         add(f"window-{index + 1:02}", "interspoke_region", f"轮辐窗口 {index + 1}", {
             "between_features": [f"spoke-{index + 1:02}", f"spoke-{(index + 1) % spec.spoke_count + 1:02}"],
             "inner_radius_mm": lay["hub_radius"], "outer_radius_mm": lay["well_radius"],
+            "root_curve": lay["interspoke_window"],
             "boundary_note": "以相邻轮辐实体、中心盘和轮辋为边界；窗口不是独立孔或固定角度扇区"}, "正面/分度待确认", "窗口开粗 / 侧壁精铣")
         if lay["pockets"]:
             add(f"pocket-{index + 1:02}", "back_pocket", f"背腔 {index + 1}", {

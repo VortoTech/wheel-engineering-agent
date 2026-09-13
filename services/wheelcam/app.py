@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.6.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.7.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 

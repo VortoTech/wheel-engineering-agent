@@ -76,6 +76,9 @@ def fit_sections(traces, spec, count):
     accuracy, camera calibration, or manufacturing tolerances.
     """
     outer_r = (spec.rim_diameter_in*25.4+35)/2
+    if spec.paired_window_root_mm:
+        return {"status":"manual_window_active", "stations":[], "parameters":{},
+                "note":"大窗口曲线已启用，保留当前截面控制；原五截面宽度求解不适用于此骨架。"}
     sections = layout(spec)['sections']
     requested = [sections[1]['r']/outer_r, sections[2]['r']/outer_r, .83]
     stations = []
