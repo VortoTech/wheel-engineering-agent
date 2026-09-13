@@ -43,10 +43,16 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_images_project ON images(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at);
+                CREATE TABLE IF NOT EXISTS image_analyses (
+                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+                    image_id TEXT NOT NULL REFERENCES images(id), result TEXT NOT NULL, created_at TEXT NOT NULL
+                );
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)")}
             if "preparation" not in columns:
                 db.execute("ALTER TABLE projects ADD COLUMN preparation TEXT NOT NULL DEFAULT '{}'")
+            if "applied_analysis_id" not in columns:
+                db.execute("ALTER TABLE projects ADD COLUMN applied_analysis_id TEXT")
             # Drafts saved under an older template are upgraded once; job snapshots stay untouched.
             for row in db.execute("SELECT id, spec, sources FROM projects").fetchall():
                 migrated = migrate_spec(json.loads(row["spec"]), json.loads(row["sources"]))
@@ -93,6 +99,9 @@ class Store:
                 "SELECT * FROM images WHERE project_id=? ORDER BY created_at", (project_id,))]
             result["jobs"] = [self.job_dict(job) for job in db.execute(
                 "SELECT * FROM jobs WHERE project_id=? ORDER BY created_at DESC", (project_id,))]
+            analysis = db.execute("SELECT result FROM image_analyses WHERE project_id=? AND image_id=? ORDER BY created_at DESC LIMIT 1",
+                                  (project_id, row["primary_image_id"])).fetchone()
+            result["photo_analysis"] = json.loads(analysis[0]) if analysis else None
             return result
 
     @staticmethod
@@ -125,6 +134,12 @@ class Store:
                 "image_usage": "manual_reference_only",
             }
             job_id = uid()
+            if row["applied_analysis_id"]:
+                analysis = db.execute("SELECT result FROM image_analyses WHERE id=? AND project_id=?",
+                                      (row["applied_analysis_id"], project_id)).fetchone()
+                if analysis:
+                    snapshot["photo_analysis"] = json.loads(analysis[0])
+                    snapshot["image_usage"] = "local_candidates_reviewed_before_apply"
             snapshot["model_id"] = job_id
             db.execute("INSERT INTO jobs(id,project_id,status,snapshot,created_at) VALUES(?,?,?,?,?)",
                        (job_id, project_id, "queued", json.dumps(snapshot, ensure_ascii=False), now()))

@@ -1,4 +1,4 @@
-"""Pure-math layout of template forged-monoblock-v4.
+"""Pure-math layout of template forged-monoblock-v5.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
@@ -6,7 +6,7 @@ Rim profile points are (r, z); spoke section points are (u, z), u along the sect
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v4"
+TEMPLATE_VERSION = "forged-monoblock-v5"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -115,7 +115,11 @@ def layout(spec):
     crown = spec.spoke_crown_mm
     paired = spec.spoke_style == "paired"
     tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
+    if not paired and (spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
+        raise ValueError("轮廓展开和加宽轮唇目前仅用于双辐模板。")
     if paired:
+        if spec.paired_tip_inset_mm and spec.lip_extension_mm < spec.paired_tip_inset_mm + 10:
+            raise ValueError("轮辐末端内收需要足够宽的轮唇承接，请增加轮唇延伸宽度。")
         if spec.pocket_depth_mm:
             raise ValueError("双辐模板暂不支持背腔，请将背腔深度设为 0。")
         if spec.sweep_deg:
@@ -139,7 +143,7 @@ def layout(spec):
 
     # Spokes: sections on vertical planes along a swept, dished centre path.
     r_root = hub_r - 10
-    r_tip = R - 1.5 - tip_width ** 2 / (8 * R)
+    r_tip = R - 1.5 - tip_width ** 2 / (8 * R) - (spec.paired_tip_inset_mm if paired else 0)
     if r_tip - r_root < 80:
         raise ValueError("中心盘相对轮辋过大，轮辐长度不足。")
     if spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
@@ -157,6 +161,14 @@ def layout(spec):
         apex = apex_root + (apex_tip - apex_root) * ((1 - k) * t + k * t * t)
         depth = spec.spoke_thickness_mm * (1 - (1 - TIP_DEPTH_RATIO) * t)
         width = spec.spoke_width_hub_mm + (tip_width - spec.spoke_width_hub_mm) * t
+        if paired:
+            # Extra width at the quarter and middle loft sections controls the visible shoulders.
+            knots = [(0, 0), (0.25, spec.paired_shoulder_mm), (0.5, spec.paired_mid_mm), (0.75, 0), (1, 0)]
+            for (ta, wa), (tb, wb) in zip(knots, knots[1:]):
+                if ta <= t <= tb:
+                    u = (t - ta) / (tb - ta)
+                    width += wa + (wb - wa) * u * u * (3 - 2 * u)
+                    break
         front = apex - crown
         back = front - depth
         back_half = width / 2 - depth * math.tan(SPOKE_DRAFT)
@@ -170,7 +182,7 @@ def layout(spec):
     well_r = R - WELL_DEPTH
     clearance_r = well_r - wall - junction - 2
     samples = [frame(i / 100) for i in range(101)]
-    lowest_back = min(f["back"] for f in samples if f["r"] >= clearance_r)
+    lowest_back = min(f["back"] for f in samples if f["r"] >= min(clearance_r, r_tip - 1))
     ledge_start = half - BEAD_SEAT_WIDTH - HUMP_LENGTH
     shoulder = min(ledge_start, lowest_back - junction - 6)
     flank = (ledge_r - well_r) * math.tan(WELL_FLANK)
@@ -245,14 +257,25 @@ def layout(spec):
         end = r_tip + 15
         if start + radius + 20 >= r_tip:
             raise ValueError("双辐分叉位置太靠外，支臂长度不足。")
-        for t in (0.25, 0.5, 0.75, 1):
+        for t in (i / 100 for i in range(101)):
             f = frame(t)
+            if f["width"] > 1.8 * f["r"] * math.sin(math.pi / spec.spoke_count):
+                raise ValueError("双辐展开过宽，相邻组之间的窗口不足，请减小展开量。")
             if f["r"] >= start + radius and f["back_half"] - radius < 2.5:
                 raise ValueError("双辐窗口挤占支臂，请增大根部宽度或减小双辐间隙。")
         paired_slot = {"start_r_mm": start, "radius_mm": radius, "end_r_mm": end,
                        "gap_mm": spec.paired_gap_mm}
 
+    lip = None
+    if spec.lip_extension_mm:
+        top = half + flange - 2
+        outer, inner = R + FLANGE_HEIGHT - 2, R - spec.lip_extension_mm
+        lip = {"polygon": [(outer, top), (inner, top - spec.lip_drop_mm),
+                           (inner, top - spec.lip_drop_mm - 6), (outer, top - 6)],
+               "radii": [1.2, 1.2, 1.2, 1.2], "inner_radius_mm": inner,
+               "radial_width_mm": outer - inner, "drop_mm": spec.lip_drop_mm}
     return {
+        "front_lip": lip,
         "paired_slot": paired_slot,
         "rim_polygon": rim_polygon, "sections": sections, "pockets": pockets,
         "hub_front_z": hub_front, "hub_radius": hub_r,

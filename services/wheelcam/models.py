@@ -30,6 +30,11 @@ class WheelSpec(BaseModel):
     paired_gap_mm: float = Field(34, ge=16, le=50)
     paired_tip_width_mm: float = Field(6, ge=4, le=14)
     paired_split_start_mm: float = Field(8, ge=3, le=25)
+    paired_shoulder_mm: float = Field(0, ge=0, le=24)
+    paired_mid_mm: float = Field(0, ge=-6, le=16)
+    paired_tip_inset_mm: float = Field(0, ge=0, le=22)
+    lip_extension_mm: float = Field(0, ge=0, le=48)
+    lip_drop_mm: float = Field(22, ge=10, le=32)
     spoke_phase_deg: float = Field(0, ge=0, lt=360)
     spoke_width_hub_mm: float = Field(38, ge=22, le=60)
     spoke_width_rim_mm: float = Field(30, ge=14, le=50)
@@ -151,7 +156,7 @@ def migrate_spec(spec: dict, sources: dict):
 
 class ProjectCreate(BaseModel):
     name: str = Field("轮毂概念 01", min_length=1, max_length=80)
-    preset: Literal["single", "photo-paired-8"] = "single"
+    preset: Literal["single", "photo-paired-8", "photo-paired-refined"] = "single"
 
 
 class DraftUpdate(BaseModel):
@@ -171,3 +176,8 @@ class DraftUpdate(BaseModel):
 
 class BuildRequest(BaseModel):
     expected_revision: int = Field(ge=1)
+
+
+class AnalysisRequest(BuildRequest):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    reference_outer_mm: float | None = Field(None, ge=100, le=1200)

@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v4';
+export const TEMPLATE_VERSION = 'forged-monoblock-v5';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -9,6 +9,8 @@ export type Spec = {
   valve_diameter_mm: number; valve_angle_deg: number; valve_tilt_deg: number;
   spoke_style: 'single' | 'paired'; paired_gap_mm: number; paired_tip_width_mm: number;
   paired_split_start_mm: number; spoke_phase_deg: number;
+  paired_shoulder_mm: number; paired_mid_mm: number; paired_tip_inset_mm: number;
+  lip_extension_mm: number; lip_drop_mm: number;
 };
 export type NumericSpecKey = Exclude<keyof Spec, 'spoke_style'>;
 // Snapshots from older templates keep their own spec shape.
@@ -44,6 +46,15 @@ export type Project = {
   id: string; name: string; spec: Spec; sources: Sources; revision: number;
   primary_image_id: string | null; images: Reference[]; jobs: Job[];
   preparation: Preparation;
+  photo_analysis?: PhotoAnalysis | null; applied_analysis_id?: string | null;
+};
+export type PhotoAnalysis = {
+  id: string; image_id: string; base_revision: number; status: string; can_apply: boolean;
+  image_size: [number, number]; ellipse: {cx:number; cy:number; rx:number; ry:number};
+  edge_coverage: number; edge_residual_px: number; outer_points: [number,number][];
+  stations: {points:[number,number][]}[]; suggested_parameters: Record<string,number>;
+  scale: {reference_outer_mm:number|null; target_outer_mm:number; reference_gap_mm:number|null; basis:string};
+  warnings: string[];
 };
 export type Summary = Pick<Project, 'id' | 'name' | 'revision'>;
 

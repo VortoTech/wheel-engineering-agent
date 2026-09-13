@@ -41,7 +41,7 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
     controls.minDistance = 0.3;
     controls.maxDistance = 6000;
     scene.add(new THREE.HemisphereLight(0xc7defa, 0x404a5e, 3));
-    const key = new THREE.DirectionalLight(0xfff3dc, 4.2);
+    const key = new THREE.DirectionalLight(0xf5f6ff, 4.2);
     key.position.set(2, 4, 5); scene.add(key);
     const fill = new THREE.DirectionalLight(0xa6cfff, 3);
     fill.position.set(-3, -1, 2); scene.add(fill);
@@ -87,8 +87,9 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
               const material = source instanceof THREE.MeshStandardMaterial ? source.clone()
                 : new THREE.MeshStandardMaterial({ color: 0x9ca9bb });
               const dark = Math.max(material.color.r, material.color.g, material.color.b) < 0.2;
-              material.metalness = dark ? 0.15 : 0.65;
-              material.roughness = dark ? 0.48 : 0.3;
+              if (dark) material.color.multiplyScalar(1.5);
+              material.metalness = dark ? 0.08 : 0.65;
+              material.roughness = dark ? 0.6 : 0.3;
               material.side = THREE.DoubleSide;
               materials.push(material);
               return material;

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .models import AnalysisRequest, BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
 from .storage import Store, now, uid
 from .worker import Worker
 
@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.4.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
@@ -50,7 +50,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     @app.get("/api/health")
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "cam": False,
+                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "cam": False,
                                  "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")
@@ -92,6 +92,47 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"id": job_id, "status": "queued"}
+
+    @app.post("/api/projects/{project_id}/images/{image_id}/analyze")
+    def analyze(project_id: str, image_id: str, body: AnalysisRequest):
+        from .vision import detect
+        project = store.project(project_id)
+        if project["revision"] != body.expected_revision:
+            raise HTTPException(409, "草稿已变更，请重新载入后识图。")
+        ref = next((i for i in project["images"] if i["id"] == image_id), None)
+        if not ref:
+            raise HTTPException(404, "参考图不属于当前项目。")
+        try:
+            result = detect(store.root / "images" / f"{image_id}.jpg", WheelSpec(**project["spec"]), body.reference_outer_mm)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        result.update(id=uid(), image_id=image_id, image_sha256=ref["sha256"],
+                      base_revision=project["revision"], base_spec=project["spec"], created_at=now())
+        with store.connection() as db:
+            db.execute("INSERT INTO image_analyses VALUES(?,?,?,?,?)", (result["id"], project_id, image_id,
+                       json.dumps(result, ensure_ascii=False), result["created_at"]))
+        return result
+
+    @app.post("/api/projects/{project_id}/analyses/{analysis_id}/apply")
+    def apply_analysis(project_id: str, analysis_id: str, body: BuildRequest):
+        with store.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+            saved = db.execute("SELECT result,image_id FROM image_analyses WHERE id=? AND project_id=?", (analysis_id, project_id)).fetchone()
+            if row is None or saved is None:
+                raise HTTPException(404, "项目或识图记录不存在。")
+            result = json.loads(saved["result"])
+            if row["revision"] != body.expected_revision or result["base_revision"] != row["revision"]:
+                raise HTTPException(409, "识图后草稿已改变，请基于最新参数重新识图。")
+            if saved["image_id"] != row["primary_image_id"] or not result["can_apply"]:
+                raise HTTPException(422, "候选尚不适用于当前主参考图或模板，请人工核对。")
+            spec = WheelSpec(**{**json.loads(row["spec"]), **result["suggested_parameters"]})
+            sources = json.loads(row["sources"])
+            for key in result["suggested_parameters"]:
+                sources[key] = {"kind": "manual", "note": f"人工确认本地识图候选 {analysis_id[:8]}；图 {result['image_sha256'][:12]}；比例拟合，非实测"}
+            db.execute("UPDATE projects SET spec=?,sources=?,applied_analysis_id=?,revision=revision+1,updated_at=? WHERE id=?",
+                       (spec.model_dump_json(), json.dumps(sources, ensure_ascii=False), analysis_id, now(), project_id))
+        return store.project(project_id)
 
     @app.post("/api/projects/{project_id}/images", status_code=201)
     async def upload(project_id: str, file: UploadFile = File(...)):
@@ -144,7 +185,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     def artifact(job_id: str, artifact: str):
         names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "report": "report.json",
                  "features": "features.json", "operations": "operations.csv", "handoff": "handoff.zip",
-                 "stock": "stock.step", "caliper": "caliper-envelope.step", "presentation": "presentation.glb"}
+                 "stock": "stock.step", "caliper": "caliper-envelope.step", "presentation": "presentation.glb", "front": "front.svg"}
         if artifact not in names:
             raise HTTPException(404, "文件不存在。")
         with store.connection() as db:
@@ -155,7 +196,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if not path.exists():
             raise HTTPException(404, "导出文件缺失，请重新生成。")
         return FileResponse(path, filename=f"wheelcam-{job_id[:8]}-{names[artifact]}",
-                            media_type="model/gltf-binary" if artifact in {"glb", "presentation"} else "application/octet-stream",
+                            media_type="model/gltf-binary" if artifact in {"glb", "presentation"} else "image/svg+xml" if artifact == "front" else "application/octet-stream",
                             headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     frontend = ROOT / "apps" / "web" / "dist"

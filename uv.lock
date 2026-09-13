@@ -1165,13 +1165,15 @@ wheels = [
 
 [[package]]
 name = "wheelcam"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "cadquery" },
     { name = "fastapi" },
+    { name = "numpy" },
     { name = "pillow" },
     { name = "python-multipart" },
+    { name = "scipy" },
     { name = "uvicorn" },
 ]
 
@@ -1186,9 +1188,11 @@ requires-dist = [
     { name = "cadquery", specifier = ">=2.6,<3" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "pillow", specifier = ">=11,<13" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
     { name = "python-multipart", specifier = ">=0.0.20" },
+    { name = "scipy", specifier = ">=1.14,<2" },
     { name = "uvicorn", specifier = ">=0.34,<1" },
 ]
 provides-extras = ["test"]

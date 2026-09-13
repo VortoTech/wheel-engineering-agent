@@ -99,3 +99,22 @@ def test_paired_feature_orientation_tracks_phase():
     manifest = feature_manifest(spec, {}, 'hash')
     slots = [f for f in manifest['features'] if f['kind'] == 'paired_through_slot']
     assert [f['parameters']['rotation_deg'] for f in slots] == [12 + i * 45 for i in range(8)]
+
+
+def test_photo_refinement_adds_real_lip_and_preserves_legacy_defaults():
+    original, _ = preset_spec('photo-paired-8')
+    refined, _ = preset_spec('photo-paired-refined')
+    shape, _ = build_wheel(refined)
+    solid = shape.val().Solids()[0]
+    assert all(inspect_shape(shape.val(), refined)['checks'].values())
+    r, t = refined.rim_diameter_in*25.4/2-30, math.pi/8
+    assert solid.isInside((r*math.cos(t), r*math.sin(t), 96))
+    assert not solid.isInside((r*math.cos(t), r*math.sin(t), 104))
+    assert layout(original)['front_lip'] is None
+    assert layout(refined)['sections'][1]['width'] > layout(original)['sections'][1]['width']+15
+    old = original.model_dump()
+    for key in ['paired_shoulder_mm', 'paired_mid_mm', 'paired_tip_inset_mm', 'lip_extension_mm', 'lip_drop_mm']:
+        old.pop(key)
+    migrated, _ = migrate_spec(old, {})
+    assert all(migrated[k] == v for k, v in old.items())
+    assert migrated['lip_extension_mm'] == 0

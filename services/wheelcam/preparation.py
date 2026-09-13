@@ -134,6 +134,8 @@ def feature_manifest(spec: WheelSpec, snapshot, step_sha256):
             "axis": [0, 0, 1], "diameter_mm": spec.bolt_diameter_mm, "depth_mm": spec.hub_thickness_mm,
             "seat_included_angle_deg": 60, "seat_top_diameter_mm": lay["lug_cone_diameter"],
             "seat_top_z_mm": spec.offset_et_mm + LUG_SEAT_THICKNESS, "socket_diameter_mm": lay["lug_pocket_diameter"]}, "正面", "钻孔 / 锥面座 / 沉孔")
+    if lay["front_lip"]:
+        add("front-lip-01", "revolved_lip", "照片拟合加宽轮唇", lay["front_lip"], "正面", "轮唇曲面车削 / 精加工")
     for index in range(spec.spoke_count):
         angle = spec.spoke_phase_deg + index * 360 / spec.spoke_count
         descriptor = {"rotation_deg": angle, "rotation_axis": [0, 0, 1],

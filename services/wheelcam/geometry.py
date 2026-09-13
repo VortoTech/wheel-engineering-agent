@@ -1,4 +1,4 @@
-"""Deterministic concept geometry for template forged-monoblock-v4.
+"""Deterministic concept geometry for template forged-monoblock-v5.
 
 No image inference or manufacturing certification. All dimensions come from template.layout().
 """
@@ -112,6 +112,13 @@ def _build_wheel(spec: WheelSpec):
     points, radii = zip(*lay["rim_polygon"])
     rim_wire = _wire(points, radii, lambda p: (p[0], 0.0, p[1]))
     rim = cq.Solid.revolve(rim_wire, [], 360, cq.Vector(0, 0, 0), cq.Vector(0, 0, 1))
+    if lay["front_lip"]:
+        lip = lay["front_lip"]
+        wire = _wire(lip["polygon"], lip["radii"], lambda p: (p[0], 0.0, p[1]))
+        lip_shape = cq.Solid.revolve(wire, [], 360, cq.Vector(0, 0, 0), cq.Vector(0, 0, 1))
+        rim = rim.fuse(lip_shape).clean()
+        if not rim.isValid() or len(rim.Solids()) != 1:
+            raise ValueError("加宽轮唇未与轮辋形成有效连接。")
     hub = (cq.Workplane("XY", origin=(0, 0, spec.offset_et_mm))
            .circle(lay["hub_radius"]).extrude(spec.hub_thickness_mm)
            .edges(">Z").fillet(HUB_EDGE_FILLET).val())
@@ -202,6 +209,11 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     report["step_solid_count"] = reopened["solid_count"]
     from .appearance import export_previews
     report["presentation"] = export_previews(wheel, rim, spec, output)
+    if spec.spoke_style == "paired":
+        # No perspective: a transparent front projection aligned to the actual CAD bounding box.
+        cq.exporters.export(wheel, str(output / "front.svg"), opt={"width": 1000, "height": None,
+            "marginLeft": 0, "marginTop": 0, "projectionDir": (0, 0, 1), "showAxes": False,
+            "showHidden": False, "strokeColor": (255, 195, 80), "strokeWidth": 0.4})
     limitations = ["轮辋截面为近似 J 型轮缘、5° 胎圈座深槽轮辋，未逐项核对 ETRTO / TRA 标准",
                    "气门孔仅为通孔，气门嘴密封座、平衡配重面与中心盖安装结构尚未验证" if spec.valve_diameter_mm else "未启用气门孔；平衡配重面与中心盖安装结构尚未包含",
                    "公差、载荷及输入资料尚未作工程审核；包络检查和重量均依赖当前版本输入",
@@ -212,6 +224,8 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     report.update(build_info)
     if spec.spoke_style == "paired":
         limitations.insert(0, "双辐为照片人工拟合的单片近似；分体连接、中心盖和周圈螺栓仅外观展示，不参与工程检查")
+    if spec.lip_extension_mm:
+        limitations.insert(0, "加宽轮唇和展开轮辐来自单张照片比例拟合；轮唇背部截面与厚度为假设，非实物尺寸恢复")
     report["preparation"] = check_preparation(wheel.val(), spec, preparation, output)
     report["handoff"] = write_handoff_files(output, spec, snapshot)
     report["model_id"] = snapshot.get("model_id")
@@ -224,7 +238,7 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
         "artifacts": {name: {"sha256": hashlib.sha256((output / name).read_bytes()).hexdigest(),
                               "bytes": (output / name).stat().st_size}
                       for name in ["wheel.step", "wheel.glb", "recipe.json", "features.json", "operations.csv",
-                                   "stock.step", "caliper-envelope.step", "presentation.glb"] if (output / name).exists()},
+                                   "stock.step", "caliper-envelope.step", "presentation.glb", "front.svg"] if (output / name).exists()},
     })
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     with zipfile.ZipFile(output / "handoff.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:

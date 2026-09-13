@@ -7,7 +7,7 @@ from .template import layout
 
 
 def export_previews(wheel, rim, spec, output):
-    silver, black = cq.Color(0.65, 0.67, 0.70), cq.Color(0.045, 0.05, 0.06)
+    silver, black = cq.Color(0.65, 0.67, 0.70), cq.Color(0.07, 0.075, 0.085)
     if spec.spoke_style != 'paired':
         cq.Assembly(wheel, name='wheel-body', color=silver).export(str(output / 'wheel.glb'), tolerance=0.15, angularTolerance=0.1)
         return None
@@ -27,11 +27,29 @@ def export_previews(wheel, rim, spec, output):
     cap_radius = min(spec.center_bore_mm / 2 + 5, spec.bolt_circle_mm / 2 - lay['lug_pocket_diameter'] / 2 - 3)
     front = lay['hub_front_z']
     cap = cq.Workplane('XY', origin=(0, 0, front + 0.2)).circle(cap_radius).extrude(3).edges('>Z').fillet(0.8)
+    refined = bool(lay['front_lip'])
+    if refined:
+        cap = cq.Workplane('XY', origin=(0, 0, front + 0.2)).circle(spec.hub_diameter_mm / 2 - 4).extrude(1.8)
+        holes = [(spec.bolt_circle_mm / 2 * math.cos(2 * math.pi * i / spec.bolt_count),
+                  spec.bolt_circle_mm / 2 * math.sin(2 * math.pi * i / spec.bolt_count)) for i in range(spec.bolt_count)]
+        cap = cap.faces('>Z').workplane().pushPoints(holes).circle(lay['lug_pocket_diameter'] / 2 + 1.5).cutThruAll()
+        cap_radius = spec.center_bore_mm * 0.4
+        for i, (x, y) in enumerate(holes):
+            insert = (cq.Workplane('XY', origin=(x, y, front - 2)).circle(spec.bolt_diameter_mm / 2 + 3)
+                      .circle(spec.bolt_diameter_mm / 2).extrude(1))
+            assembly.add(insert, name=f'display-only-lug-insert-{i + 1}', color=silver)
     assembly.add(cap, name='display-only-center-cap', color=black)
     cap_trim = cq.Workplane('XY', origin=(0, 0, front + 3.2)).circle(cap_radius - 2).circle(cap_radius - 2.6).extrude(0.3)
     assembly.add(cap_trim, name='display-only-cap-trim', color=silver)
     radius = spec.rim_diameter_in * 25.4 / 2 - 24
-    z = lay['sections'][-1]['back'] - 8
+    if refined:
+        radius = lay['front_lip']['inner_radius_mm'] - 11
+    z = min(f['back'] for f in lay['sections'] if f['r'] >= radius - 12) - 8
+    if refined:
+        for offset, label in [(9, 'outer'), (-9, 'inner')]:
+            bead = (cq.Workplane('XY', origin=(0, 0, z)).circle(radius + offset + 1.5)
+                    .circle(radius + offset - 1.5).extrude(5))
+            assembly.add(bead, name=f'display-only-{label}-ring-bead', color=black)
     ring = cq.Workplane('XY', origin=(0, 0, z)).circle(radius + 7).circle(radius - 7).extrude(5)
     assembly.add(ring, name='display-only-fastener-ring', color=black)
     head = (cq.Workplane('XY').circle(3.2).extrude(2.5).edges('>Z').fillet(0.5)
@@ -42,6 +60,7 @@ def export_previews(wheel, rim, spec, output):
                      loc=cq.Location(cq.Vector(radius * math.cos(angle), radius * math.sin(angle), z + 5)))
     assembly.export(str(output / 'presentation.glb'), tolerance=0.15, angularTolerance=0.1)
     return {'status': 'display_only', 'decorative_fastener_count': 40,
-            'attachments': ['center_cap', 'cap_trim', 'fastener_ring', 'rim_fasteners'],
+            'attachments': ['center_cap', 'cap_trim', 'fastener_ring', 'rim_fasteners'] + (['lug_inserts', 'ring_beads'] if refined else []),
+            'style': 'photo-fit-v2' if refined else 'photo-fit-v1',
             'excluded_from': ['wheel.step', 'body_volume', 'weight', 'caliper_check', 'stock_check', 'machining_features'],
             'note': '附件尺寸、数量和位置为外观假设；未设计连接孔、密封或分体装配，不代表可制造的分体轮毂'}
