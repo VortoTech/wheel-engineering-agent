@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import AnalysisRequest, BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
 from .storage import Store, now, uid
 from .worker import Worker
 
@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.6.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
@@ -50,7 +50,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     @app.get("/api/health")
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "cam": False,
+                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "cam": False,
                                  "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")
@@ -111,6 +111,39 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         with store.connection() as db:
             db.execute("INSERT INTO image_analyses VALUES(?,?,?,?,?)", (result["id"], project_id, image_id,
                        json.dumps(result, ensure_ascii=False), result["created_at"]))
+        return result
+
+    @app.post("/api/projects/{project_id}/analyses/{analysis_id}/root")
+    def refine_root(project_id: str, analysis_id: str, body: RootCorrectionRequest):
+        from .root_fitting import correct_root, landmarks
+        with store.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+            saved = db.execute("SELECT result,image_id FROM image_analyses WHERE id=? AND project_id=?", (analysis_id,project_id)).fetchone()
+            if row is None or saved is None:
+                raise HTTPException(404, "项目或识图记录不存在。")
+            result = json.loads(saved["result"])
+            applied = row["applied_analysis_id"] == analysis_id and row["revision"] == result["base_revision"]+1
+            if row["revision"] != body.expected_revision or (result["base_revision"] != row["revision"] and not applied):
+                raise HTTPException(409, "草稿已改变，请重新识图后修正点位。")
+            if saved["image_id"] != row["primary_image_id"] or not result.get("camera_fit") or not result["can_apply"]:
+                raise HTTPException(422, "需要当前主参考图的有效双辐识图记录。")
+            try:
+                spec = WheelSpec(**{**json.loads(row["spec"]), **result["suggested_parameters"]})
+                parameters, fitted_points = correct_root(result, spec, body.group, body.points)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            result.update(id=uid(), parent_analysis_id=analysis_id, base_revision=row["revision"],
+                          base_spec=json.loads(row["spec"]), created_at=now())
+            result["suggested_parameters"].update(parameters)
+            result["root_fit"] = {"status":"manual", "parameters":parameters, "group":body.group,
+                                  "points":fitted_points, "edited_points":body.points,
+                                  "note":"人工修正点位，按对称与 CAD 约束拟合；非实测"}
+            fitted_spec = WheelSpec(**{**spec.model_dump(), **parameters})
+            result["root_fit"]["all_points"] = [landmarks(fitted_spec,result,result["camera_fit"]["pose"],g) for g in range(spec.spoke_count)]
+            result["section_fit"] = {**result["section_fit"], "status":"superseded_by_manual_points"}
+            db.execute("INSERT INTO image_analyses VALUES(?,?,?,?,?)", (result["id"],project_id,saved["image_id"],
+                       json.dumps(result,ensure_ascii=False),result["created_at"]))
         return result
 
     @app.post("/api/projects/{project_id}/analyses/{analysis_id}/apply")

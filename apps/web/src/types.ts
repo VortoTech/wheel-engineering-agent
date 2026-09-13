@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v6';
+export const TEMPLATE_VERSION = 'forged-monoblock-v7';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -8,7 +8,7 @@ export type Spec = {
   pocket_depth_mm: number; junction_fillet_mm: number;
   valve_diameter_mm: number; valve_angle_deg: number; valve_tilt_deg: number;
   spoke_style: 'single' | 'paired'; paired_gap_mm: number; paired_tip_width_mm: number;
-  paired_gap_flare_mm: number;
+  paired_root_round_mm: number; paired_gap_flare_mm: number;
   paired_split_start_mm: number; spoke_phase_deg: number;
   paired_shoulder_mm: number; paired_mid_mm: number; paired_tip_inset_mm: number;
   lip_extension_mm: number; lip_drop_mm: number;
@@ -49,7 +49,10 @@ export type Project = {
   preparation: Preparation;
   photo_analysis?: PhotoAnalysis | null; applied_analysis_id?: string | null;
 };
+export type PhotoPose = {cx:number;cy:number;scale_px:number;distance_radii:number;rotation:number[][];radius_mm:number;reference_z_mm:number;angles_deg:number[]};
 export type PhotoAnalysis = {
+  camera_fit?: {status:string;pose:PhotoPose;before_held_out_px?:number;after_held_out_px?:number;held_out_groups:number[];note:string};
+  root_fit?: {status:string;parameters:Record<string,number>;group:number;points:[number,number][];all_points:[number,number][][];note:string;support_groups?:number};
   algorithm?: string;
   traces?: {group:number; side:number; samples:{accepted:boolean; points:[number,number][]}[]}[];
   section_fit?: {status:string; before_rms_ratio?:number; after_rms_ratio?:number; constraint_fraction?:number; stations:{support_groups:number; radius_ratio:number; gap_ratio:number; width_ratio:number}[]};

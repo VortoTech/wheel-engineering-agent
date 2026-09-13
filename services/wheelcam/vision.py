@@ -13,7 +13,7 @@ from scipy.signal import find_peaks
 
 from .models import WheelSpec
 
-ALGORITHM = "continuous-blade-sections-v2"
+ALGORITHM = "camera-root-contours-v3"
 
 
 def detect(photo, spec: WheelSpec, reference_outer_mm=None):
@@ -104,9 +104,9 @@ def detect(photo, spec: WheelSpec, reference_outer_mm=None):
                 for r in (.4, .56, .83)]
     reference_gap = next((s["gap_ratio"] for s in fitting["stations"] if s["radius_ratio"] == .83), None)
     warnings = ["局部边缘候选，未接入通用视觉大模型；适用于完整、近正面、深色双辐图片",
-                "外圈椭圆仅作仿射对齐，不代表透视或曲面深度恢复",
+                "外圈和相机候选均为单图近似，不代表恢复真实焦距、距离或曲面深度",
                 "逐支臂连续跟踪；只显示局部对比足够的边缘，遮挡段留空；错误边缘仍需核对",
-                "根部与中段展开、净间隙和端宽通过多组一致性筛选后参与 CAD；分叉间隙可渐变，最内侧圆弧仍为模板假设",
+                "根部与中段展开、净间隙和端宽通过多组一致性筛选后参与 CAD；分叉间隙可渐变，底部圆角另提候选并支持点位修正，深度仍为模板假设",
                 "ET、PCD、中心孔、背面厚度、材料和连接方式不由本次识图推断"]
     can_apply = reliable and spec.spoke_style == "paired"
     if not reliable:
@@ -118,7 +118,7 @@ def detect(photo, spec: WheelSpec, reference_outer_mm=None):
     except ValueError:
         can_apply = False
         warnings.insert(0, "候选尺寸不满足当前 CAD 约束，请人工调整，不能直接套用")
-    return {"algorithm": ALGORITHM, "status": "candidates" if reliable else "ambiguous",
+    result = {"algorithm": ALGORITHM, "status": "candidates" if reliable else "ambiguous",
             "image_size": [w, h], "ellipse": {"cx": cx, "cy": cy, "rx": rx, "ry": ry},
             "edge_coverage": round(float(np.mean(accepted)), 3),
             "edge_residual_px": round(float(np.median(np.abs(residual(fit.x)))), 2),
@@ -129,3 +129,12 @@ def detect(photo, spec: WheelSpec, reference_outer_mm=None):
                       "reference_gap_mm": reference_gap*reference_outer_mm/2 if reference_outer_mm and reference_gap is not None else None,
                       "basis": "参考实物外径为用户输入、尚未核验；候选参数按当前目标模型外径映射" if reference_outer_mm else "无实测标尺；仅将比例映射到当前模型的假设外径"},
             "warnings": warnings}
+
+    if traces and can_apply:
+        from .photo_pose import fit_pose
+        from .root_fitting import detect_root
+        candidate_spec = WheelSpec.model_validate({**spec.model_dump(), **proposed})
+        result["camera_fit"] = fit_pose(result, candidate_spec)
+        result["root_fit"] = detect_root(photo, result, candidate_spec, result["camera_fit"]["pose"])
+        result["suggested_parameters"].update(result["root_fit"]["parameters"])
+    return result

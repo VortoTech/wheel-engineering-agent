@@ -27,10 +27,11 @@ class WheelSpec(BaseModel):
     bolt_diameter_mm: float = Field(14, ge=12, le=16)
     spoke_count: int = Field(6, ge=5, le=10, strict=True)
     spoke_style: Literal["single", "paired"] = "single"
+    paired_root_round_mm: float = Field(0, ge=0, le=25)
     paired_gap_flare_mm: float = Field(0, ge=0, le=16)
     paired_gap_mm: float = Field(34, ge=16, le=50)
     paired_tip_width_mm: float = Field(6, ge=4, le=14)
-    paired_split_start_mm: float = Field(8, ge=3, le=25)
+    paired_split_start_mm: float = Field(8, ge=0, le=25)
     paired_shoulder_mm: float = Field(0, ge=0, le=48)
     paired_mid_mm: float = Field(0, ge=-6, le=32)
     paired_tip_inset_mm: float = Field(0, ge=0, le=22)
@@ -182,3 +183,9 @@ class BuildRequest(BaseModel):
 class AnalysisRequest(BuildRequest):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     reference_outer_mm: float | None = Field(None, ge=100, le=1200)
+
+
+class RootCorrectionRequest(BuildRequest):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    group: int = Field(ge=0, le=9, strict=True)
+    points: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
