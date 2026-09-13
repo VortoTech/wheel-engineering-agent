@@ -165,3 +165,48 @@ def test_worker_times_out_initialization_and_geometry_separately(client, monkeyp
     assert result["status"] == "failed"
     assert ("实体生成超过时间限制" if ready else "内核初始化超时") in result["error"]
     assert client.get(f'/api/builds/{job_id}/step').status_code == 404
+
+
+def test_preparation_persists_snapshots_and_omission_does_not_erase(client, tmp_path):
+    project = create(client)
+    url = f'/api/projects/{project["id"]}'
+    preparation = {'stock': {'outer_diameter_mm': 540}, 'material': {'name': 'test', 'density_kg_m3': 2700}}
+    changed = client.put(url, json={**draft(project), 'preparation': preparation})
+    assert changed.status_code == 200
+    saved = changed.json()
+    queued = client.post(f'{url}/builds', json={'expected_revision': saved['revision']}).json()
+    # An older client that omits preparation must not clear it.
+    unchanged = client.put(url, json=draft(saved, spoke_count=7)).json()
+    assert unchanged['preparation'] == saved['preparation']
+    cleared = client.put(url, json={**draft(unchanged), 'preparation': {}}).json()
+    assert cleared['preparation']['stock'] is None
+    assert cleared['jobs'][0]['snapshot']['preparation'] == saved['preparation']
+    assert cleared['jobs'][0]['snapshot']['model_id'] == queued['id']
+    with TestClient(create_app(tmp_path, start_worker=False)) as reopened:
+        assert reopened.get(url).json()['jobs'][0]['snapshot']['preparation'] == saved['preparation']
+
+
+def test_preparation_validation_and_download_routes(client):
+    project = create(client)
+    url = f'/api/projects/{project["id"]}'
+    assert client.put(url, json={**draft(project), 'preparation': {'material': {'name': 'bad', 'density_kg_m3': -1}}}).status_code == 422
+    store = client.app.state.store
+    job = store.enqueue(project['id'], 1)
+    directory = store.root / 'models' / job
+    directory.mkdir()
+    for route, filename in [('features', 'features.json'), ('operations', 'operations.csv'), ('handoff', 'handoff.zip'), ('stock', 'stock.step'), ('caliper', 'caliper-envelope.step')]:
+        (directory / filename).write_bytes(b'test')
+        assert client.get(f'/api/builds/{job}/{route}').status_code == 404
+    with store.connection() as db:
+        db.execute("UPDATE jobs SET status='succeeded' WHERE id=?", (job,))
+    for route in ['features', 'operations', 'handoff', 'stock', 'caliper']:
+        assert client.get(f'/api/builds/{job}/{route}').content == b'test'
+    (directory / 'stock.step').unlink()
+    assert client.get(f'/api/builds/{job}/stock').status_code == 404
+
+
+def test_same_origin_custom_port_and_untrusted_host(tmp_path):
+    with TestClient(create_app(tmp_path, start_worker=False), base_url='http://127.0.0.1:18766') as local:
+        assert local.post('/api/projects', json={'name': 'custom port'}, headers={'origin': 'http://127.0.0.1:18766'}).status_code == 201
+        assert local.post('/api/projects', json={'name': 'bad origin'}, headers={'origin': 'https://example.com'}).status_code == 403
+        assert local.post('/api/projects', json={'name': 'bad host'}, headers={'origin': 'http://evil.example', 'host': 'evil.example'}).status_code == 400

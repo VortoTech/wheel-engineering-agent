@@ -6,6 +6,7 @@ No image inference or manufacturing certification. All dimensions come from temp
 import hashlib
 import json
 import math
+import zipfile
 from pathlib import Path
 
 import cadquery as cq
@@ -16,7 +17,8 @@ from OCP.GProp import GProp_GProps
 from OCP.TopTools import TopTools_ListOfShape
 from OCP.TopoDS import TopoDS
 
-from .models import WheelSpec
+from .models import Preparation, WheelSpec
+from .preparation import check_preparation, valve_geometry, write_handoff_files
 from .template import HUB_EDGE_FILLET, LUG_SEAT_THICKNESS, TEMPLATE_VERSION, layout, round_polygon
 
 
@@ -121,6 +123,17 @@ def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
     body, applied = _fuse_with_fillet([rim, hub, *spokes], spec.junction_fillet_mm,
                                       (lay["hub_radius"] + lay["well_radius"]) / 2)
     result = body.cut(*_cutters(spec, lay)).clean()
+    if spec.valve_diameter_mm:
+        center, axis, length = valve_geometry(spec, lay)
+        direction = cq.Vector(*axis)
+        start = cq.Vector(*center) - direction * (length / 2)
+        end = cq.Vector(*center) + direction * (length / 2)
+        solid = result.Solids()[0]
+        if not solid.isInside(tuple(center)) or solid.isInside(start.toTuple()) or solid.isInside(end.toTuple()):
+            raise ValueError("气门孔未正确跨越轮辋槽底，请调整孔方向。")
+        result = result.cut(cq.Solid.makeCylinder(spec.valve_diameter_mm / 2, length, start, direction)).clean()
+        if result.Solids()[0].isInside(tuple(center)):
+            raise ValueError("气门孔未能切穿轮辋。")
     return cq.Workplane(obj=result), {"junction_fillet_requested_mm": spec.junction_fillet_mm,
                                       "junction_fillet_applied_mm": min(applied.values()),
                                       "hub_fillet_applied_mm": applied["hub"],
@@ -154,10 +167,15 @@ def inspect_shape(shape, spec: WheelSpec) -> dict:
     }
 
 
-def export_model(spec: WheelSpec, output: Path) -> dict:
+def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None = None, snapshot: dict | None = None) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     wheel, build_info = build_wheel(spec)
     report = inspect_shape(wheel.val(), spec)
+    preparation = preparation or Preparation()
+    snapshot = snapshot or {"spec": spec.model_dump(), "template_version": TEMPLATE_VERSION,
+                            "preparation": preparation.model_dump()}
+    if not (output / "recipe.json").exists():
+        (output / "recipe.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2))
     cq.exporters.export(wheel, str(output / "wheel.step"))
     # Reimport checks the serialized artifact, independently of the in-memory object.
     imported = cq.importers.importStep(str(output / "wheel.step")).val()
@@ -173,13 +191,17 @@ def export_model(spec: WheelSpec, output: Path) -> dict:
     assembly = cq.Assembly(wheel, name="wheel-concept", color=cq.Color(0.63, 0.67, 0.73))
     assembly.export(str(output / "wheel.glb"), tolerance=0.15, angularTolerance=0.1)
     limitations = ["轮辋截面为近似 J 型轮缘、5° 胎圈座深槽轮辋，未逐项核对 ETRTO / TRA 标准",
-                   "未包含气门孔、平衡配重面与中心盖安装结构",
-                   "材料、公差、载荷及锻坯尚未确认",
+                   "气门孔仅为通孔，气门嘴密封座、平衡配重面与中心盖安装结构尚未验证" if spec.valve_diameter_mm else "未启用气门孔；平衡配重面与中心盖安装结构尚未包含",
+                   "公差、载荷及输入资料尚未作工程审核；包络检查和重量均依赖当前版本输入",
                    "未进行结构分析、CAM 或机床验证"]
     if build_info["junction_fillet_applied_mm"] < spec.junction_fillet_mm:
         limitations.insert(0, f"轮辐连接圆角请求 {spec.junction_fillet_mm:g} mm，实际生成：中心盘侧 "
                               f"{build_info['hub_fillet_applied_mm']:g} mm，轮辋侧 {build_info['rim_fillet_applied_mm']:g} mm")
     report.update(build_info)
+    report["preparation"] = check_preparation(wheel.val(), spec, preparation, output)
+    report["handoff"] = write_handoff_files(output, spec, snapshot)
+    report["model_id"] = snapshot.get("model_id")
+    report["draft_revision"] = snapshot.get("draft_revision")
     report.update({
         "template_version": TEMPLATE_VERSION,
         "units": "mm", "coordinates": "右手系，轮毂轴线为 Z，轮辋宽度中面 Z=0，+Z 为外侧（装饰面）",
@@ -187,7 +209,11 @@ def export_model(spec: WheelSpec, output: Path) -> dict:
         "limitations": limitations,
         "artifacts": {name: {"sha256": hashlib.sha256((output / name).read_bytes()).hexdigest(),
                               "bytes": (output / name).stat().st_size}
-                      for name in ["wheel.step", "wheel.glb"]},
+                      for name in ["wheel.step", "wheel.glb", "recipe.json", "features.json", "operations.csv",
+                                   "stock.step", "caliper-envelope.step"] if (output / name).exists()},
     })
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    with zipfile.ZipFile(output / "handoff.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in [*report["artifacts"], "report.json"]:
+            archive.write(output / name, arcname=name)
     return report

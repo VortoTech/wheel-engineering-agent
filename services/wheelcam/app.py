@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.2.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
@@ -39,7 +39,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         origin = request.headers.get("origin")
         if request.method in {"POST", "PUT", "PATCH", "DELETE"} and origin:
             if origin not in {"http://127.0.0.1:5178", "http://localhost:5178",
-                               "http://127.0.0.1:18765", "http://localhost:18765"}:
+                               str(request.base_url).rstrip("/")}:
                 return JSONResponse({"detail": "仅允许本地工作台写入。"}, status_code=403)
         return await call_next(request)
 
@@ -50,7 +50,8 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     @app.get("/api/health")
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "cam": False}}
+                "capabilities": {"parametric_cad": True, "image_inference": False, "cam": False,
+                                 "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")
     def template():
@@ -72,12 +73,13 @@ def create_app(data_dir: Path | None = None, start_worker=True):
 
     @app.put("/api/projects/{project_id}")
     def update_project(project_id: str, body: DraftUpdate):
-        store.project(project_id)
+        previous = store.project(project_id)
         with store.connection() as db:
             result = db.execute(
-                "UPDATE projects SET name=?,spec=?,sources=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?",
+                "UPDATE projects SET name=?,spec=?,sources=?,preparation=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?",
                 (body.name.strip() or "未命名轮毂", body.spec.model_dump_json(),
                  json.dumps({key: source.model_dump() for key, source in body.sources.items()}, ensure_ascii=False),
+                 body.preparation.model_dump_json() if "preparation" in body.model_fields_set else json.dumps(previous["preparation"]),
                  now(), project_id, body.expected_revision))
             if result.rowcount != 1:
                 raise HTTPException(409, "项目已在其他窗口更新，请重新载入，当前修改尚未保存。")
@@ -140,7 +142,9 @@ def create_app(data_dir: Path | None = None, start_worker=True):
 
     @app.get("/api/builds/{job_id}/{artifact}")
     def artifact(job_id: str, artifact: str):
-        names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "report": "report.json"}
+        names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "report": "report.json",
+                 "features": "features.json", "operations": "operations.csv", "handoff": "handoff.zip",
+                 "stock": "stock.step", "caliper": "caliper-envelope.step"}
         if artifact not in names:
             raise HTTPException(404, "文件不存在。")
         with store.connection() as db:

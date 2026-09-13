@@ -287,3 +287,27 @@ legend{font-size:14px;padding:0 10px 0 0;color:#cbd4df;letter-spacing:.03em}
 .spinner{animation:none}
 .viewer-progress .spinner{border-right-color:currentColor}
 }
+
+/* Preparation inputs and version-bound results share the existing parameter pane. */
+.panel-tabs button { gap: 4px; padding-left: 8px; padding-right: 8px; }
+.prep-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 14px; }
+.prep-toggle input { accent-color: var(--accent); }
+.preparation-panel .muted { font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+.prep-number { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; font-size: 12px; }
+.prep-number > span:last-child { display: flex; align-items: center; gap: 5px; }
+.prep-number input { background: #121921; color: #dce2eb; width: 82px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; }
+.prep-number small { width: 32px; color: var(--muted); }
+.prep-source, .prep-text { display: grid; gap: 8px; font-size: 12px; margin-top: 16px; }
+.prep-source label { display: grid; gap: 6px; }
+.prep-source input, .prep-source select, .prep-text input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: #121921; color: #dce2eb; }
+.prep-result { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 14px 0; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.prep-result h3 { margin: 0 0 7px; font-size: 14px; }
+.prep-result p { margin: 8px 0; }
+.prep-result small, .prep-input-note { color: var(--muted); }
+.prep-result.interference, .prep-result.missing_material { border-color: #d95e51; background: #332321; }
+.prep-result.insufficient_clearance, .prep-result.insufficient_allowance { border-color: #c98a27; background: #332c20; }
+.prep-downloads { display: flex; flex-wrap: wrap; gap: 10px; }
+.prep-downloads a { color: var(--accent); text-decoration: underline; }
+
+.parameters-scroll { min-height: 0; max-height: max(580px, calc(100svh - 340px)); }
+@media(max-width:640px) { .parameters-scroll { max-height: 550px; } }

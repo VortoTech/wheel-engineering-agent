@@ -136,7 +136,7 @@ export function Viewer({ url, building }: { url: string | null; building: boolea
   return <div className="viewer">
     <div className="viewport-label"><span className="live-dot"/> {url ? '实体预览' : '建模空间'} <span>· mm</span></div>
     <div className="canvas" ref={container} aria-label="轮毂三维模型，可拖动旋转、滚轮缩放"/>
-    {!url && <div className="viewer-empty"><Box size={48} strokeWidth={1}/><h2>从第一版轮毂开始</h2><p>确认右侧参数，生成可编辑的三维实体。</p><span>周期轮辐 · 概念模板 01</span></div>}
+    {!url && <div className="viewer-empty"><Box size={48} strokeWidth={1}/><h2>从第一版轮毂开始</h2><p>确认右侧参数，生成可编辑的三维实体。</p><span>周期轮辐 · 锻造单片模板</span></div>}
     {(loading || building) && <div className="viewer-progress" role="status"><span className="spinner"/>{building ? '正在构建并检查实体，上一版仍可查看' : '正在加载模型'}</div>}
     {error && <div className="viewer-error" role="alert">{error}</div>}
     <div className="viewport-tools">

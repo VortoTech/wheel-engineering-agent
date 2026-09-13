@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .template import TEMPLATE_VERSION, layout
 
 __all__ = ["TEMPLATE_VERSION", "WheelSpec", "ParameterSource", "default_sources", "migrate_spec",
-           "ProjectCreate", "DraftUpdate", "BuildRequest"]
+           "ProjectCreate", "DraftUpdate", "BuildRequest", "Preparation", "StockSpec", "CaliperSpec", "MaterialSpec"]
 
 
 class WheelSpec(BaseModel):
@@ -35,9 +35,14 @@ class WheelSpec(BaseModel):
     sweep_deg: float = Field(8, ge=-25, le=25)
     pocket_depth_mm: float = Field(12, ge=0, le=24)
     junction_fillet_mm: float = Field(5, ge=0, le=8)
+    valve_diameter_mm: float = Field(0, ge=0, le=16)
+    valve_angle_deg: float = Field(30, ge=0, lt=360)
+    valve_tilt_deg: float = Field(0, ge=-25, le=25)
 
     @model_validator(mode="after")
     def check_layout(self):
+        if 0 < self.valve_diameter_mm < 5:
+            raise ValueError("气门孔径须为 0（关闭）或 5–16 mm。")
         layout(self)
         return self
 
@@ -52,6 +57,60 @@ def default_sources():
     return {key: ParameterSource().model_dump() for key in WheelSpec.model_fields}
 
 
+class EngineeringInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    source: ParameterSource = Field(default_factory=ParameterSource)
+
+
+class CaliperSpec(EngineeringInput):
+    """Conservative full-turn annular envelope; z is relative to the mounting face."""
+    inner_radius_mm: float = Field(90, ge=1, le=400)
+    outer_radius_mm: float = Field(180, ge=2, le=450)
+    z_min_mm: float = Field(-70, ge=-500, le=500)
+    z_max_mm: float = Field(10, ge=-500, le=500)
+    required_clearance_mm: float = Field(3, ge=0, le=30)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.inner_radius_mm >= self.outer_radius_mm or self.z_min_mm >= self.z_max_mm:
+            raise ValueError("卡钳包络须满足内半径 < 外半径、轴向起点 < 终点。")
+        return self
+
+
+class StockSpec(EngineeringInput):
+    """Cylinder or cup, cavity opens toward -Z. All coordinates use wheel mid-plane."""
+    outer_diameter_mm: float = Field(520, ge=100, le=1000)
+    height_mm: float = Field(280, ge=20, le=600)
+    center_z_mm: float = Field(0, ge=-500, le=500)
+    cavity_diameter_mm: float = Field(390, ge=0, le=990)
+    front_web_mm: float = Field(120, ge=1, le=600)
+    required_allowance_mm: float = Field(1, ge=0, le=20)
+
+    @model_validator(mode="after")
+    def material(self):
+        a = self.required_allowance_mm
+        if self.front_web_mm > self.height_mm or self.height_mm <= 2 * a:
+            raise ValueError("锻坯底厚不得超过总高，总高须大于两倍余量。")
+        if self.cavity_diameter_mm >= self.outer_diameter_mm:
+            raise ValueError("锻坯内腔直径须小于外径。")
+        if self.outer_diameter_mm <= 2 * a or (self.cavity_diameter_mm > 0 and
+                (self.outer_diameter_mm - self.cavity_diameter_mm <= 4 * a or self.front_web_mm <= 2 * a)):
+            raise ValueError("锻坯壁厚或底厚不足以容纳所要求的余量。")
+        return self
+
+
+class MaterialSpec(EngineeringInput):
+    name: str = Field(min_length=1, max_length=100)
+    density_kg_m3: float = Field(gt=0, le=30000)
+
+
+class Preparation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    caliper: CaliperSpec | None = None
+    stock: StockSpec | None = None
+    material: MaterialSpec | None = None
+
+
 def migrate_spec(spec: dict, sources: dict):
     """Carry a draft from an older template onto WheelSpec. Returns None if already current.
 
@@ -61,6 +120,15 @@ def migrate_spec(spec: dict, sources: dict):
     if set(spec) == set(WheelSpec.model_fields):
         return None
     merged = WheelSpec().model_dump()
+    # Preserve valid combinations atomically before attempting legacy field recovery.
+    candidate = {**merged, **{k: v for k, v in spec.items() if k in merged}}
+    try:
+        WheelSpec(**candidate)
+    except ValidationError:
+        pass
+    else:
+        upgraded = ParameterSource(note=f"模板升级为 {TEMPLATE_VERSION}，采用新模板默认值").model_dump()
+        return candidate, {k: sources[k] if k in spec and k in sources else upgraded for k in candidate}
     kept = set()
     for key in merged:
         if key not in spec:
@@ -85,6 +153,7 @@ class DraftUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     spec: WheelSpec
     sources: dict[str, ParameterSource]
+    preparation: Preparation = Field(default_factory=Preparation)
     expected_revision: int = Field(ge=1)
 
     @model_validator(mode="after")

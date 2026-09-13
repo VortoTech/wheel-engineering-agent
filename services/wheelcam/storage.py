@@ -44,6 +44,9 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at);
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)")}
+            if "preparation" not in columns:
+                db.execute("ALTER TABLE projects ADD COLUMN preparation TEXT NOT NULL DEFAULT '{}'")
             # Drafts saved under an older template are upgraded once; job snapshots stay untouched.
             for row in db.execute("SELECT id, spec, sources FROM projects").fetchall():
                 migrated = migrate_spec(json.loads(row["spec"]), json.loads(row["sources"]))
@@ -83,6 +86,7 @@ class Store:
             result = dict(row)
             result["spec"] = json.loads(result["spec"])
             result["sources"] = json.loads(result["sources"])
+            result["preparation"] = json.loads(result["preparation"])
             result["images"] = [dict(image) for image in db.execute(
                 "SELECT * FROM images WHERE project_id=? ORDER BY created_at", (project_id,))]
             result["jobs"] = [self.job_dict(job) for job in db.execute(
@@ -113,11 +117,13 @@ class Store:
             snapshot = {
                 "name": row["name"], "spec": json.loads(row["spec"]),
                 "sources": json.loads(row["sources"]), "draft_revision": row["revision"],
+                "preparation": json.loads(row["preparation"]),
                 "template_version": TEMPLATE_VERSION, "reference_images": references,
                 "primary_image_id": row["primary_image_id"],
                 "image_usage": "manual_reference_only",
             }
             job_id = uid()
+            snapshot["model_id"] = job_id
             db.execute("INSERT INTO jobs(id,project_id,status,snapshot,created_at) VALUES(?,?,?,?,?)",
                        (job_id, project_id, "queued", json.dumps(snapshot, ensure_ascii=False), now()))
         return job_id

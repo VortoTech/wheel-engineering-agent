@@ -6,7 +6,7 @@ Rim profile points are (r, z); spoke section points are (u, z), u along the sect
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v2"
+TEMPLATE_VERSION = "forged-monoblock-v3"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
