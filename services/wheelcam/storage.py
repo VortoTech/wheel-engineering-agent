@@ -95,6 +95,7 @@ class Store:
             result["spec"] = json.loads(result["spec"])
             result["sources"] = json.loads(result["sources"])
             result["preparation"] = json.loads(result["preparation"])
+            result["case_selection"] = json.loads(result["case_selection"]) if result.get("case_selection") else None
             result["images"] = [dict(image) for image in db.execute(
                 "SELECT * FROM images WHERE project_id=? ORDER BY created_at", (project_id,))]
             result["jobs"] = [self.job_dict(job) for job in db.execute(
@@ -141,6 +142,8 @@ class Store:
                     snapshot["photo_analysis"] = json.loads(analysis[0])
                     snapshot["image_usage"] = "local_candidates_reviewed_before_apply"
             snapshot["model_id"] = job_id
+            if "case_selection" in row.keys() and row["case_selection"]:
+                snapshot["case_selection"] = json.loads(row["case_selection"])
             db.execute("INSERT INTO jobs(id,project_id,status,snapshot,created_at) VALUES(?,?,?,?,?)",
                        (job_id, project_id, "queued", json.dumps(snapshot, ensure_ascii=False), now()))
         return job_id

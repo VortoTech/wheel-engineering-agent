@@ -43,7 +43,7 @@ export type Report = {
 };
 export type Job = {
   id: string; status: 'queued' | 'running' | 'succeeded' | 'failed';
-  snapshot: { name: string; spec: AnySpec; sources: Sources; preparation?: Preparation; draft_revision: number; template_version: string };
+  snapshot: { photo_analysis?: PhotoAnalysis; name: string; spec: AnySpec; sources: Sources; preparation?: Preparation; draft_revision: number; template_version: string };
   report: Report | null; error: string | null; created_at: string; finished_at: string | null;
 };
 export type Project = {

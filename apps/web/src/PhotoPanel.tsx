@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
+import { ContourReview } from './ContourReview';
 import { PhotoProjection } from './PhotoProjection';
 import type { Job, PhotoAnalysis, Project } from './types';
 
@@ -82,6 +83,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
         </g>)}
       </svg> : <img src={imageURL} alt="当前主参考图，等待提取候选"/> : <p>先添加并选择一张主参考图。</p>}
     </div>
+    <ContourReview key={`${project.id}-${shown?.id}-${project.primary_image_id}-${project.revision}`} project={project} shown={shown}/>
     {a && <>
       <div className="photo-legend"><span>青色：外圈候选</span><span>粉色：逐条辐边（弱证据处留空）</span><span>金色{meshProjection && a.camera_fit ? '实体投影' : '正面线条'}：{front ? `CAD ${shown!.id.slice(0,6)}` : '此版本没有正面投影，生成新版本后可叠加'}</span></div>
       <div className="photo-adjust">

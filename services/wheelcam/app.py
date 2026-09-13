@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def create_app(data_dir: Path | None = None, start_worker=True):
     store = Store(data_dir or Path(os.getenv("WHEELCAM_DATA_DIR", str(ROOT / "data"))))
+    from .case_library import install, routes
+    install(store)
     worker = Worker(store)
 
     @asynccontextmanager
@@ -30,8 +32,11 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.8.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.9.0", lifespan=lifespan)
     app.state.store = store
+    app.include_router(routes(store))
+    from .contour_review import routes as contour_routes
+    app.include_router(contour_routes(store))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
     @app.middleware("http")
@@ -51,7 +56,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
                 "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "cam": False,
-                                 "preparation": True, "feature_export": True}}
+                                 "case_library": True, "contour_review": True, "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")
     def template():
