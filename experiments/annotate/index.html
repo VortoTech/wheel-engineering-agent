@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>轮毂窗口标注</title>
+<style>
+:root { --bg:#f4f4f2; --panel:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6; --accent:#1f6feb;
+        --rim:#00a3a3; --hub:#c07000; --win:#d61f7f; --ign:#7a7a7a; }
+* { box-sizing:border-box }
+body { margin:0; font:13px/1.45 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; color:var(--ink);
+       background:var(--bg); display:grid; grid-template-columns:240px 1fr 290px; height:100vh }
+#list { overflow:auto; border-right:1px solid var(--line); background:var(--panel) }
+#list button { display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line);
+               background:none; padding:6px 8px; cursor:pointer; font:inherit; color:inherit }
+#list button.active { background:#e8f0fe }
+.tag { font-size:11px; color:var(--muted) } .ok { color:#137333 } .warn { color:#b3261e }
+main { position:relative; overflow:hidden; background:#2b2b29 }
+canvas { display:block; width:100%; height:100% }
+#side { overflow:auto; border-left:1px solid var(--line); background:var(--panel); padding:10px 12px }
+.tools button, .row button { margin:0 4px 4px 0; padding:4px 8px; border:1px solid var(--line); background:#fafafa;
+               border-radius:4px; cursor:pointer; font:inherit; color:inherit }
+.tools button.on { background:var(--accent); color:#fff; border-color:var(--accent) }
+label.f { display:block; margin:7px 0 2px; color:var(--muted) }
+select, input[type=number], textarea { width:100%; font:inherit; padding:3px 5px; border:1px solid var(--line); border-radius:4px }
+.help { color:var(--muted); font-size:12px } #status { margin-top:6px; min-height:1.4em }
+kbd { border:1px solid var(--line); border-radius:3px; padding:0 3px; font-size:11px; background:#fafafa }
+</style>
+</head>
+<body>
+<nav id="list"></nav>
+<main><canvas id="cv"></canvas></main>
+<aside id="side">
+  <div id="title" style="font-weight:600;word-break:break-all"></div>
+  <div class="help" id="imginfo"></div>
+  <div class="tools" id="tools" style="margin-top:8px">
+    <button data-tool="rim">1 外圈</button><button data-tool="hub">2 中心盘</button>
+    <button data-tool="win">3 窗口</button><button data-tool="ign">4 忽略</button><button data-tool="sel">5 选择</button>
+  </div>
+  <div class="help" id="toolhelp"></div>
+  <div id="counts" class="help" style="margin-top:6px"></div>
+  <label class="f">结构</label>
+  <select id="m_structure"><option value="">未填</option><option>单片</option><option>两片</option><option>三片</option><option>不确定</option></select>
+  <label class="f">视角</label>
+  <select id="m_view"><option value="">未填</option><option>正面</option><option>轻微斜视</option><option>明显斜视</option></select>
+  <label class="f">背景</label>
+  <select id="m_background"><option value="">未填</option><option>干净</option><option>杂乱</option></select>
+  <label class="f">辐条类型</label>
+  <select id="m_style"><option value="">未填</option><option>单辐</option><option>双辐</option><option>Y 形分叉</option><option>多辐/细辐</option><option>网状</option><option>其他</option></select>
+  <label class="f">辐条组数</label><input id="m_groups" type="number" min="0" max="60">
+  <label class="f"><input id="m_usable" type="checkbox"> 可用于评价</label>
+  <label class="f">备注</label><textarea id="m_note" rows="3"></textarea>
+  <div class="row" style="margin-top:10px"><button id="save">保存 S</button><button id="prev">← 上一张</button><button id="next">下一张 →</button></div>
+  <div id="status" class="help"></div>
+  <details style="margin-top:10px" open><summary>标注说明</summary><div class="help">
+    <p><b>外圈</b>：沿轮毂最外缘（轮唇外边）均匀点 ≥5 个点，回车拟合椭圆。斜视照片也能拟合（带旋转的椭圆）。</p>
+    <p><b>中心盘</b>：沿中心盘外缘点 ≥5 个点，回车拟合。评价时中心盘以内不计分。</p>
+    <p><b>窗口</b>：辐条之间的开口，不论后面看到的是背景还是轮辋内壁。沿辐条<b>正面</b>可见边界点，回车闭合。每个窗口一个多边形。</p>
+    <p><b>忽略</b>：遮挡、支架、强反光等看不清的区域，回车闭合，不计分。</p>
+    <p>滚轮缩放，右键或按住空格拖动画面，<kbd>F</kbd> 适配窗口。<kbd>Backspace</kbd> 撤销上一个点，<kbd>Esc</kbd> 放弃当前多边形，
+       <kbd>Delete</kbd> 删除选中项，<kbd>←</kbd><kbd>→</kbd> 切换图片（有改动会自动保存）。</p>
+  </div></details>
+</aside>
+<script>
+const $ = s => document.querySelector(s);
+const cv = $('#cv'), ctx = cv.getContext('2d');
+const COLORS = { rim:'#00a3a3', hub:'#c07000', win:'#d61f7f', ign:'#7a7a7a' };
+const HELP = {
+  rim:'沿轮唇外边点 ≥5 个点，回车拟合外圈椭圆（会替换已有外圈）。',
+  hub:'沿中心盘外缘点 ≥5 个点，回车拟合（会替换已有中心盘）。',
+  win:'沿一个窗口的边界依次点击，回车或双击闭合。',
+  ign:'圈出看不清、不计分的区域，回车或双击闭合。',
+  sel:'点击选中窗口 / 忽略区 / 椭圆，拖动顶点调整；Delete 删除选中项。'
+};
+let items = [], cur = -1, img = null, label = null, dirty = false;
+let view = { s:1, x:0, y:0 };                 // screen = world * s + (x, y); world = oriented original pixels
+let tool = 'win', draft = [], sel = null, drag = null, pan = null, mouse = null, spaceDown = false;
+
+function emptyLabel() { return { rim:null, hub:null, windows:[], ignore:[], meta:{} }; }
+function status(text, bad) { $('#status').textContent = text; $('#status').className = 'help' + (bad ? ' warn' : ''); }
+
+// ---------- ellipse fit: A x² + B xy + C y² + D x + E y = 1 in normalised coordinates ----------
+function fitEllipse(pts) {
+  const n = pts.length; if (n < 5) return null;
+  let mx = 0, my = 0; for (const p of pts) { mx += p[0]; my += p[1]; } mx /= n; my /= n;
+  let s = 0; for (const p of pts) s += Math.hypot(p[0] - mx, p[1] - my); s /= n; if (!(s > 0)) return null;
+  const M = Array.from({ length:5 }, () => Array(6).fill(0));
+  for (const p of pts) {
+    const x = (p[0] - mx) / s, y = (p[1] - my) / s, r = [x*x, x*y, y*y, x, y];
+    for (let i = 0; i < 5; i++) { for (let j = 0; j < 5; j++) M[i][j] += r[i] * r[j]; M[i][5] += r[i]; }
+  }
+  for (let c = 0; c < 5; c++) {
+    let piv = c; for (let r = c + 1; r < 5; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    [M[c], M[piv]] = [M[piv], M[c]]; if (Math.abs(M[c][c]) < 1e-12) return null;
+    for (let r = 0; r < 5; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 6; k++) M[r][k] -= f * M[c][k]; }
+  }
+  const [A, B, C, D, E] = M.map((row, i) => row[5] / row[i]);
+  const det = 4*A*C - B*B; if (det <= 0) return null;          // not an ellipse
+  const x0 = (B*E - 2*C*D) / det, y0 = (B*D - 2*A*E) / det;
+  const F0 = A*x0*x0 + B*x0*y0 + C*y0*y0 + D*x0 + E*y0 - 1;
+  const th = 0.5 * Math.atan2(B, A - C), c = Math.cos(th), si = Math.sin(th);
+  const lu = A*c*c + B*si*c + C*si*si, lv = A*si*si - B*si*c + C*c*c;
+  if (!(-F0 / lu > 0 && -F0 / lv > 0)) return null;
+  const e = { cx:x0*s + mx, cy:y0*s + my, a:Math.sqrt(-F0/lu)*s, b:Math.sqrt(-F0/lv)*s, angle_deg:th*180/Math.PI, points:pts };
+  let sq = 0; for (const p of pts) sq += (ellipseRadius(e, p) - 1) ** 2;
+  e.rms_px = Math.sqrt(sq / n) * (e.a + e.b) / 2;
+  return e;
+}
+function ellipseRadius(e, p) {
+  const t = e.angle_deg * Math.PI / 180, dx = p[0] - e.cx, dy = p[1] - e.cy;
+  const u = dx*Math.cos(t) + dy*Math.sin(t), v = -dx*Math.sin(t) + dy*Math.cos(t);
+  return Math.hypot(u / e.a, v / e.b);
+}
+function inPolygon(p, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// ---------- data ----------
+async function loadList() {
+  const r = await fetch('/api/images'); const j = await r.json(); items = j.items;
+  document.title = `轮毂窗口标注 · ${items.length} 张`; renderList();
+  if (items.length) openImage(0);
+}
+function renderList() {
+  $('#list').innerHTML = '';
+  items.forEach((it, i) => {
+    const b = document.createElement('button'); b.className = i === cur ? 'active' : '';
+    const tags = [`${it.width}×${it.height}`];
+    if (it.duplicate_of !== null) tags.push(`与 #${String(it.duplicate_of).padStart(2, '0')} 相同`);
+    b.innerHTML = `<div>#${String(i).padStart(2, '0')} ${it.labeled ? '<span class="ok">✓ 已标</span>' : ''}</div>
+                   <div class="tag">${it.name}</div><div class="tag">${tags.join(' · ')}</div>`;
+    b.onclick = () => openImage(i); $('#list').appendChild(b);
+  });
+}
+async function openImage(i) {
+  if (dirty && !(await save())) return;
+  cur = i; const it = items[i]; renderList();
+  $('#title').textContent = `#${String(i).padStart(2, '0')} ${it.name}`;
+  $('#imginfo').textContent = `${it.width}×${it.height} · SHA-256 ${it.sha256.slice(0, 12)}…` +
+    (it.duplicate_of !== null ? ` · 与 #${it.duplicate_of} 为同一文件，共用标注` : '');
+  img = new Image(); img.src = `/api/images/${i}/preview`; await img.decode();
+  const r = await fetch(`/api/labels/${it.sha256}`);
+  label = r.ok ? await r.json() : emptyLabel();
+  label.windows = label.windows || []; label.ignore = label.ignore || []; label.meta = label.meta || {};
+  draft = []; sel = null; dirty = false; fillMeta(); fitView(); draw();
+  status(r.ok ? `已载入标注（${label.saved_at || ''}）` : '尚未标注');
+}
+function fillMeta() {
+  for (const k of ['structure', 'view', 'background', 'style', 'note']) $('#m_' + k).value = label.meta[k] ?? '';
+  $('#m_groups').value = label.meta.groups ?? ''; $('#m_usable').checked = !!label.meta.usable;
+}
+function readMeta() {
+  const m = {};
+  for (const k of ['structure', 'view', 'background', 'style', 'note']) { const v = $('#m_' + k).value.trim(); if (v) m[k] = v; }
+  const g = $('#m_groups').value; if (g !== '') m.groups = parseInt(g, 10);
+  m.usable = $('#m_usable').checked; return m;
+}
+async function save() {
+  if (cur < 0) return true;
+  if (draft.length) { status('还有未闭合的多边形：回车闭合或 Esc 放弃后再保存', true); return false; }
+  const body = { ...label, meta:readMeta() };
+  const r = await fetch(`/api/labels/${items[cur].sha256}`, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) { status('保存失败：' + (j.detail || r.status), true); return false; }
+  label = j; dirty = false; items[cur].labeled = true;
+  items.forEach(it => { if (it.sha256 === items[cur].sha256) it.labeled = true; });
+  renderList(); status('已保存 ' + j.saved_at); return true;
+}
+for (const id of ['m_structure', 'm_view', 'm_background', 'm_style', 'm_groups', 'm_usable', 'm_note'])
+  $('#' + id).addEventListener('input', () => { dirty = true; });
+
+// ---------- view ----------
+function resize() { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; draw(); }
+function fitView() {
+  if (!img) return; const it = items[cur], W = cv.width, H = cv.height;
+  view.s = Math.min(W / it.width, H / it.height) * 0.96;
+  view.x = (W - it.width * view.s) / 2; view.y = (H - it.height * view.s) / 2;
+}
+function toWorld(ev) {
+  const r = cv.getBoundingClientRect();
+  const sx = (ev.clientX - r.left) * devicePixelRatio, sy = (ev.clientY - r.top) * devicePixelRatio;
+  return [(sx - view.x) / view.s, (sy - view.y) / view.s];
+}
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!img || !label) return;
+  const it = items[cur], px = 1 / view.s;
+  ctx.setTransform(view.s, 0, 0, view.s, view.x, view.y);
+  ctx.drawImage(img, 0, 0, it.width, it.height);
+  const poly = (pts, color, fill, selected) => {
+    ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = (selected ? 3 : 1.5) * devicePixelRatio * px; ctx.strokeStyle = color; ctx.stroke();
+    if (selected || tool === 'sel') for (const p of pts) dot(p, color, 3);
+  };
+  const dot = (p, color, r) => { ctx.beginPath(); ctx.arc(p[0], p[1], r * devicePixelRatio * px, 0, 7); ctx.fillStyle = color; ctx.fill(); };
+  label.ignore.forEach((g, i) => poly(g.points, COLORS.ign, 'rgba(120,120,120,.45)', sel && sel.kind === 'ignore' && sel.index === i));
+  label.windows.forEach((w, i) => poly(w.points, COLORS.win, 'rgba(214,31,127,.22)', sel && sel.kind === 'windows' && sel.index === i));
+  for (const kind of ['rim', 'hub']) {
+    const e = label[kind]; if (!e) continue;
+    ctx.beginPath(); ctx.ellipse(e.cx, e.cy, e.a, e.b, e.angle_deg * Math.PI / 180, 0, Math.PI * 2);
+    ctx.lineWidth = (sel && sel.kind === kind ? 3 : 1.5) * devicePixelRatio * px; ctx.strokeStyle = COLORS[kind]; ctx.stroke();
+    for (const p of e.points) dot(p, COLORS[kind], 2.5);
+  }
+  if (draft.length) {
+    const color = COLORS[tool] || '#fff';
+    ctx.beginPath(); draft.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    if (mouse && (tool === 'win' || tool === 'ign')) ctx.lineTo(mouse[0], mouse[1]);
+    ctx.lineWidth = 1.5 * devicePixelRatio * px; ctx.strokeStyle = color; ctx.stroke();
+    for (const p of draft) dot(p, color, 3);
+  }
+  const e = label.rim;
+  $('#counts').textContent = `外圈 ${e ? `✓ 残差 ${e.rms_px.toFixed(1)} px` : '未标'} · 中心盘 ${label.hub ? '✓' : '未标'} · 窗口 ${label.windows.length} · 忽略 ${label.ignore.length}` +
+                             (draft.length ? ` · 当前 ${draft.length} 点` : '') + (dirty ? ' · 未保存' : '');
+}
+
+// ---------- editing ----------
+function setTool(t) {
+  if (draft.length && t !== tool) draft = [];
+  tool = t; sel = null;
+  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  $('#toolhelp').textContent = HELP[t]; draw();
+}
+document.querySelectorAll('#tools button').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+function closeDraft() {
+  if (tool === 'rim' || tool === 'hub') {
+    if (draft.length < 5) return status('椭圆至少需要 5 个点', true);
+    const e = fitEllipse(draft); if (!e) return status('这些点拟合不出椭圆，请沿边缘分散点', true);
+    label[tool] = e; status(`${tool === 'rim' ? '外圈' : '中心盘'}已拟合，残差 ${e.rms_px.toFixed(1)} px`);
+  } else if (tool === 'win' || tool === 'ign') {
+    if (draft.length < 3) return status('多边形至少需要 3 个点', true);
+    (tool === 'win' ? label.windows : label.ignore).push({ points:draft });
+  } else return;
+  draft = []; dirty = true; draw();
+}
+function hitVertex(p) {
+  const r = 8 * devicePixelRatio / view.s; let best = null, bd = r;
+  const test = (pts, target) => pts.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < bd) { bd = d; best = { ...target, vertex:i }; } });
+  label.windows.forEach((w, i) => test(w.points, { kind:'windows', index:i }));
+  label.ignore.forEach((g, i) => test(g.points, { kind:'ignore', index:i }));
+  for (const kind of ['rim', 'hub']) if (label[kind]) test(label[kind].points, { kind });
+  return best;
+}
+function hitShape(p) {
+  for (let i = label.windows.length - 1; i >= 0; i--) if (inPolygon(p, label.windows[i].points)) return { kind:'windows', index:i };
+  for (let i = label.ignore.length - 1; i >= 0; i--) if (inPolygon(p, label.ignore[i].points)) return { kind:'ignore', index:i };
+  for (const kind of ['hub', 'rim']) { const e = label[kind]; if (e && Math.abs(ellipseRadius(e, p) - 1) * (e.a + e.b) / 2 < 10 / view.s) return { kind }; }
+  return null;
+}
+function pointsOf(target) { return target.kind === 'rim' || target.kind === 'hub' ? label[target.kind].points : label[target.kind][target.index].points; }
+
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+cv.addEventListener('mousedown', ev => {
+  if (!label) return; const p = toWorld(ev);
+  if (ev.button !== 0 || spaceDown) { pan = { x:ev.clientX, y:ev.clientY, vx:view.x, vy:view.y }; return; }
+  if (tool === 'sel') {
+    const v = hitVertex(p); if (v) { sel = v; drag = v; draw(); return; }
+    sel = hitShape(p); draw(); return;
+  }
+  draft.push(p); draw();
+});
+cv.addEventListener('mousemove', ev => {
+  mouse = label ? toWorld(ev) : null;
+  if (pan) { view.x = pan.vx + (ev.clientX - pan.x) * devicePixelRatio; view.y = pan.vy + (ev.clientY - pan.y) * devicePixelRatio; }
+  else if (drag) { pointsOf(drag)[drag.vertex] = mouse; dirty = true; }
+  draw();
+});
+window.addEventListener('mouseup', () => {
+  if (drag && (drag.kind === 'rim' || drag.kind === 'hub')) {
+    const e = fitEllipse(label[drag.kind].points); if (e) label[drag.kind] = e; else status('拖动后无法拟合椭圆，请调整点位', true);
+  }
+  drag = null; pan = null; draw();
+});
+cv.addEventListener('dblclick', ev => {
+  if (tool !== 'win' && tool !== 'ign') return;
+  // A double click also fired two mousedowns; drop the duplicate before closing.
+  while (draft.length > 1) { const a = draft[draft.length - 1], b = draft[draft.length - 2]; if (Math.hypot(a[0] - b[0], a[1] - b[1]) * view.s < 4) draft.pop(); else break; }
+  closeDraft();
+});
+cv.addEventListener('wheel', ev => {
+  ev.preventDefault(); const r = cv.getBoundingClientRect();
+  const sx = (ev.clientX - r.left) * devicePixelRatio, sy = (ev.clientY - r.top) * devicePixelRatio;
+  const k = Math.exp(-ev.deltaY * 0.0015); view.x = sx - (sx - view.x) * k; view.y = sy - (sy - view.y) * k; view.s *= k; draw();
+}, { passive:false });
+window.addEventListener('keydown', ev => {
+  if (ev.target.matches('input, textarea, select')) return;
+  if (ev.key === ' ') { spaceDown = true; ev.preventDefault(); return; }
+  const tools = { '1':'rim', '2':'hub', '3':'win', '4':'ign', '5':'sel' };
+  if (tools[ev.key]) return setTool(tools[ev.key]);
+  if (ev.key === 'Enter') return closeDraft();
+  if (ev.key === 'Escape') { draft = []; draw(); return; }
+  if (ev.key === 'Backspace') { ev.preventDefault(); draft.pop(); draw(); return; }
+  if (ev.key === 'Delete' && sel) {
+    if (sel.kind === 'rim' || sel.kind === 'hub') label[sel.kind] = null; else label[sel.kind].splice(sel.index, 1);
+    sel = null; dirty = true; draw(); return;
+  }
+  if (ev.key === 's' || ev.key === 'S') { ev.preventDefault(); save(); return; }
+  if (ev.key === 'f' || ev.key === 'F') { fitView(); draw(); return; }
+  if (ev.key === 'ArrowRight' && cur < items.length - 1) openImage(cur + 1);
+  if (ev.key === 'ArrowLeft' && cur > 0) openImage(cur - 1);
+});
+window.addEventListener('keyup', ev => { if (ev.key === ' ') spaceDown = false; });
+$('#save').onclick = save;
+$('#prev').onclick = () => cur > 0 && openImage(cur - 1);
+$('#next').onclick = () => cur < items.length - 1 && openImage(cur + 1);
+window.addEventListener('beforeunload', ev => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+window.addEventListener('resize', () => { resize(); fitView(); draw(); });
+setTool('rim'); resize(); loadList();
+</script>
+</body>
+</html>
