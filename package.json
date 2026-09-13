@@ -1,8 +1,10 @@
 {
   "name": "wheelcam-workspace",
   "private": true,
-  "version": "0.4.0",
-  "workspaces": ["apps/web"],
+  "version": "0.5.0",
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
     "dev": "python3 scripts/dev.py",
     "build": "npm run build --workspace apps/web",

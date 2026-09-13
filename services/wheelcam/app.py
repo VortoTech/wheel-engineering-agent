@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.5.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
@@ -50,7 +50,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     @app.get("/api/health")
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "cam": False,
+                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "cam": False,
                                  "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")

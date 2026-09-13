@@ -1,4 +1,4 @@
-"""Pure-math layout of template forged-monoblock-v5.
+"""Pure-math layout of template forged-monoblock-v6.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
@@ -6,7 +6,7 @@ Rim profile points are (r, z); spoke section points are (u, z), u along the sect
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v5"
+TEMPLATE_VERSION = "forged-monoblock-v6"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -99,6 +99,21 @@ def round_polygon(points, radii):
     return segments
 
 
+def slot_half_width(slot, r):
+    root = slot["radius_mm"]
+    if r < slot["start_r_mm"]:
+        return 0.0
+    if r < slot["start_r_mm"] + root:
+        return math.sqrt(max(0, root*root-(r-slot["start_r_mm"]-root)**2))
+    q, m = slot.get("flare_start_r_mm", 0), slot.get("flare_end_r_mm", 0)
+    if not q or r <= q:
+        return root
+    if r >= m:
+        return slot["gap_mm"]/2
+    t = (r-q)/(m-q)
+    return root + (slot["gap_mm"]/2-root)*t*t*(3-2*t)
+
+
 def layout(spec):
     """Derived dimensions, rim profile and spoke frames. Raises ValueError for infeasible specs."""
     D, W = spec.rim_diameter_in * INCH, spec.rim_width_in * INCH
@@ -115,7 +130,7 @@ def layout(spec):
     crown = spec.spoke_crown_mm
     paired = spec.spoke_style == "paired"
     tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
-    if not paired and (spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
+    if not paired and (spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
         raise ValueError("轮廓展开和加宽轮唇目前仅用于双辐模板。")
     if paired:
         if spec.paired_tip_inset_mm and spec.lip_extension_mm < spec.paired_tip_inset_mm + 10:
@@ -253,18 +268,22 @@ def layout(spec):
     if paired:
         # U-shaped open slot cut through each broad group before it meets the rim.
         start = hub_r + spec.paired_split_start_mm
-        radius = spec.paired_gap_mm / 2
+        radius = (spec.paired_gap_mm + spec.paired_gap_flare_mm) / 2
         end = r_tip + 15
         if start + radius + 20 >= r_tip:
             raise ValueError("双辐分叉位置太靠外，支臂长度不足。")
+        paired_slot = {"start_r_mm": start, "radius_mm": radius, "end_r_mm": end,
+                       "gap_mm": spec.paired_gap_mm, "root_gap_mm": 2*radius,
+                       "flare_start_r_mm": max(start+radius, frame(.25)["r"]),
+                       "flare_end_r_mm": frame(.5)["r"]}
+        if spec.paired_gap_flare_mm and paired_slot["flare_end_r_mm"]-paired_slot["flare_start_r_mm"] < 10:
+            raise ValueError("分叉渐变长度不足，请减小分叉展开或内移分叉起点。")
         for t in (i / 100 for i in range(101)):
             f = frame(t)
             if f["width"] > 1.8 * f["r"] * math.sin(math.pi / spec.spoke_count):
                 raise ValueError("双辐展开过宽，相邻组之间的窗口不足，请减小展开量。")
-            if f["r"] >= start + radius and f["back_half"] - radius < 2.5:
+            if f["r"] >= start + radius and f["back_half"] - slot_half_width(paired_slot, f["r"]) < 2.5:
                 raise ValueError("双辐窗口挤占支臂，请增大根部宽度或减小双辐间隙。")
-        paired_slot = {"start_r_mm": start, "radius_mm": radius, "end_r_mm": end,
-                       "gap_mm": spec.paired_gap_mm}
 
     lip = None
     if spec.lip_extension_mm:

@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v5';
+export const TEMPLATE_VERSION = 'forged-monoblock-v6';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -8,6 +8,7 @@ export type Spec = {
   pocket_depth_mm: number; junction_fillet_mm: number;
   valve_diameter_mm: number; valve_angle_deg: number; valve_tilt_deg: number;
   spoke_style: 'single' | 'paired'; paired_gap_mm: number; paired_tip_width_mm: number;
+  paired_gap_flare_mm: number;
   paired_split_start_mm: number; spoke_phase_deg: number;
   paired_shoulder_mm: number; paired_mid_mm: number; paired_tip_inset_mm: number;
   lip_extension_mm: number; lip_drop_mm: number;
@@ -49,6 +50,9 @@ export type Project = {
   photo_analysis?: PhotoAnalysis | null; applied_analysis_id?: string | null;
 };
 export type PhotoAnalysis = {
+  algorithm?: string;
+  traces?: {group:number; side:number; samples:{accepted:boolean; points:[number,number][]}[]}[];
+  section_fit?: {status:string; before_rms_ratio?:number; after_rms_ratio?:number; constraint_fraction?:number; stations:{support_groups:number; radius_ratio:number; gap_ratio:number; width_ratio:number}[]};
   id: string; image_id: string; base_revision: number; status: string; can_apply: boolean;
   image_size: [number, number]; ellipse: {cx:number; cy:number; rx:number; ry:number};
   edge_coverage: number; edge_residual_px: number; outer_points: [number,number][];

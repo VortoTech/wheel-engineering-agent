@@ -13,7 +13,7 @@ from scipy.signal import find_peaks
 
 from .models import WheelSpec
 
-ALGORITHM = "radial-edge-pairs-v1"
+ALGORITHM = "continuous-blade-sections-v2"
 
 
 def detect(photo, spec: WheelSpec, reference_outer_mm=None):
@@ -91,42 +91,22 @@ def detect(photo, spec: WheelSpec, reference_outer_mm=None):
     best = candidates[0]
     margin = best["score"] - candidates[1]["score"]
     reliable = best["score"] > .005 and margin > .025 and best["contrast"] > .08
-    theta = math.radians(best["image_phase_deg"]) + np.arange(best["groups"])[:, None] * 2*np.pi/best["groups"]
-    stations = []
-    for r in (.48, .62, .84):
-        u = np.linspace(-.16, .16, 241)
-        xx = cx + rx * (r*np.cos(theta) - u*np.sin(theta))
-        yy = cy + ry * (r*np.sin(theta) + u*np.cos(theta))
-        values = np.median(map_coordinates(g, [yy, xx], order=1, mode="nearest"), axis=0)
-        edges = []
-        for sign in (-1, 1):
-            eligible = np.flatnonzero(np.abs(u - sign*best["offset_ratio"]) < .035)
-            index = eligible[np.argmin(values[eligible])]
-            lo, hi = max(0, index-24), min(len(u)-1, index+24)
-            baseline = min(float(values[lo: index+1].max()), float(values[index: hi+1].max()))
-            threshold = (baseline + float(values[index])) / 2
-            left = right = int(index)
-            while left > lo and values[left-1] < threshold:
-                left -= 1
-            while right < hi and values[right+1] < threshold:
-                right += 1
-            edges.extend([float(u[left]), float(u[right])])
-        points = [[float(cx + rx*(r*math.cos(t)-v*math.sin(t))),
-                   float(cy + ry*(r*math.sin(t)+v*math.cos(t)))] for t in theta[:, 0] for v in edges]
-        stations.append({"radius_ratio": r, "edges_ratio": edges, "points": points,
-                         "gap_ratio": max(0, edges[2]-edges[1]),
-                         "blade_width_ratio": ((edges[1]-edges[0])+(edges[3]-edges[2])) / 2})
+    from .contours import trace_blades, fit_sections
+    traces = trace_blades(photo, {"cx": cx, "cy": cy, "rx": rx, "ry": ry}, [w, h], best) if reliable and spec.spoke_style == "paired" else []
+    fitting = fit_sections(traces, spec, best["groups"]) if traces else {"status": "insufficient", "stations": [], "parameters": {}}
     proposed = {"spoke_count": best["groups"],
                 "spoke_phase_deg": round((-best["image_phase_deg"]) % (360 / best["groups"]), 2)}
+    if fitting["status"] == "fitted":
+        proposed.update(fitting["parameters"])
     target_outer = spec.rim_diameter_in * 25.4 + 35
-    tip = stations[-1]
-    gap, blade = tip["gap_ratio"] * target_outer / 2, tip["blade_width_ratio"] * target_outer / 2
-    # Only fit the end widths if the actual detected widths are in the supported CAD range.
-    if 16 <= gap <= 50 and 4 <= blade <= 14:
-        proposed.update(paired_gap_mm=round(gap, 2), paired_tip_width_mm=round(blade, 2))
+    stations = [{"radius_ratio": r, "points": [point for trace in traces for sample in trace["samples"]
+                 if sample["accepted"] and abs(sample["radius_ratio"]-r) < .002 for point in sample["points"]]}
+                for r in (.4, .56, .83)]
+    reference_gap = next((s["gap_ratio"] for s in fitting["stations"] if s["radius_ratio"] == .83), None)
     warnings = ["局部边缘候选，未接入通用视觉大模型；适用于完整、近正面、深色双辐图片",
                 "外圈椭圆仅作仿射对齐，不代表透视或曲面深度恢复",
-                "中段点位可能受背景、遮挡和高光影响；本次只建议组数、相位及可靠的外端宽度",
+                "逐支臂连续跟踪；只显示局部对比足够的边缘，遮挡段留空；错误边缘仍需核对",
+                "根部与中段展开、净间隙和端宽通过多组一致性筛选后参与 CAD；分叉间隙可渐变，最内侧圆弧仍为模板假设",
                 "ET、PCD、中心孔、背面厚度、材料和连接方式不由本次识图推断"]
     can_apply = reliable and spec.spoke_style == "paired"
     if not reliable:
@@ -144,8 +124,8 @@ def detect(photo, spec: WheelSpec, reference_outer_mm=None):
             "edge_residual_px": round(float(np.median(np.abs(residual(fit.x)))), 2),
             "outer_points": list(map(list, zip(px[::8].tolist(), py[::8].tolist()))),
             "spokes": best, "alternatives": candidates[1:3], "score_margin": margin,
-            "stations": stations, "suggested_parameters": proposed, "can_apply": can_apply,
+            "stations": stations, "traces": traces, "section_fit": fitting, "suggested_parameters": proposed, "can_apply": can_apply,
             "scale": {"reference_outer_mm": reference_outer_mm, "target_outer_mm": target_outer,
-                      "reference_gap_mm": tip["gap_ratio"]*reference_outer_mm/2 if reference_outer_mm else None,
+                      "reference_gap_mm": reference_gap*reference_outer_mm/2 if reference_outer_mm and reference_gap is not None else None,
                       "basis": "参考实物外径为用户输入、尚未核验；候选参数按当前目标模型外径映射" if reference_outer_mm else "无实测标尺；仅将比例映射到当前模型的假设外径"},
             "warnings": warnings}

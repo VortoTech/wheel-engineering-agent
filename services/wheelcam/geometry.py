@@ -1,4 +1,4 @@
-"""Deterministic concept geometry for template forged-monoblock-v5.
+"""Deterministic concept geometry for template forged-monoblock-v6.
 
 No image inference or manufacturing certification. All dimensions come from template.layout().
 """
@@ -126,9 +126,21 @@ def _build_wheel(spec: WheelSpec):
     if lay["paired_slot"]:
         slot = lay["paired_slot"]
         r, a, b = slot["radius_mm"], slot["start_r_mm"], slot["end_r_mm"]
-        cutter = (cq.Workplane("XY", origin=(0, 0, -500)).moveTo(a + r, -r)
-                  .lineTo(b, -r).lineTo(b, r).lineTo(a + r, r)
-                  .threePointArc((a, 0), (a + r, -r)).close().extrude(1000).val())
+        if spec.paired_gap_flare_mm:
+            q, m, tip = slot["flare_start_r_mm"], slot["flare_end_r_mm"], slot["gap_mm"]/2
+            path = cq.Workplane("XY", origin=(0, 0, -500)).moveTo(a+r, -r)
+            if q > a+r+1e-7:
+                path = path.lineTo(q, -r)
+            path = (path.bezier([(q+(m-q)/3, -r), (m-(m-q)/3, -tip), (m, -tip)], includeCurrent=True)
+                    .lineTo(b, -tip).lineTo(b, tip).lineTo(m, tip)
+                    .bezier([(m-(m-q)/3, tip), (q+(m-q)/3, r), (q, r)], includeCurrent=True))
+            if q > a+r+1e-7:
+                path = path.lineTo(a+r, r)
+            cutter = path.threePointArc((a, 0), (a+r, -r)).close().extrude(1000).val()
+        else:
+            cutter = (cq.Workplane("XY", origin=(0, 0, -500)).moveTo(a + r, -r)
+                      .lineTo(b, -r).lineTo(b, r).lineTo(a + r, r)
+                      .threePointArc((a, 0), (a + r, -r)).close().extrude(1000).val())
         spoke = spoke.cut(cutter).clean()
     if lay["pockets"]:
         spoke = spoke.cut(_loft(lay["pockets"]))

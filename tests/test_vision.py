@@ -75,3 +75,51 @@ def test_analysis_review_revision_and_snapshot(tmp_path):
         assert snapshot['photo_analysis']['image_sha256'] == a['image_sha256']
         assert snapshot['photo_analysis']['suggested_parameters'] == a['suggested_parameters']
     assert create_app(tmp_path, start_worker=False).state.store.project(p['id'])['photo_analysis']['id'] == a['id']
+
+
+def test_continuous_traces_fit_flared_shoulders_with_one_occluded_group(tmp_path):
+    import numpy as np
+    from wheelcam.contours import trace_blades, fit_sections
+    from wheelcam.models import WheelSpec
+    image = Image.new('RGB', (720, 640), '#bdbdbd')
+    d = ImageDraw.Draw(image)
+    cx, cy, radius, phase = 350, 320, 265, 7
+    d.ellipse((cx-radius,cy-radius,cx+radius,cy+radius), fill='#dddddd')
+    for group in range(8):
+        theta = math.radians(phase+group*45)
+        for sign in (-1, 1):
+            points = []
+            rs = np.linspace(.32, .91, 100)
+            # Independently defined tapered silhouette, not the CAD implementation.
+            for r in rs:
+                half = np.interp(r, [.32,.4,.56,.78,.91], [.12,.13,.11,.082,.08])
+                u = sign*half
+                points.append((cx+radius*(r*math.cos(theta)-u*math.sin(theta)), cy+radius*(r*math.sin(theta)+u*math.cos(theta))))
+            for r in rs[::-1]:
+                u = sign*.062
+                points.append((cx+radius*(r*math.cos(theta)-u*math.sin(theta)), cy+radius*(r*math.sin(theta)+u*math.cos(theta))))
+            d.polygon(points, fill='#252525')
+    # One group is hidden by a background-coloured occluder.
+    d.rectangle((cx+100,cy-20,cx+205,cy+55), fill='#dddddd')
+    photo = tmp_path/'flared.png'; image.save(photo)
+    traces = trace_blades(photo, {'cx':cx,'cy':cy,'rx':radius,'ry':radius}, [720,640],
+                           {'groups':8,'image_phase_deg':phase,'offset_ratio':.08})
+    assert len(traces) == 16
+    assert any(not s['accepted'] for t in traces for s in t['samples'])
+    fit = fit_sections(traces, preset_spec('photo-paired-refined')[0], 8)
+    assert fit['status'] == 'fitted'
+    assert fit['after_rms_ratio'] < fit['before_rms_ratio']*.5
+    assert fit['stations'][0]['width_ratio'] == pytest.approx(.26, abs=.015)
+    assert fit['stations'][1]['width_ratio'] == pytest.approx(.22, abs=.015)
+    assert all(s['support_groups'] >= 6 for s in fit['stations'])
+    fitted = WheelSpec.model_validate({**preset_spec('photo-paired-refined')[0].model_dump(), **fit['parameters']})
+    assert fitted.paired_shoulder_mm > 24  # previously impossible even when detected
+    assert fitted.offset_et_mm == 35 and fitted.bolt_circle_mm == 114.3
+
+
+def test_missing_contour_evidence_never_synthesizes_a_fitted_shape():
+    from wheelcam.contours import fit_sections
+    traces = [{'samples':[]} for _ in range(16)]
+    result = fit_sections(traces, preset_spec('photo-paired-refined')[0], 8)
+    assert result['status'] == 'insufficient'
+    assert result['parameters'] == {}

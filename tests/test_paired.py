@@ -118,3 +118,35 @@ def test_photo_refinement_adds_real_lip_and_preserves_legacy_defaults():
     migrated, _ = migrate_spec(old, {})
     assert all(migrated[k] == v for k, v in old.items())
     assert migrated['lip_extension_mm'] == 0
+
+
+def test_variable_paired_slot_changes_real_solid_and_preserves_tip_gap():
+    from wheelcam.template import slot_half_width
+    base, _ = preset_spec('photo-paired-refined')
+    spec = WheelSpec.model_validate({**base.model_dump(), 'paired_gap_mm':37.26,
+        'paired_tip_width_mm':6.09, 'paired_shoulder_mm':29.06, 'paired_mid_mm':17.99,
+        'paired_gap_flare_mm':7.87, 'junction_fillet_mm':0, 'spoke_phase_deg':0})
+    wheel, _ = build_wheel(spec)
+    assert all(inspect_shape(wheel.val(), spec)['checks'].values())
+    lay = layout(spec); slot = lay['paired_slot']; solid = wheel.val().Solids()[0]
+    q, m = lay['sections'][1], lay['sections'][2]
+    assert 2*slot_half_width(slot,q['r']) == pytest.approx(spec.paired_gap_mm+spec.paired_gap_flare_mm)
+    assert 2*slot_half_width(slot,m['r']) == pytest.approx(spec.paired_gap_mm)
+    # This probe is material in the old constant-width slot and open in the new flare.
+    for sign in (-1,1):
+        assert not solid.isInside((q['r'],sign*(spec.paired_gap_mm/2+2),q['front']-4))
+        assert solid.isInside((q['r'],sign*(slot['root_gap_mm']/2+4),q['front']-4))
+        assert solid.isInside((m['r'],sign*(spec.paired_gap_mm/2+4),m['front']-4))
+    features = feature_manifest(spec, {}, "test-sha")
+    slots = [f for f in features['features'] if f['kind']=='paired_through_slot']
+    assert len(slots) == 8
+    assert 'root_gap_mm' in json.dumps(slots)
+
+
+def test_v5_migration_does_not_change_existing_spoke_shape():
+    old = preset_spec('photo-paired-refined')[0].model_dump()
+    old.pop('paired_gap_flare_mm')
+    sources = {k: {'kind':'manual','note':'preserve'} for k in old}
+    updated, updated_sources = migrate_spec(old, sources)
+    assert updated['paired_gap_flare_mm'] == 0
+    assert all(updated[k] == v and updated_sources[k] == sources[k] for k,v in old.items())
