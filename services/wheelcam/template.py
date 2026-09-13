@@ -1,4 +1,4 @@
-"""Pure-math layout of template forged-monoblock-v8.
+"""Pure-math layout of template forged-monoblock-v9.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
@@ -6,7 +6,7 @@ Rim profile points are (r, z); spoke section points are (u, z), u along the sect
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v8"
+TEMPLATE_VERSION = "forged-monoblock-v9"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -131,7 +131,7 @@ def layout(spec):
     crown = spec.spoke_crown_mm
     paired = spec.spoke_style == "paired"
     tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
-    if not paired and (spec.paired_window_root_mm or spec.paired_root_round_mm or spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
+    if not paired and (spec.paired_blade_root_mm or spec.paired_window_root_mm or spec.paired_root_round_mm or spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
         raise ValueError("轮廓展开和加宽轮唇目前仅用于双辐模板。")
     if paired:
         if spec.paired_tip_inset_mm and spec.lip_extension_mm < spec.paired_tip_inset_mm + 10:
@@ -164,6 +164,28 @@ def layout(spec):
         raise ValueError("中心盘相对轮辋过大，轮辐长度不足。")
     if spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
         raise ValueError("轮辐根部宽度之和超过中心盘周长，相邻轮辐会重叠。")
+    if spec.paired_blade_root_mm:
+        if not spec.paired_window_root_mm or crown:
+            raise ValueError("直顺支臂需要启用大窗口曲线，且正面拱高为 0；前后凹面保留。")
+        if spec.paired_blade_root_mm < spec.paired_tip_width_mm:
+            raise ValueError("支臂过渡端宽不能小于末端宽度，以保证向外逐渐收窄。")
+    corner = spec.paired_root_round_mm or (spec.paired_gap_mm+spec.paired_gap_flare_mm)/2
+    profile_slot = {"radius_mm":(spec.paired_gap_mm+spec.paired_gap_flare_mm)/2,
+        "start_r_mm":hub_r+spec.paired_split_start_mm,"corner_radius_mm":corner,
+        "gap_mm":spec.paired_gap_mm,"flare_start_r_mm":max(hub_r+spec.paired_split_start_mm+corner,r_root+(r_tip-r_root)*.25),
+        "flare_end_r_mm":r_root+(r_tip-r_root)*.5}
+    taper_join = hub_r+spec.paired_window_blend_mm
+    def outer_half(r):
+        return slot_half_width(profile_slot,r)+spec.paired_blade_root_mm+(spec.paired_tip_width_mm-spec.paired_blade_root_mm)*(r-taper_join)/(r_tip-taper_join)
+    def outer_slope(r):
+        q,m = profile_slot["flare_start_r_mm"],profile_slot["flare_end_r_mm"]
+        slope = (spec.paired_tip_width_mm-spec.paired_blade_root_mm)/(r_tip-taper_join)
+        if not spec.paired_gap_flare_mm:
+            return slope
+        if m <= q:
+            raise ValueError("分叉渐变长度不足，请内移分叉起点。")
+        t = max(0.,min(1.,(r-q)/(m-q)))
+        return (profile_slot["gap_mm"]/2-profile_slot["radius_mm"])*6*t*(1-t)/(m-q)+slope
     sweep = math.radians(spec.sweep_deg)
     k = spec.face_curve
 
@@ -185,9 +207,11 @@ def layout(spec):
                     u = (t - ta) / (tb - ta)
                     width += wa + (wb - wa) * u * u * (3 - 2 * u)
                     break
+        if spec.paired_blade_root_mm:
+            width = 2*outer_half(r)
         front = apex - crown
         back = front - depth
-        back_half = width / 2 - depth * math.tan(SPOKE_DRAFT)
+        back_half = width / 2 - (0 if spec.paired_blade_root_mm else depth * math.tan(SPOKE_DRAFT))
         return {"r": r, "origin": (r * math.cos(theta), r * math.sin(theta)), "xdir": (-ny, nx),
                 "front": front, "back": back, "apex": apex, "depth": depth,
                 "width": width, "back_half": back_half}
@@ -204,6 +228,8 @@ def layout(spec):
         join_r = hub_r + spec.paired_window_blend_mm
         if join_r <= bottom + 15 or join_r >= r_tip - 35:
             raise ValueError("大窗口过渡终点须比底部至少外移 15 mm，且不能接近轮辋。")
+        if spec.paired_blade_root_mm and join_r < profile_slot["start_r_mm"]+corner+2:
+            raise ValueError("支臂直顺过渡必须位于小 U 槽底角之外。")
         join_t = (join_r-r_root)/(r_tip-r_root)
         end = base_frame(join_t)
         derivative = (base_frame(join_t+.0001)["width"]-base_frame(join_t-.0001)["width"])/(2*.0001*(r_tip-r_root))/2
@@ -243,8 +269,23 @@ def layout(spec):
                     else: hi=mid
                 half_width = cap((lo+hi)/2)[1]
             f["width"] = 2*half_width
-            f["back_half"] = half_width-f["depth"]*math.tan(SPOKE_DRAFT)
+            f["back_half"] = half_width-(0 if spec.paired_blade_root_mm else f["depth"]*math.tan(SPOKE_DRAFT))
         return f
+
+    explicit_profile = None
+    if spec.paired_blade_root_mm:
+        # Exact plan-view cubic edges: no loft is allowed to overshoot these boundaries.
+        root = (r_root,frame(0)["width"]/2)
+        transformed = [(X*ca+Y*sa,X*sa-Y*ca) for X,Y in controls]
+        segments = [[root,transformed[0]],transformed]
+        breaks = sorted(set([taper_join,r_tip,*[r for r in (profile_slot["flare_start_r_mm"],profile_slot["flare_end_r_mm"]) if taper_join<r<r_tip]]))
+        for a,b in zip(breaks,breaks[1:]):
+            d = (b-a)/3
+            segments.append([(a,outer_half(a)),(a+d,outer_half(a)+d*outer_slope(a)),
+                             (b-d,outer_half(b)-d*outer_slope(b)),(b,outer_half(b))])
+        explicit_profile = {"upper_segments_xy":segments,"wall_type":"vertical",
+                            "taper_start_r_mm":taper_join,"taper_end_r_mm":r_tip,
+                            "blade_root_width_mm":spec.paired_blade_root_mm,"blade_tip_width_mm":spec.paired_tip_width_mm}
 
     # Rim: the drop well starts below the lowest spoke back near the rim, so spokes never cut into it.
     seat_r = R + BEAD_SEAT_WIDTH * math.tan(BEAD_SEAT_TAPER)
@@ -304,6 +345,8 @@ def layout(spec):
             radii.append(f["width"])
         points.append((-f["width"] / 2, f["front"]))
         radii.append(spec.spoke_fillet_mm)
+        if explicit_profile:
+            radii = [0.0]*len(points)
         sections.append({**f, "polygon": points, "radii": radii, **({"window_join": True} if window and abs(f["r"]-join_r)<1e-7 else {})})
 
     pockets = []
@@ -364,6 +407,7 @@ def layout(spec):
                 "blade_width_mm":round(f["width"]/2-gap,2),
                 "back_blade_width_mm":round(f["back_half"]-gap,2), "depth_mm":round(f["depth"],2)})
     return {
+        "explicit_profile": explicit_profile,
         "skeleton_stations": skeleton_stations,
         "interspoke_window": window,
         "front_lip": lip,

@@ -139,14 +139,14 @@ def feature_manifest(spec: WheelSpec, snapshot, step_sha256):
     for index in range(spec.spoke_count):
         angle = spec.spoke_phase_deg + index * 360 / spec.spoke_count
         descriptor = {"rotation_deg": angle, "rotation_axis": [0, 0, 1],
-                      "section_frames": lay["sections"]}
+                      "section_frames": lay["sections"], "explicit_profile": lay["explicit_profile"]}
         if lay["paired_slot"]:
             descriptor["blade_count"] = 2
             descriptor["subtract_slot"] = lay["paired_slot"]
             add(f"pair-slot-{index + 1:02}", "paired_through_slot", f"双辐内窗口 {index + 1}",
                 {"rotation_deg": angle, **lay["paired_slot"], "axis": [0, 0, 1], "through": True},
                 "正面/分度待确认", "双辐窗口开粗 / 根部圆弧精铣")
-        add(f"spoke-{index + 1:02}", "paired_loft_surface" if lay["paired_slot"] else "loft_surface",
+        add(f"spoke-{index + 1:02}", "paired_profile_surface" if lay["explicit_profile"] else "paired_loft_surface" if lay["paired_slot"] else "loft_surface",
             f"双辐组曲面 {index + 1}" if lay["paired_slot"] else f"轮辐曲面 {index + 1}", descriptor, "正面", "曲面粗铣 / 精铣")
         add(f"window-{index + 1:02}", "interspoke_region", f"轮辐窗口 {index + 1}", {
             "between_features": [f"spoke-{index + 1:02}", f"spoke-{(index + 1) % spec.spoke_count + 1:02}"],

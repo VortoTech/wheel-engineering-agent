@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Box, Crosshair, Layers2, Rotate3D, ScanLine } from 'lucide-react';
+import { Box, Contrast, Crosshair, Layers2, Rotate3D, ScanLine } from 'lucide-react';
 
 type Runtime = { camera: THREE.PerspectiveCamera; controls: OrbitControls; size: number };
 
@@ -11,10 +11,11 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
   const runtime = useRef<Runtime | null>(null);
   const [wireframe, setWireframe] = useState(false);
   const [section, setSection] = useState(false);
+  const [neutral, setNeutral] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const options = useRef({ wireframe, section });
-  options.current = { wireframe, section };
+  const options = useRef({ wireframe, section, neutral });
+  options.current = { wireframe, section, neutral };
 
   useEffect(() => {
     if (!container.current) return;
@@ -91,6 +92,9 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
               material.metalness = dark ? 0.08 : 0.65;
               material.roughness = dark ? 0.6 : 0.3;
               material.side = THREE.DoubleSide;
+              material.userData.baseColor = material.color.clone();
+              material.userData.baseMetalness = material.metalness;
+              material.userData.baseRoughness = material.roughness;
               materials.push(material);
               return material;
             });
@@ -118,6 +122,12 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
     let frame = 0;
     const animate = () => {
       for (const material of materials) {
+        if (material.userData.neutral !== options.current.neutral) {
+          material.color.copy(options.current.neutral ? new THREE.Color(0xb7c1cf) : material.userData.baseColor);
+          material.metalness = options.current.neutral ? .05 : material.userData.baseMetalness;
+          material.roughness = options.current.neutral ? .8 : material.userData.baseRoughness;
+          material.userData.neutral = options.current.neutral;
+        }
         material.wireframe = options.current.wireframe;
         material.clippingPlanes = options.current.section ? [clipping] : [];
       }
@@ -148,6 +158,7 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
     {(loading || building) && <div className="viewer-progress" role="status"><span className="spinner"/>{building ? '正在构建并检查实体，上一版仍可查看' : '正在加载模型'}</div>}
     {error && <div className="viewer-error" role="alert">{error}</div>}
     <div className="viewport-tools">
+      <button title="浅色轮廓检查" aria-label="浅色轮廓检查" aria-pressed={neutral} onClick={() => setNeutral(!neutral)}><Contrast size={19}/></button>
       <button onClick={() => view(false)} title="透视视图" aria-label="透视视图"><Rotate3D size={18}/></button>
       <button onClick={() => view(true)} title="正面视图" aria-label="正面视图"><Crosshair size={18}/></button>
       <span/>

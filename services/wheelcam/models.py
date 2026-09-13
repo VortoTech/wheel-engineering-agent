@@ -27,6 +27,7 @@ class WheelSpec(BaseModel):
     bolt_diameter_mm: float = Field(14, ge=12, le=16)
     spoke_count: int = Field(6, ge=5, le=10, strict=True)
     spoke_style: Literal["single", "paired"] = "single"
+    paired_blade_root_mm: float = Field(0, ge=0, le=20)
     paired_window_root_mm: float = Field(0, ge=0, le=35)
     paired_window_blend_mm: float = Field(55, ge=25, le=85)
     paired_root_round_mm: float = Field(0, ge=0, le=25)

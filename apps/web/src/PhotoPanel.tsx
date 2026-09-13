@@ -115,7 +115,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
       </div>}
       {shown?.report?.skeleton && <div className="photo-skeleton">
         <strong>当前 CAD 的骨架粗细 · {shown.id.slice(0,6)}</strong>
-        <p className="photo-help">{shown.report.skeleton.window ? '大窗口弧形连接已进入实体。底部外移控制连接区大小，过渡终点控制根部向细辐收敛的长度。' : '大窗口弧形连接未启用，可在右侧双辐造型中调整。'}</p>
+        <p className="photo-help">{shown.report.skeleton.explicit_profile ? '直顺轮廓已进入实体；从过渡端到末端按单臂宽度逐渐收窄。侧壁与棱边处理见检查页。' : shown.report.skeleton.window ? '大窗口弧形连接已进入实体。底部外移控制连接区大小，过渡终点控制根部向细辐收敛的长度。' : '大窗口弧形连接未启用，可在右侧双辐造型中调整。'}</p>
         <table><thead><tr><th>位置</th><th>单臂正面宽度</th><th>前后厚度</th></tr></thead><tbody>
           {shown.report.skeleton.stations.map((s,i)=><tr key={s.fraction}><td>{['辐根过渡','前段','中段','后段','末端'][i]}</td><td>{s.blade_width_mm.toFixed(1)} mm</td><td>{s.depth_mm.toFixed(1)} mm</td></tr>)}
         </tbody></table><p className="photo-help">{shown.report.skeleton.note}</p>

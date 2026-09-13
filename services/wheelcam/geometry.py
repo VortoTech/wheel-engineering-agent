@@ -1,4 +1,4 @@
-"""Deterministic concept geometry for template forged-monoblock-v8.
+"""Deterministic concept geometry for template forged-monoblock-v9.
 
 No image inference or manufacturing certification. All dimensions come from template.layout().
 """
@@ -65,6 +65,29 @@ def _loft(frames) -> cq.Solid:
             raise ValueError("骨架圆弧截面未能形成实体。")
         return cq.Solid(builder.Shape())
     return cq.Solid.makeLoft(wires, ruled=False)
+
+
+def _profile_spoke(spec, lay):
+    """Intersect an exact XY outline with a quadratic dished front/back slab."""
+    upper = lay["explicit_profile"]["upper_segments_xy"]
+    def edge(points, to3d):
+        vectors = [cq.Vector(*to3d(p)) for p in points]
+        return cq.Edge.makeLine(*vectors) if len(points)==2 else cq.Edge.makeBezier(vectors)
+    first,last = upper[0][0],upper[-1][-1]
+    segments = [[(first[0],-first[1]),first],*upper,[last,(last[0],-last[1])],
+                *[[(x,-y) for x,y in reversed(segment)] for segment in reversed(upper)]]
+    outline = cq.Wire.assembleEdges([edge(points,lambda p:(p[0],p[1],-500)) for points in segments])
+    prism = cq.Solid.extrudeLinear(outline,[],cq.Vector(0,0,1000))
+    f0,f1 = lay["sections"][0],lay["sections"][-1]
+    r0,r1 = f0["r"],f1["r"]
+    delta = f1["front"]-f0["front"]
+    top = [(r0,f0["front"]),((r0+r1)/2,f0["front"]+delta*(1-spec.face_curve)/2),(r1,f1["front"])]
+    bottom = [(r,z-depth) for (r,z),depth in zip(top,[f0["depth"],(f0["depth"]+f1["depth"])/2,f1["depth"]])]
+    surface = [top,[top[-1],bottom[-1]],list(reversed(bottom)),[bottom[0],top[0]]]
+    half_span = max(abs(y) for segment in upper for _,y in segment)+10
+    wire = cq.Wire.assembleEdges([edge(points,lambda p:(p[0],-half_span,p[1])) for points in surface])
+    slab = cq.Solid.extrudeLinear(wire,[],cq.Vector(0,2*half_span,0))
+    return prism.intersect(slab).clean()
 
 
 def _fuse_with_fillet(parts, radius, split_radius):
@@ -139,7 +162,7 @@ def _build_wheel(spec: WheelSpec):
     hub = (cq.Workplane("XY", origin=(0, 0, spec.offset_et_mm))
            .circle(lay["hub_radius"]).extrude(spec.hub_thickness_mm)
            .edges(">Z").fillet(HUB_EDGE_FILLET).val())
-    spoke = _loft(lay["sections"])
+    spoke = _profile_spoke(spec,lay) if lay["explicit_profile"] else _loft(lay["sections"])
     if lay["paired_slot"]:
         slot = lay["paired_slot"]
         r, a, b = slot["radius_mm"], slot["start_r_mm"], slot["end_r_mm"]
@@ -262,10 +285,14 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     report.update(build_info)
     if spec.spoke_style == "paired":
         lay = layout(spec)
-        report["skeleton"] = {"window":lay["interspoke_window"], "stations":lay["skeleton_stations"],
-            "note":"当前版本的截面控制宽度，未扣除棱边圆角；不是实体最小厚度。前后厚度沿用假设。"}
+        report["skeleton"] = {"window":lay["interspoke_window"], "explicit_profile":lay["explicit_profile"], "stations":lay["skeleton_stations"],
+            "note":("此模式的正面边界宽度；侧壁竖直，前后厚度沿用假设，非实测或最小壁厚评估。" if spec.paired_blade_root_mm else "当前版本的截面控制宽度，未扣除棱边圆角；不是实体最小厚度。前后厚度沿用假设。")}
+    if spec.paired_blade_root_mm:
+        report["spoke_fillet_requested_mm"] = spec.spoke_fillet_mm
+        report["spoke_fillet_applied_mm"] = 0.0
+        limitations.insert(0, "直顺支臂采用精确正面边界与假设凹面厚度相交；侧壁竖直，棱边圆角暂未生成，非原拔模截面")
     if spec.paired_window_root_mm:
-        limitations.insert(0, "大窗口圆弧通过密集截面形成相邻组连接，非恒定半径倒圆；顶面与背面连续性、最小壁厚及结构强度仍待工程验证")
+        limitations.insert(0, ("大窗口圆弧通过显式正面边界形成相邻组连接" if spec.paired_blade_root_mm else "大窗口圆弧通过密集截面形成相邻组连接") + "，非恒定半径倒圆；顶面与背面连续性、最小壁厚及结构强度仍待工程验证")
     if spec.spoke_style == "paired":
         limitations.insert(0, "双辐为照片人工拟合的单片近似；分体连接、中心盖和周圈螺栓仅外观展示，不参与工程检查")
     if spec.lip_extension_mm:
