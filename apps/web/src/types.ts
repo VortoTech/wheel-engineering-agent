@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v3';
+export const TEMPLATE_VERSION = 'forged-monoblock-v4';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -7,9 +7,12 @@ export type Spec = {
   spoke_crown_mm: number; spoke_fillet_mm: number; face_curve: number; sweep_deg: number;
   pocket_depth_mm: number; junction_fillet_mm: number;
   valve_diameter_mm: number; valve_angle_deg: number; valve_tilt_deg: number;
+  spoke_style: 'single' | 'paired'; paired_gap_mm: number; paired_tip_width_mm: number;
+  paired_split_start_mm: number; spoke_phase_deg: number;
 };
+export type NumericSpecKey = Exclude<keyof Spec, 'spoke_style'>;
 // Snapshots from older templates keep their own spec shape.
-export type AnySpec = Spec | Record<string, number>;
+export type AnySpec = Spec | Record<string, number | string>;
 export type Source = { kind: 'template' | 'manual' | 'drawing' | 'measurement'; note: string };
 export type Sources = Record<keyof Spec, Source>;
 export type Caliper = { inner_radius_mm: number; outer_radius_mm: number; z_min_mm: number; z_max_mm: number; required_clearance_mm: number; source: Source };
@@ -30,6 +33,7 @@ export type Report = {
   junction_fillet_requested_mm?: number; junction_fillet_applied_mm?: number;
   preparation?: PreparationReport;
   handoff?: { status: string; feature_count: number; operation_count: number };
+  presentation?: { status: 'display_only'; decorative_fastener_count: number; note: string } | null;
 };
 export type Job = {
   id: string; status: 'queued' | 'running' | 'succeeded' | 'failed';

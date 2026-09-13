@@ -6,7 +6,7 @@ import { Box, Crosshair, Layers2, Rotate3D, ScanLine } from 'lucide-react';
 
 type Runtime = { camera: THREE.PerspectiveCamera; controls: OrbitControls; size: number };
 
-export function Viewer({ url, building }: { url: string | null; building: boolean }) {
+export function Viewer({ url, building, displayOnly = false }: { url: string | null; building: boolean; displayOnly?: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const runtime = useRef<Runtime | null>(null);
   const [wireframe, setWireframe] = useState(false);
@@ -82,12 +82,19 @@ export function Viewer({ url, building }: { url: string | null; building: boolea
         model.position.sub(bounds.getCenter(new THREE.Vector3()));
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            (Array.isArray(child.material) ? child.material : [child.material]).forEach((m) => m.dispose());
-            const material = new THREE.MeshStandardMaterial({
-              color: 0x9ca9bb, metalness: 0.55, roughness: 0.3, side: THREE.DoubleSide,
+            const original = Array.isArray(child.material) ? child.material : [child.material];
+            const converted = original.map((source) => {
+              const material = source instanceof THREE.MeshStandardMaterial ? source.clone()
+                : new THREE.MeshStandardMaterial({ color: 0x9ca9bb });
+              const dark = Math.max(material.color.r, material.color.g, material.color.b) < 0.2;
+              material.metalness = dark ? 0.15 : 0.65;
+              material.roughness = dark ? 0.48 : 0.3;
+              material.side = THREE.DoubleSide;
+              materials.push(material);
+              return material;
             });
-            child.material = material;
-            materials.push(material);
+            child.material = Array.isArray(child.material) ? converted : converted[0];
+            original.forEach((m) => m.dispose());
           }
         });
         scene.add(model);
@@ -134,7 +141,7 @@ export function Viewer({ url, building }: { url: string | null; building: boolea
   };
 
   return <div className="viewer">
-    <div className="viewport-label"><span className="live-dot"/> {url ? '实体预览' : '建模空间'} <span>· mm</span></div>
+    <div className="viewport-label"><span className="live-dot"/> {url ? displayOnly ? '外观预览 · 附件仅展示' : '轮毂实体 · 不含展示附件' : '建模空间'} <span>· mm</span></div>
     <div className="canvas" ref={container} aria-label="轮毂三维模型，可拖动旋转、滚轮缩放"/>
     {!url && <div className="viewer-empty"><Box size={48} strokeWidth={1}/><h2>从第一版轮毂开始</h2><p>确认右侧参数，生成可编辑的三维实体。</p><span>周期轮辐 · 锻造单片模板</span></div>}
     {(loading || building) && <div className="viewer-progress" role="status"><span className="spinner"/>{building ? '正在构建并检查实体，上一版仍可查看' : '正在加载模型'}</div>}

@@ -210,3 +210,15 @@ def test_same_origin_custom_port_and_untrusted_host(tmp_path):
         assert local.post('/api/projects', json={'name': 'custom port'}, headers={'origin': 'http://127.0.0.1:18766'}).status_code == 201
         assert local.post('/api/projects', json={'name': 'bad origin'}, headers={'origin': 'https://example.com'}).status_code == 403
         assert local.post('/api/projects', json={'name': 'bad host'}, headers={'origin': 'http://evil.example', 'host': 'evil.example'}).status_code == 400
+
+
+def test_photo_preset_creates_separate_editable_project(client):
+    original = create(client)
+    paired = client.post('/api/projects', json={'name': '照片双辐', 'preset': 'photo-paired-8'})
+    assert paired.status_code == 201
+    project = paired.json()
+    assert project['id'] != original['id']
+    assert project['spec']['spoke_style'] == 'paired' and project['spec']['spoke_count'] == 8
+    assert '非照片测量' in project['sources']['rim_diameter_in']['note']
+    assert client.get(f'/api/projects/{original["id"]}').json()['spec']['spoke_style'] == 'single'
+    assert client.post('/api/projects', json={'preset': 'unknown'}).status_code == 422

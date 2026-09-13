@@ -26,11 +26,16 @@ class WheelSpec(BaseModel):
     bolt_circle_mm: float = Field(114.3, ge=98, le=140)
     bolt_diameter_mm: float = Field(14, ge=12, le=16)
     spoke_count: int = Field(6, ge=5, le=10, strict=True)
+    spoke_style: Literal["single", "paired"] = "single"
+    paired_gap_mm: float = Field(34, ge=16, le=50)
+    paired_tip_width_mm: float = Field(6, ge=4, le=14)
+    paired_split_start_mm: float = Field(8, ge=3, le=25)
+    spoke_phase_deg: float = Field(0, ge=0, lt=360)
     spoke_width_hub_mm: float = Field(38, ge=22, le=60)
     spoke_width_rim_mm: float = Field(30, ge=14, le=50)
     spoke_thickness_mm: float = Field(28, ge=16, le=40)
     spoke_crown_mm: float = Field(2, ge=0, le=6)
-    spoke_fillet_mm: float = Field(3, ge=1, le=6)
+    spoke_fillet_mm: float = Field(3, ge=0.5, le=6)
     face_curve: float = Field(0.5, ge=0, le=1)
     sweep_deg: float = Field(8, ge=-25, le=25)
     pocket_depth_mm: float = Field(12, ge=0, le=24)
@@ -146,6 +151,7 @@ def migrate_spec(spec: dict, sources: dict):
 
 class ProjectCreate(BaseModel):
     name: str = Field("轮毂概念 01", min_length=1, max_length=80)
+    preset: Literal["single", "photo-paired-8"] = "single"
 
 
 class DraftUpdate(BaseModel):

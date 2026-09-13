@@ -1,4 +1,4 @@
-"""Pure-math layout of template forged-monoblock-v2.
+"""Pure-math layout of template forged-monoblock-v4.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
@@ -6,7 +6,7 @@ Rim profile points are (r, z); spoke section points are (u, z), u along the sect
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v3"
+TEMPLATE_VERSION = "forged-monoblock-v4"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -113,6 +113,17 @@ def layout(spec):
     apex_tip = half + flange - max(TIP_SETBACK, junction + 3)
     apex_root = hub_front - HUB_PAD_PROUD
     crown = spec.spoke_crown_mm
+    paired = spec.spoke_style == "paired"
+    tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
+    if paired:
+        if spec.pocket_depth_mm:
+            raise ValueError("双辐模板暂不支持背腔，请将背腔深度设为 0。")
+        if spec.sweep_deg:
+            raise ValueError("当前双辐窗口沿径向布置，请将轮辐偏转设为 0。")
+        if spec.paired_tip_width_mm - spec.spoke_thickness_mm * math.tan(SPOKE_DRAFT) < 2.5:
+            raise ValueError("双辐支臂过窄，拔模后的背面宽度不足，请加宽支臂或减小厚度。")
+        if spec.spoke_fillet_mm > spec.paired_tip_width_mm / 3:
+            raise ValueError("双辐棱边圆角过大，请减小圆角或加宽支臂。")
 
     if spec.offset_et_mm < -half + 10:
         raise ValueError("安装面偏距 ET 过小，中心盘超出轮辋内侧。")
@@ -128,7 +139,7 @@ def layout(spec):
 
     # Spokes: sections on vertical planes along a swept, dished centre path.
     r_root = hub_r - 10
-    r_tip = R - 1.5 - spec.spoke_width_rim_mm ** 2 / (8 * R)
+    r_tip = R - 1.5 - tip_width ** 2 / (8 * R)
     if r_tip - r_root < 80:
         raise ValueError("中心盘相对轮辋过大，轮辐长度不足。")
     if spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
@@ -145,7 +156,7 @@ def layout(spec):
         nx, ny = _unit(dx, dy)
         apex = apex_root + (apex_tip - apex_root) * ((1 - k) * t + k * t * t)
         depth = spec.spoke_thickness_mm * (1 - (1 - TIP_DEPTH_RATIO) * t)
-        width = spec.spoke_width_hub_mm + (spec.spoke_width_rim_mm - spec.spoke_width_hub_mm) * t
+        width = spec.spoke_width_hub_mm + (tip_width - spec.spoke_width_hub_mm) * t
         front = apex - crown
         back = front - depth
         back_half = width / 2 - depth * math.tan(SPOKE_DRAFT)
@@ -226,12 +237,30 @@ def layout(spec):
                                              (half_width, floor), (-half_width, floor)],
                             "radii": [0.5, 0.5, POCKET_FLOOR_RADIUS, POCKET_FLOOR_RADIUS]})
 
+    paired_slot = None
+    if paired:
+        # U-shaped open slot cut through each broad group before it meets the rim.
+        start = hub_r + spec.paired_split_start_mm
+        radius = spec.paired_gap_mm / 2
+        end = r_tip + 15
+        if start + radius + 20 >= r_tip:
+            raise ValueError("双辐分叉位置太靠外，支臂长度不足。")
+        for t in (0.25, 0.5, 0.75, 1):
+            f = frame(t)
+            if f["r"] >= start + radius and f["back_half"] - radius < 2.5:
+                raise ValueError("双辐窗口挤占支臂，请增大根部宽度或减小双辐间隙。")
+        paired_slot = {"start_r_mm": start, "radius_mm": radius, "end_r_mm": end,
+                       "gap_mm": spec.paired_gap_mm}
+
     return {
+        "paired_slot": paired_slot,
         "rim_polygon": rim_polygon, "sections": sections, "pockets": pockets,
         "hub_front_z": hub_front, "hub_radius": hub_r,
         "well_radius": well_r, "well_mid_z": (well_start + well_end) / 2,
         "lug_pocket_diameter": lug_pocket, "lug_cone_diameter": spec.bolt_diameter_mm + LUG_CONE_EXTRA,
         "derived": {
+            "spoke_group_count": spec.spoke_count,
+            "spoke_blade_count": spec.spoke_count * (2 if paired else 1),
             "bead_seat_diameter_mm": round(D, 3),
             "outer_diameter_mm": round(D + 2 * FLANGE_HEIGHT, 3),
             "rim_width_mm": round(W, 3),

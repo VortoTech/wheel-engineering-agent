@@ -311,3 +311,7 @@ legend{font-size:14px;padding:0 10px 0 0;color:#cbd4df;letter-spacing:.03em}
 
 .parameters-scroll { min-height: 0; max-height: max(580px, calc(100svh - 340px)); }
 @media(max-width:640px) { .parameters-scroll { max-height: 550px; } }
+.appearance-choice{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:10px 22px;font-size:12px;background:#19222d;color:#aebdce}
+.appearance-choice label{display:flex;align-items:center;gap:6px;color:#e0e6ef}
+.appearance-choice input{accent-color:var(--accent)}
+@media(max-width:640px){.project-identity{flex-wrap:wrap}.appearance-choice{padding:10px 15px}}

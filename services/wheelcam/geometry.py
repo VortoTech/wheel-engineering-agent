@@ -1,4 +1,4 @@
-"""Deterministic concept geometry for template forged-monoblock-v2.
+"""Deterministic concept geometry for template forged-monoblock-v4.
 
 No image inference or manufacturing certification. All dimensions come from template.layout().
 """
@@ -107,7 +107,7 @@ def _cutters(spec: WheelSpec, lay) -> list[cq.Solid]:
     return cutters
 
 
-def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
+def _build_wheel(spec: WheelSpec):
     lay = layout(spec)
     points, radii = zip(*lay["rim_polygon"])
     rim_wire = _wire(points, radii, lambda p: (p[0], 0.0, p[1]))
@@ -116,9 +116,16 @@ def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
            .circle(lay["hub_radius"]).extrude(spec.hub_thickness_mm)
            .edges(">Z").fillet(HUB_EDGE_FILLET).val())
     spoke = _loft(lay["sections"])
+    if lay["paired_slot"]:
+        slot = lay["paired_slot"]
+        r, a, b = slot["radius_mm"], slot["start_r_mm"], slot["end_r_mm"]
+        cutter = (cq.Workplane("XY", origin=(0, 0, -500)).moveTo(a + r, -r)
+                  .lineTo(b, -r).lineTo(b, r).lineTo(a + r, r)
+                  .threePointArc((a, 0), (a + r, -r)).close().extrude(1000).val())
+        spoke = spoke.cut(cutter).clean()
     if lay["pockets"]:
         spoke = spoke.cut(_loft(lay["pockets"]))
-    spokes = [spoke.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), index * 360 / spec.spoke_count)
+    spokes = [spoke.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), spec.spoke_phase_deg + index * 360 / spec.spoke_count)
               for index in range(spec.spoke_count)]
     body, applied = _fuse_with_fillet([rim, hub, *spokes], spec.junction_fillet_mm,
                                       (lay["hub_radius"] + lay["well_radius"]) / 2)
@@ -137,7 +144,12 @@ def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
     return cq.Workplane(obj=result), {"junction_fillet_requested_mm": spec.junction_fillet_mm,
                                       "junction_fillet_applied_mm": min(applied.values()),
                                       "hub_fillet_applied_mm": applied["hub"],
-                                      "rim_fillet_applied_mm": applied["rim"]}
+                                      "rim_fillet_applied_mm": applied["rim"]}, rim
+
+
+def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
+    wheel, info, _ = _build_wheel(spec)
+    return wheel, info
 
 
 def inspect_shape(shape, spec: WheelSpec) -> dict:
@@ -169,7 +181,7 @@ def inspect_shape(shape, spec: WheelSpec) -> dict:
 
 def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None = None, snapshot: dict | None = None) -> dict:
     output.mkdir(parents=True, exist_ok=True)
-    wheel, build_info = build_wheel(spec)
+    wheel, build_info, rim = _build_wheel(spec)
     report = inspect_shape(wheel.val(), spec)
     preparation = preparation or Preparation()
     snapshot = snapshot or {"spec": spec.model_dump(), "template_version": TEMPLATE_VERSION,
@@ -188,8 +200,8 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     report["checks"]["step_roundtrip"] = True
     report["step_volume_relative_delta"] = relative_delta
     report["step_solid_count"] = reopened["solid_count"]
-    assembly = cq.Assembly(wheel, name="wheel-concept", color=cq.Color(0.63, 0.67, 0.73))
-    assembly.export(str(output / "wheel.glb"), tolerance=0.15, angularTolerance=0.1)
+    from .appearance import export_previews
+    report["presentation"] = export_previews(wheel, rim, spec, output)
     limitations = ["轮辋截面为近似 J 型轮缘、5° 胎圈座深槽轮辋，未逐项核对 ETRTO / TRA 标准",
                    "气门孔仅为通孔，气门嘴密封座、平衡配重面与中心盖安装结构尚未验证" if spec.valve_diameter_mm else "未启用气门孔；平衡配重面与中心盖安装结构尚未包含",
                    "公差、载荷及输入资料尚未作工程审核；包络检查和重量均依赖当前版本输入",
@@ -198,6 +210,8 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
         limitations.insert(0, f"轮辐连接圆角请求 {spec.junction_fillet_mm:g} mm，实际生成：中心盘侧 "
                               f"{build_info['hub_fillet_applied_mm']:g} mm，轮辋侧 {build_info['rim_fillet_applied_mm']:g} mm")
     report.update(build_info)
+    if spec.spoke_style == "paired":
+        limitations.insert(0, "双辐为照片人工拟合的单片近似；分体连接、中心盖和周圈螺栓仅外观展示，不参与工程检查")
     report["preparation"] = check_preparation(wheel.val(), spec, preparation, output)
     report["handoff"] = write_handoff_files(output, spec, snapshot)
     report["model_id"] = snapshot.get("model_id")
@@ -210,7 +224,7 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
         "artifacts": {name: {"sha256": hashlib.sha256((output / name).read_bytes()).hexdigest(),
                               "bytes": (output / name).stat().st_size}
                       for name in ["wheel.step", "wheel.glb", "recipe.json", "features.json", "operations.csv",
-                                   "stock.step", "caliper-envelope.step"] if (output / name).exists()},
+                                   "stock.step", "caliper-envelope.step", "presentation.glb"] if (output / name).exists()},
     })
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     with zipfile.ZipFile(output / "handoff.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:

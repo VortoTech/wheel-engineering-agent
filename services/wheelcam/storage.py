@@ -69,13 +69,15 @@ class Store:
         finally:
             db.close()
 
-    def create_project(self, name):
+    def create_project(self, name, preset="single"):
+        from .presets import preset_spec
+        spec, sources = preset_spec(preset)
         project_id = uid()
         timestamp = now()
         with self.connection() as db:
             db.execute("INSERT INTO projects(id,name,spec,sources,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                       (project_id, name.strip() or "未命名轮毂", WheelSpec().model_dump_json(),
-                        json.dumps(default_sources(), ensure_ascii=False), timestamp, timestamp))
+                       (project_id, name.strip() or "未命名轮毂", spec.model_dump_json(),
+                        json.dumps(sources, ensure_ascii=False), timestamp, timestamp))
         return self.project(project_id)
 
     def project(self, project_id):

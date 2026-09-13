@@ -30,7 +30,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.3.0", lifespan=lifespan)
     app.state.store = store
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
@@ -65,7 +65,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
 
     @app.post("/api/projects", status_code=201)
     def create_project(body: ProjectCreate):
-        return store.create_project(body.name)
+        return store.create_project(body.name, body.preset)
 
     @app.get("/api/projects/{project_id}")
     def get_project(project_id: str):
@@ -144,7 +144,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     def artifact(job_id: str, artifact: str):
         names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "report": "report.json",
                  "features": "features.json", "operations": "operations.csv", "handoff": "handoff.zip",
-                 "stock": "stock.step", "caliper": "caliper-envelope.step"}
+                 "stock": "stock.step", "caliper": "caliper-envelope.step", "presentation": "presentation.glb"}
         if artifact not in names:
             raise HTTPException(404, "文件不存在。")
         with store.connection() as db:
@@ -155,7 +155,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if not path.exists():
             raise HTTPException(404, "导出文件缺失，请重新生成。")
         return FileResponse(path, filename=f"wheelcam-{job_id[:8]}-{names[artifact]}",
-                            media_type="model/gltf-binary" if artifact == "glb" else "application/octet-stream",
+                            media_type="model/gltf-binary" if artifact in {"glb", "presentation"} else "application/octet-stream",
                             headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     frontend = ROOT / "apps" / "web" / "dist"
