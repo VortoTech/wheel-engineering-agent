@@ -13,6 +13,7 @@
 - 照片目录**只读**，不改原图。
 - 标注按图片 SHA-256 保存到 `data/annotations/<sha256>.json`（`data/` 不进 git）。改名或重复拷贝的同一张图共用一份标注。
 - 可用 `--out` 另指目录，`--port` 换端口。
+- 工作台（v10）读的是同一目录（`data/annotations/`，或 `WHEELCAM_LABEL_DIR` 指定的目录）。在工作台上传同一个图片文件，点击“窗口标注 · 拟合窗口”，就能按这份标注拟合窗口法轮廓。见 [docs/photo-fitting.md](../../docs/photo-fitting.md)。
 
 ## 标注什么
 

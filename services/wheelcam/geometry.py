@@ -1,15 +1,19 @@
-"""Deterministic concept geometry for template forged-monoblock-v9.
+"""Deterministic concept geometry for template forged-monoblock-v10.
 
-No image inference or manufacturing certification. All dimensions come from template.layout().
+Spokes are either lofted sections (v9, spoke_method "loft") or a turned blank milled by window
+outlines (spoke_method "window"). No image inference or manufacturing certification here; all
+dimensions come from template.layout().
 """
 
 import hashlib
 import json
 import math
+import time
 import zipfile
 from pathlib import Path
 
 import cadquery as cq
+import numpy as np
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCP.BRepGProp import BRepGProp
@@ -21,6 +25,7 @@ from OCP.TopoDS import TopoDS
 from .models import Preparation, WheelSpec
 from .preparation import check_preparation, valve_geometry, write_handoff_files
 from .template import HUB_EDGE_FILLET, LUG_SEAT_THICKNESS, TEMPLATE_VERSION, layout, round_polygon
+from .windows import rotate as rotate_outline
 
 
 def _volume(shape) -> float:
@@ -90,7 +95,7 @@ def _profile_spoke(spec, lay):
     return prism.intersect(slab).clean()
 
 
-def _fuse_with_fillet(parts, radius, split_radius):
+def _fuse_with_fillet(parts, radius, split_radius, attempts=None):
     """Fuse all parts, then round the new intersection edges (spoke↔hub inside split_radius, spoke↔rim outside).
 
     The rim side is the fragile one, so it steps down on its own before the hub side is touched.
@@ -112,22 +117,180 @@ def _fuse_with_fillet(parts, radius, split_radius):
         edge = TopoDS.Edge_s(shape)
         center = cq.Edge(edge).Center()
         (hub_edges if math.hypot(center.x, center.y) < split_radius else rim_edges).append(edge)
-    attempts = [(radius, radius * f) for f in (1, 0.75, 0.5, 0.3, 0)] + [(radius / 2, 0)] if radius > 0 else []
+    if attempts is None:
+        attempts = [(1, 1), (1, 0.75), (1, 0.5), (1, 0.3), (1, 0), (0.5, 0)]
+    attempts = [(radius * h, radius * r) for h, r in attempts] if radius > 0 else []
     for hub_radius, rim_radius in attempts:
         fillet = BRepFilletAPI_MakeFillet(fused)
-        for edge in hub_edges:
-            fillet.Add(hub_radius, edge)
-        for edge in rim_edges if rim_radius > 0 else ():
-            fillet.Add(rim_radius, edge)
         try:
+            # Add() raises for edges not bounded by exactly two faces; Build() for unclosable fillets.
+            for edge in hub_edges:
+                fillet.Add(hub_radius, edge)
+            for edge in rim_edges if rim_radius > 0 else ():
+                fillet.Add(rim_radius, edge)
             fillet.Build()
-        except Exception:  # OCCT raises StdFail_NotDone for fillets it cannot close
+        except Exception:
             continue
         if fillet.IsDone():
             candidate = cq.Shape.cast(fillet.Shape())
             if candidate.isValid() and len(candidate.Solids()) == 1:
                 return candidate, {"hub": hub_radius, "rim": rim_radius}
-    return cq.Shape.cast(fused), {"hub": 0.0, "rim": 0.0}
+    plain = cq.Shape.cast(fused)
+    # The unfilleted fuse is only a fallback if it is itself sound; never hand an invalid body onward.
+    if not plain.isValid() or len(plain.Solids()) != 1:
+        raise ValueError("轮辋、中心盘与轮辐合并后不是单一有效实体。")
+    return plain, {"hub": 0.0, "rim": 0.0}
+
+
+WINDOW_FILLET_BUDGET_S = 60   # one-by-one window edge retries stop here; the worker allows 300 s per build
+# Rim join for window-method centres: fewer junction radii, run in a child process that is killed after
+# the timeout (one failing fillet attempt on photo #18 ran > 20 min, 2026-09-13).
+WINDOW_JOIN_TIMEOUT_S = 45
+WINDOW_ROUND_JOIN_TIMEOUT_S = 100   # window edge fillets (≤ 60 s budget) + join
+WINDOW_JOIN_ATTEMPTS = [(1, 1), (1, 0.5), (1, 0), (0.5, 0)]
+
+
+def _try_fillet(shape, pairs):
+    """Round (edge, radius) pairs; None when OCCT cannot. Shape() of a failed fillet is null and crashes.
+
+    Works on a copy: failed OCCT fillets widen tolerances of the input in place, and the input then
+    fuses into an invalid two-solid body (photo #26, 2026-09-13). Edges map to the copy by position.
+    """
+    originals, work = shape.Edges(), shape.copy()
+    copies = work.Edges()
+    if len(copies) != len(originals):
+        return None
+    maker = BRepFilletAPI_MakeFillet(work.wrapped)
+    try:
+        for edge, radius in pairs:
+            index = next(i for i, original in enumerate(originals) if original.isSame(edge))
+            maker.Add(radius, copies[index].wrapped)
+        maker.Build()
+    except Exception:
+        return None
+    if not maker.IsDone():
+        return None
+    candidate = cq.Shape.cast(maker.Shape())
+    return candidate if candidate.isValid() and len(candidate.Solids()) == 1 else None
+
+
+def _window_centre(spec: WheelSpec, lay, hub):
+    """Turn hub and spoke blank as one body, then mill the window outlines through it (booleans only)."""
+    blank = lay["window_blank"]
+    top, bottom = blank["top_rz"], blank["bottom_rz"]
+    at = lambda p: cq.Vector(p[0], 0, p[1])
+    profile = cq.Wire.assembleEdges([
+        cq.Edge.makeBezier([at(p) for p in top]), cq.Edge.makeLine(at(top[-1]), at(bottom[-1])),
+        cq.Edge.makeBezier([at(p) for p in reversed(bottom)]), cq.Edge.makeLine(at(bottom[0]), at(top[0]))])
+    turned = cq.Solid.revolve(profile, [], 360, cq.Vector(0, 0, 0), cq.Vector(0, 0, 1))
+    z_low, z_high = min(z for _, z in bottom) - 3, max(z for _, z in top) + 3
+    keep = cq.Solid.makeCylinder(blank["hub_keep_radius_mm"], 2000, cq.Vector(0, 0, -1000))
+    cutters = []
+    for index in range(spec.spoke_count):
+        angle = spec.spoke_phase_deg + index * 360 / spec.spoke_count
+        for outline in blank["outlines_mm"]:
+            points = [cq.Vector(x, y, z_low) for x, y in rotate_outline(outline, angle)]
+            wire = cq.Wire.assembleEdges([cq.Edge.makeSpline(points, periodic=True)])
+            cutters.append(cq.Solid.extrudeLinear(wire, [], cq.Vector(0, 0, z_high - z_low)).cut(keep))
+    # Fuse the coaxial revolves first: cutting the blank alone and then fusing the hub left the hub
+    # unattached with no boolean error in the 2026-09 spike.
+    centre = hub.fuse(turned).clean().cut(*cutters).clean()
+    if not centre.isValid() or len(centre.Solids()) != 1:
+        raise ValueError("窗口切削后中心体不是单一有效实体，请检查窗口轮廓。")
+    return centre.copy()   # a private body: failed fillets elsewhere must never touch it
+
+
+def _window_rim_edges(centre, top, bottom, hub_radius):
+    """(edge, is_front) for each window rim: spline-wall ∩ turned-face curves outside the hub."""
+    rs, fronts, backs = [p[0] for p in top], [p[1] for p in top], [p[1] for p in bottom]
+    edges = []
+    for edge in centre.Edges():
+        # Circles and Bezier seams belong to the turning; window rims are B-splines.
+        center = edge.Center()
+        radial = math.hypot(center.x, center.y)
+        if edge.geomType() != "BSPLINE" or radial < hub_radius + 6:
+            continue
+        mid = (float(np.interp(radial, rs, fronts)) + float(np.interp(radial, rs, backs))) / 2
+        edges.append((edge, center.z > mid))
+    return edges
+
+
+def round_window_edges(centre, top, bottom, hub_radius, requested):
+    """Round the window rims; (shape, info).
+
+    Runs in the join child: an OCCT fillet can run for many minutes (photo #20, 2026-09-13) and only a
+    process can be killed.
+    """
+    edges = _window_rim_edges(centre, top, bottom, hub_radius)
+    info = {"window_edge_fillet_requested_mm": requested, "window_edge_fillet_applied_mm": 0.0,
+            "window_edges_rounded": 0, "window_edges_total": len(edges), "window_fillet_budget_hit": False}
+    if requested <= 0 or not edges:
+        return centre, info
+    deadline = time.monotonic() + WINDOW_FILLET_BUDGET_S
+    for radius in (requested, requested / 2):
+        wanted = [(edge, radius if front else min(1.0, radius)) for edge, front in edges]
+        rounded = _try_fillet(centre, wanted)
+        if rounded is None:
+            # Keep only edges that round on their own; the report states how many were skipped.
+            kept = []
+            for pair in wanted:
+                if time.monotonic() > deadline:
+                    info["window_fillet_budget_hit"] = True
+                    break
+                if _try_fillet(centre, [pair]) is not None:
+                    kept.append(pair)
+            wanted = kept
+            rounded = _try_fillet(centre, wanted) if wanted else None
+        if rounded is not None:
+            info.update(window_edge_fillet_applied_mm=radius, window_edges_rounded=len(wanted))
+            return rounded, info
+        if time.monotonic() > deadline:
+            info["window_fillet_budget_hit"] = True
+            break
+    return centre, info
+
+
+def _join_window_centre(spec: WheelSpec, lay, rim, hub):
+    """Milled centre ↔ rim. Each fillet variant runs in a child process that is killed on timeout:
+
+    1. round the window edges, then join with junction fillets     (WINDOW_ROUND_JOIN_TIMEOUT_S)
+    2. join with junction fillets, window edges left sharp          (WINDOW_JOIN_TIMEOUT_S)
+    3. last resort, in-process: plain join, no fillets (booleans only; 18 s on photo #18)
+
+    Junction fillets carry load, window edge breaks do not: variant 2 replaces 1 when it gets the larger
+    junction fillet. The report states what was applied.
+    """
+    from .join_worker import join_with_timeout
+    plain = _window_centre(spec, lay, hub)
+    blank = lay["window_blank"]
+    split = (lay["hub_radius"] + lay["well_radius"]) / 2
+    sharp = {"window_edge_fillet_requested_mm": spec.window_edge_fillet_mm, "window_edge_fillet_applied_mm": 0.0,
+             "window_edges_rounded": 0,
+             "window_edges_total": len(_window_rim_edges(plain, blank["top_rz"], blank["bottom_rz"], lay["hub_radius"]))}
+    join = {"radius": spec.junction_fillet_mm, "split": split, "attempts": WINDOW_JOIN_ATTEMPTS}
+    variants = []
+    if spec.window_edge_fillet_mm > 0:
+        variants.append(({**join, "round": {"top": blank["top_rz"], "bottom": blank["bottom_rz"],
+                                            "hub_radius": lay["hub_radius"], "fillet": spec.window_edge_fillet_mm}},
+                         WINDOW_ROUND_JOIN_TIMEOUT_S))
+    variants.append((join, WINDOW_JOIN_TIMEOUT_S))
+    best = None
+    for params, timeout in variants:
+        joined = join_with_timeout(rim, plain, params, timeout)
+        if joined is None:
+            continue
+        body, applied, rounding = joined
+        if best is None or min(applied.values()) > min(best[1].values()):
+            best = (body, applied, {**sharp, **rounding})
+        if min(applied.values()) >= spec.junction_fillet_mm:
+            break
+    if best is None:
+        try:
+            body, applied = _fuse_with_fillet([rim, plain], 0, split)
+        except ValueError:
+            raise ValueError("窗口法中心体未能与轮辋合并为有效实体，请检查窗口轮廓。") from None
+        best = (body, applied, sharp)
+    return best
 
 
 def _cutters(spec: WheelSpec, lay) -> list[cq.Solid]:
@@ -162,7 +325,12 @@ def _build_wheel(spec: WheelSpec):
     hub = (cq.Workplane("XY", origin=(0, 0, spec.offset_et_mm))
            .circle(lay["hub_radius"]).extrude(spec.hub_thickness_mm)
            .edges(">Z").fillet(HUB_EDGE_FILLET).val())
-    spoke = _profile_spoke(spec,lay) if lay["explicit_profile"] else _loft(lay["sections"])
+    window_info = {}
+    if lay["window_blank"]:
+        spoke = None
+        body, applied, window_info = _join_window_centre(spec, lay, rim, hub)
+    else:
+        spoke = _profile_spoke(spec,lay) if lay["explicit_profile"] else _loft(lay["sections"])
     if lay["paired_slot"]:
         slot = lay["paired_slot"]
         r, a, b = slot["radius_mm"], slot["start_r_mm"], slot["end_r_mm"]
@@ -190,13 +358,16 @@ def _build_wheel(spec: WheelSpec):
         spoke = spoke.cut(cutter).clean()
     if lay["pockets"]:
         spoke = spoke.cut(_loft(lay["pockets"]))
-    spokes = [spoke.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), spec.spoke_phase_deg + index * 360 / spec.spoke_count)
-              for index in range(spec.spoke_count)]
+    spokes = [] if spoke is None else [
+        spoke.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), spec.spoke_phase_deg + index * 360 / spec.spoke_count)
+        for index in range(spec.spoke_count)]
     # Shared webs intentionally create spoke/spoke intersections. Applying the old
     # bulk junction fillet to these edges is both incorrect and very expensive.
     # Their rounded planform is already in the loft; report the 3D fillet as absent.
-    body, applied = _fuse_with_fillet([rim, hub, *spokes], 0 if spec.paired_window_root_mm else spec.junction_fillet_mm,
-                                      (lay["hub_radius"] + lay["well_radius"]) / 2)
+    if spoke is not None:
+        body, applied = _fuse_with_fillet([rim, hub, *spokes],
+                                          0 if lay["interspoke_window"] else spec.junction_fillet_mm,
+                                          (lay["hub_radius"] + lay["well_radius"]) / 2)
     result = body.cut(*_cutters(spec, lay)).clean()
     if spec.valve_diameter_mm:
         center, axis, length = valve_geometry(spec, lay)
@@ -212,7 +383,7 @@ def _build_wheel(spec: WheelSpec):
     return cq.Workplane(obj=result), {"junction_fillet_requested_mm": spec.junction_fillet_mm,
                                       "junction_fillet_applied_mm": min(applied.values()),
                                       "hub_fillet_applied_mm": applied["hub"],
-                                      "rim_fillet_applied_mm": applied["rim"]}, rim
+                                      "rim_fillet_applied_mm": applied["rim"], **window_info}, rim
 
 
 def build_wheel(spec: WheelSpec) -> tuple[cq.Workplane, dict]:
@@ -270,7 +441,8 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     report["step_solid_count"] = reopened["solid_count"]
     from .appearance import export_previews
     report["presentation"] = export_previews(wheel, rim, spec, output)
-    if spec.spoke_style == "paired":
+    window = spec.spoke_method == "window"
+    if spec.spoke_style == "paired" or window:
         # No perspective: a transparent front projection aligned to the actual CAD bounding box.
         cq.exporters.export(wheel, str(output / "front.svg"), opt={"width": 1000, "height": None,
             "marginLeft": 0, "marginTop": 0, "projectionDir": (0, 0, 1), "showAxes": False,
@@ -283,17 +455,26 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
         limitations.insert(0, f"轮辐连接圆角请求 {spec.junction_fillet_mm:g} mm，实际生成：中心盘侧 "
                               f"{build_info['hub_fillet_applied_mm']:g} mm，轮辋侧 {build_info['rim_fillet_applied_mm']:g} mm")
     report.update(build_info)
-    if spec.spoke_style == "paired":
+    if window:
+        blank = layout(spec)["window_blank"]
+        report["window_method"] = {key: blank[key] for key in ("window_count", "min_web_mm", "open_area_mm2", "scope")}
+        if build_info["window_edge_fillet_applied_mm"] < spec.window_edge_fillet_mm or \
+                build_info["window_edges_rounded"] < build_info["window_edges_total"]:
+            limitations.insert(0, f"窗口棱边圆角请求 {spec.window_edge_fillet_mm:g} mm，实际 "
+                                  f"{build_info['window_edge_fillet_applied_mm']:g} mm，"
+                                  f"{build_info['window_edges_rounded']}/{build_info['window_edges_total']} 条棱边已倒圆")
+        limitations.insert(0, "窗口法：正面窗口轮廓来自照片拟合的平面投影；侧壁竖直、无拔模，辐条前后曲面与厚度沿用模板假设，非实测")
+    if spec.spoke_style == "paired" and not window:
         lay = layout(spec)
         report["skeleton"] = {"window":lay["interspoke_window"], "explicit_profile":lay["explicit_profile"], "stations":lay["skeleton_stations"],
             "note":("此模式的正面边界宽度；侧壁竖直，前后厚度沿用假设，非实测或最小壁厚评估。" if spec.paired_blade_root_mm else "当前版本的截面控制宽度，未扣除棱边圆角；不是实体最小厚度。前后厚度沿用假设。")}
-    if spec.paired_blade_root_mm:
+    if spec.paired_blade_root_mm and not window:
         report["spoke_fillet_requested_mm"] = spec.spoke_fillet_mm
         report["spoke_fillet_applied_mm"] = 0.0
         limitations.insert(0, "直顺支臂采用精确正面边界与假设凹面厚度相交；侧壁竖直，棱边圆角暂未生成，非原拔模截面")
-    if spec.paired_window_root_mm:
+    if spec.paired_window_root_mm and not window:
         limitations.insert(0, ("大窗口圆弧通过显式正面边界形成相邻组连接" if spec.paired_blade_root_mm else "大窗口圆弧通过密集截面形成相邻组连接") + "，非恒定半径倒圆；顶面与背面连续性、最小壁厚及结构强度仍待工程验证")
-    if spec.spoke_style == "paired":
+    if spec.spoke_style == "paired" and not window:
         limitations.insert(0, "双辐为照片人工拟合的单片近似；分体连接、中心盖和周圈螺栓仅外观展示，不参与工程检查")
     if spec.lip_extension_mm:
         limitations.insert(0, "加宽轮唇和展开轮辐来自单张照片比例拟合；轮唇背部截面与厚度为假设，非实物尺寸恢复")

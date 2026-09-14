@@ -118,6 +118,34 @@ def create_app(data_dir: Path | None = None, start_worker=True):
                        json.dumps(result, ensure_ascii=False), result["created_at"]))
         return result
 
+    @app.post("/api/projects/{project_id}/images/{image_id}/window-fit")
+    def window_fit(project_id: str, image_id: str, body: BuildRequest):
+        """Fit window-method outlines from the annotation tool's label for this exact image file."""
+        from .window_fit import candidate
+        project = store.project(project_id)
+        if project["revision"] != body.expected_revision:
+            raise HTTPException(409, "草稿已变更，请重新载入后拟合。")
+        ref = next((i for i in project["images"] if i["id"] == image_id), None)
+        if not ref:
+            raise HTTPException(404, "参考图不属于当前项目。")
+        labels = Path(os.getenv("WHEELCAM_LABEL_DIR", str(store.root / "annotations")))
+        path = labels / f"{ref['sha256']}.json"
+        if not path.exists():
+            raise HTTPException(404, "这张图还没有窗口标注。请先用标注工具（experiments/annotate）标出外圈和窗口，并填写组数。")
+        try:
+            label = json.loads(path.read_text())
+            if not label.get("rim") or not label.get("windows") or not (label.get("meta") or {}).get("groups"):
+                raise ValueError("标注缺少外圈、窗口或组数。")
+            result = candidate(label, WheelSpec(**project["spec"]))
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        result.update(id=uid(), image_id=image_id, image_sha256=ref["sha256"],
+                      base_revision=project["revision"], base_spec=project["spec"], created_at=now())
+        with store.connection() as db:
+            db.execute("INSERT INTO image_analyses VALUES(?,?,?,?,?)", (result["id"], project_id, image_id,
+                       json.dumps(result, ensure_ascii=False), result["created_at"]))
+        return result
+
     @app.post("/api/projects/{project_id}/analyses/{analysis_id}/root")
     def refine_root(project_id: str, analysis_id: str, body: RootCorrectionRequest):
         from .root_fitting import correct_root, landmarks

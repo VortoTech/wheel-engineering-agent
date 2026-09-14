@@ -10,7 +10,8 @@ from .storage import Store, now
 
 
 class Worker:
-    def __init__(self, store: Store, timeout=120, initialization_timeout=600):
+    # Window-method builds mill and round many spline edges; ~150 s was measured on a 16-window wheel.
+    def __init__(self, store: Store, timeout=300, initialization_timeout=600):
         self.store = store
         self.timeout = timeout
         self.initialization_timeout = initialization_timeout

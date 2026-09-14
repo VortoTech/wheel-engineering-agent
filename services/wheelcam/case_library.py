@@ -16,7 +16,16 @@ STYLE_KEYS = {'spoke_style', 'spoke_count', 'spoke_phase_deg', 'sweep_deg',
               'paired_blade_root_mm', 'paired_window_root_mm', 'paired_window_blend_mm',
               'paired_root_round_mm', 'paired_gap_flare_mm', 'paired_gap_mm',
               'paired_tip_width_mm', 'paired_split_start_mm', 'paired_shoulder_mm',
-              'paired_mid_mm', 'paired_tip_inset_mm', 'lip_extension_mm'}
+              'paired_mid_mm', 'paired_tip_inset_mm', 'lip_extension_mm',
+              'spoke_method', 'window_outlines_mm', 'window_edge_fillet_mm'}
+# Edge roundings are process choices, not proportions: they are carried over without scaling.
+UNSCALED = {'window_edge_fillet_mm'}
+
+
+def _scaled(key, value, factor):
+    if key == 'window_outlines_mm':
+        return [[(round(x*factor, 3), round(y*factor, 3)) for x, y in outline] for outline in value]
+    return round(value*factor, 4) if key.endswith('_mm') and key not in UNSCALED else value
 
 
 class CaseCreate(BaseModel):
@@ -49,13 +58,15 @@ def candidates(store):
 
 def transfer(case, spec):
     factor = (spec['rim_diameter_in']*25.4+35)/(case['spec']['rim_diameter_in']*25.4+35)
-    changes = {k: (round(v*factor, 4) if k.endswith('_mm') else v)
-               for k, v in case['spec'].items() if k in STYLE_KEYS}
+    changes = {k: _scaled(k, v, factor) for k, v in case['spec'].items() if k in STYLE_KEYS}
+    if changes.get('spoke_method', 'loft') == 'loft':
+        # A lofted case keeps the draft's fitted windows, so switching back stays possible.
+        changes.pop('window_outlines_mm', None); changes.pop('window_edge_fillet_mm', None)
     try:
-        result = WheelSpec(**{**spec, **changes}).model_dump()
+        result = json.loads(WheelSpec(**{**spec, **changes}).model_dump_json())
     except ValidationError:
         return None, '按目标外径换算后超出当前模板约束，请调整参数或选择其他候选。'
-    return {k: v for k, v in result.items() if k in STYLE_KEYS and v != spec[k]}, None
+    return {k: v for k, v in result.items() if k in STYLE_KEYS and v != spec.get(k)}, None
 
 
 def routes(store):
@@ -102,7 +113,8 @@ def routes(store):
         for case in entries:
             if case['role'] != 'reference' or (case.get('image_sha256') and case['image_sha256'] in held_images):
                 continue
-            same = case['spec']['spoke_style'] == spec['spoke_style']
+            method = lambda s: s.get('spoke_method', 'loft')
+            same = method(case['spec']) == method(spec) and (method(spec) == 'window' or case['spec']['spoke_style'] == spec['spoke_style'])
             count_delta = abs(case['spec']['spoke_count']-spec['spoke_count'])
             changes, error = transfer(case, spec)
             ranked.append({**case, 'rank_score': (60 if same else 0)+max(0,40-10*count_delta),

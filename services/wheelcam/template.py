@@ -1,12 +1,16 @@
-"""Pure-math layout of template forged-monoblock-v9.
+"""Pure-math layout of template forged-monoblock-v10.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
 Rim profile points are (r, z); spoke section points are (u, z), u along the section's in-plane axis.
+v10 keeps the v9 lofted spokes (spoke_method "loft") and adds "window": a turned spoke blank with the
+same dished front/back curves, minus window outlines fitted from a photo.
 """
 import math
 
-TEMPLATE_VERSION = "forged-monoblock-v9"
+from . import windows as window_rules
+
+TEMPLATE_VERSION = "forged-monoblock-v10"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -129,9 +133,11 @@ def layout(spec):
     apex_tip = half + flange - max(TIP_SETBACK, junction + 3)
     apex_root = hub_front - HUB_PAD_PROUD
     crown = spec.spoke_crown_mm
-    paired = spec.spoke_style == "paired"
+    # The window method only borrows the dished front/back curves; loft-only shape fields are ignored.
+    window_method = getattr(spec, "spoke_method", "loft") == "window"
+    paired = spec.spoke_style == "paired" and not window_method
     tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
-    if not paired and (spec.paired_blade_root_mm or spec.paired_window_root_mm or spec.paired_root_round_mm or spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
+    if not paired and not window_method and (spec.paired_blade_root_mm or spec.paired_window_root_mm or spec.paired_root_round_mm or spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
         raise ValueError("轮廓展开和加宽轮唇目前仅用于双辐模板。")
     if paired:
         if spec.paired_tip_inset_mm and spec.lip_extension_mm < spec.paired_tip_inset_mm + 10:
@@ -162,9 +168,9 @@ def layout(spec):
     r_tip = R - 1.5 - tip_width ** 2 / (8 * R) - (spec.paired_tip_inset_mm if paired else 0)
     if r_tip - r_root < 80:
         raise ValueError("中心盘相对轮辋过大，轮辐长度不足。")
-    if spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
+    if not window_method and spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
         raise ValueError("轮辐根部宽度之和超过中心盘周长，相邻轮辐会重叠。")
-    if spec.paired_blade_root_mm:
+    if paired and spec.paired_blade_root_mm:
         if not spec.paired_window_root_mm or crown:
             raise ValueError("直顺支臂需要启用大窗口曲线，且正面拱高为 0；前后凹面保留。")
         if spec.paired_blade_root_mm < spec.paired_tip_width_mm:
@@ -207,11 +213,11 @@ def layout(spec):
                     u = (t - ta) / (tb - ta)
                     width += wa + (wb - wa) * u * u * (3 - 2 * u)
                     break
-        if spec.paired_blade_root_mm:
+        if paired and spec.paired_blade_root_mm:
             width = 2*outer_half(r)
         front = apex - crown
         back = front - depth
-        back_half = width / 2 - (0 if spec.paired_blade_root_mm else depth * math.tan(SPOKE_DRAFT))
+        back_half = width / 2 - (0 if paired and spec.paired_blade_root_mm else depth * math.tan(SPOKE_DRAFT))
         return {"r": r, "origin": (r * math.cos(theta), r * math.sin(theta)), "xdir": (-ny, nx),
                 "front": front, "back": back, "apex": apex, "depth": depth,
                 "width": width, "back_half": back_half}
@@ -221,7 +227,7 @@ def layout(spec):
     # back to the spoke's radial sections. The loft itself carries the curve.
     window = None
     section_ts = list(SPOKE_TS)
-    if spec.paired_window_root_mm:
+    if paired and spec.paired_window_root_mm:
         alpha = math.pi / spec.spoke_count
         ca, sa = math.cos(alpha), math.sin(alpha)
         bottom = hub_r + spec.paired_window_root_mm
@@ -273,7 +279,7 @@ def layout(spec):
         return f
 
     explicit_profile = None
-    if spec.paired_blade_root_mm:
+    if paired and spec.paired_blade_root_mm:
         # Exact plan-view cubic edges: no loft is allowed to overshoot these boundaries.
         root = (r_root,frame(0)["width"]/2)
         transformed = [(X*ca+Y*sa,X*sa-Y*ca) for X,Y in controls]
@@ -350,7 +356,7 @@ def layout(spec):
         sections.append({**f, "polygon": points, "radii": radii, **({"window_join": True} if window and abs(f["r"]-join_r)<1e-7 else {})})
 
     pockets = []
-    if spec.pocket_depth_mm > 0:
+    if spec.pocket_depth_mm > 0 and not window_method:
         for t in POCKET_TS:
             f = frame(t)
             half_width = f["back_half"] - POCKET_SIDE_WALL
@@ -397,6 +403,19 @@ def layout(spec):
                            (inner, top - spec.lip_drop_mm - 6), (outer, top - 6)],
                "radii": [1.2, 1.2, 1.2, 1.2], "inner_radius_mm": inner,
                "radial_width_mm": outer - inner, "drop_mm": spec.lip_drop_mm}
+    window_blank = None
+    if window_method:
+        # Turned blank: the v9 quadratic front/back between the first and last section, revolved.
+        f0, f1 = sections[0], sections[-1]
+        r0, r1, delta = f0["r"], f1["r"], f1["front"] - f0["front"]
+        top = [(r0, f0["front"]), ((r0 + r1) / 2, f0["front"] + delta * (1 - spec.face_curve) / 2), (r1, f1["front"])]
+        bottom = [(r, z - d) for (r, z), d in zip(top, [f0["depth"], (f0["depth"] + f1["depth"]) / 2, f1["depth"]])]
+        rim_outer = R + FLANGE_HEIGHT
+        checks = window_rules.check(spec.window_outlines_mm, spec.spoke_count, hub_r, rim_outer)
+        window_blank = {"top_rz": top, "bottom_rz": bottom, "outlines_mm": spec.window_outlines_mm,
+                        "hub_keep_radius_mm": hub_r + window_rules.HUB_KEEP_MM,
+                        "edge_fillet_mm": spec.window_edge_fillet_mm, **checks,
+                        "scope": "正面窗口轮廓来自照片拟合；侧壁竖直、无拔模，前后曲面与厚度沿用模板假设"}
     skeleton_stations = []
     if paired:
         for t in (.125,.25,.5,.75,1):
@@ -407,6 +426,7 @@ def layout(spec):
                 "blade_width_mm":round(f["width"]/2-gap,2),
                 "back_blade_width_mm":round(f["back_half"]-gap,2), "depth_mm":round(f["depth"],2)})
     return {
+        "window_blank": window_blank,
         "explicit_profile": explicit_profile,
         "skeleton_stations": skeleton_stations,
         "interspoke_window": window,
@@ -419,6 +439,7 @@ def layout(spec):
         "derived": {
             "spoke_group_count": spec.spoke_count,
             "spoke_blade_count": spec.spoke_count * (2 if paired else 1),
+            **({"window_count": len(spec.window_outlines_mm) * spec.spoke_count} if window_method else {}),
             "bead_seat_diameter_mm": round(D, 3),
             "outer_diameter_mm": round(D + 2 * FLANGE_HEIGHT, 3),
             "rim_width_mm": round(W, 3),

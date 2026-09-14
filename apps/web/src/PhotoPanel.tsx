@@ -4,10 +4,10 @@ import { ContourReview } from './ContourReview';
 import { PhotoProjection } from './PhotoProjection';
 import type { Job, PhotoAnalysis, Project } from './types';
 
-const names: Record<string, string> = { spoke_count: '双辐组数', spoke_phase_deg: '整体角度 °', paired_gap_mm: '间隙 mm', paired_tip_width_mm: '端宽 mm', paired_shoulder_mm: '辐根展开 mm', paired_mid_mm: '中段展开 mm', paired_gap_flare_mm: '分叉展开 mm', paired_root_round_mm: '底部圆角 mm', paired_split_start_mm: '分叉起点 mm' };
+const names: Record<string, string> = { spoke_method: '轮辐构造', window_outlines_mm: '窗口轮廓', hub_diameter_mm: '中心盘直径 mm', spoke_count: '组数', spoke_phase_deg: '整体角度 °', paired_gap_mm: '间隙 mm', paired_tip_width_mm: '端宽 mm', paired_shoulder_mm: '辐根展开 mm', paired_mid_mm: '中段展开 mm', paired_gap_flare_mm: '分叉展开 mm', paired_root_round_mm: '底部圆角 mm', paired_split_start_mm: '分叉起点 mm' };
 
-export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineRoot }: {
-  project: Project; shown: Job | null; busy: boolean;
+export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineRoot, onWindowFit }: {
+  project: Project; shown: Job | null; busy: boolean; onWindowFit: () => void;
   onRefineRoot: (analysis:PhotoAnalysis, group:number, points:[number,number][]) => void;
   onAnalyze: (outer?: number) => void; onApply: (analysis: PhotoAnalysis) => void;
 }) {
@@ -49,6 +49,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
   return <div className="photo-panel">
     <div className="photo-actions">
       <button className="secondary-button" disabled={busy || !imageURL} onClick={() => onAnalyze(outer.trim() ? Number(outer) : undefined)}>{busy ? '处理中…' : '自动识图 · 提取候选'}</button>
+      <button className="secondary-button" disabled={busy || !imageURL} title="读取标注工具为这张图保存的外圈与窗口标注" onClick={onWindowFit}>窗口标注 · 拟合窗口</button>
       <label>参考实物外径 <input aria-label="参考实物外径" type="number" min={100} max={1200} placeholder="未知可留空" value={outer} disabled={busy} onChange={e => setOuter(e.target.value)}/> mm</label>
     </div>
     <p className="photo-help">只填已知的最外缘直径，不填标称英寸。无实测标尺时仅拟合比例，ET、PCD 和背面结构保持原值。</p>
@@ -61,7 +62,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
           </foreignObject> : <image href={front} x={-a.ellipse.rx} y={-a.ellipse.ry} width={a.ellipse.rx*2} height={a.ellipse.ry*2} preserveAspectRatio="none"/>}
         </g>}
         {points && <g fill="none" stroke="#55e6dd" strokeWidth={1.2}>
-          <ellipse cx={a.ellipse.cx} cy={a.ellipse.cy} rx={a.ellipse.rx} ry={a.ellipse.ry}/>
+          <ellipse cx={a.ellipse.cx} cy={a.ellipse.cy} rx={a.ellipse.rx} ry={a.ellipse.ry} transform={a.ellipse.angle_deg ? `rotate(${a.ellipse.angle_deg} ${a.ellipse.cx} ${a.ellipse.cy})` : undefined}/>
           <path d={`M${a.ellipse.cx-8},${a.ellipse.cy}h16 M${a.ellipse.cx},${a.ellipse.cy-8}v16`}/>
           {a.outer_points.map(([x,y], i) => <circle key={`o${i}`} cx={x} cy={y} r={1.6}/>)}
           {!a.traces?.length && a.stations.flatMap((s, j) => s.points.map(([x,y], i) => <circle key={`${j}-${i}`} cx={x} cy={y} r={2} stroke={j === 2 ? '#ff98b6' : '#99adff'}/>))}
@@ -123,14 +124,19 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
         </tbody></table><p className="photo-help">{shown.report.skeleton.note}</p>
       </div>}
       <div className="photo-candidates">
-        <strong>{a.status === 'candidates' ? '可核对的双辐候选' : '检测存在歧义，请人工核对'}</strong>
-        <p>外圈边缘覆盖 {(a.edge_coverage*100).toFixed(0)}% · 拟合中位残差 {a.edge_residual_px} px（检测图分辨率，非实物精度）</p>
-        {fit?.status === 'fitted' ? <div className="photo-fit-result">
+        <strong>{a.window_fit ? (a.status === 'candidates' ? '可核对的窗口法候选' : '窗口轮廓未通过模板校验') : a.status === 'candidates' ? '可核对的双辐候选' : '检测存在歧义，请人工核对'}</strong>
+        {!a.window_fit && <p>外圈边缘覆盖 {(a.edge_coverage*100).toFixed(0)}% · 拟合中位残差 {a.edge_residual_px} px（检测图分辨率，非实物精度）</p>}
+        {a.window_fit ? <div className="photo-fit-result">
+          <strong>{applied ? '窗口轮廓已应用 · 以当前 CAD 版本为准' : `每组 ${a.window_fit.window_count} 个窗口 · 待应用生成`}</strong>
+          <p>未参与拟合的第 {a.window_fit.held_out_groups.map(g => g + 1).join('、')} 组：重合度 {a.window_fit.held_out_iou_mean?.toFixed(2) ?? '—'}；标注自身各组一致性（可达上限）{a.window_fit.label_loo_mean.toFixed(2)}。</p>
+          {a.window_fit.window_error && <p className="photo-help">{a.window_fit.window_error}</p>}
+          <p className="photo-help">在假设的辐条正面上按面积计算，只评价正面窗口形状，不代表深度或实物尺寸。</p>
+        </div> : fit?.status === 'fitted' ? <div className="photo-fit-result">
           <strong>{applied ? '辐条截面已应用 · 以当前 CAD 版本为准' : '辐条截面已拟合 · 待应用生成'}</strong>
           <p>截面宽度偏差 RMS：{(fit.before_rms_ratio!*radius).toFixed(1)} → {(fit.after_rms_ratio!*radius).toFixed(1)} px。各截面支持组数：{fit.stations.map(s => s.support_groups).join(' / ')}。</p>
           <p className="photo-help">按当前外圈对齐计算净间隙与整组宽度；这是候选截面的拟合偏差，不是整轮相似度或实物精度。金色线仍以生成后的 CAD 为准。</p>
         </div> : <p className="photo-help">{fit?.status === 'manual_window_active' ? '大窗口曲线已启用，保留已确认的截面宽度；当前识图不重新求解整组宽度。' : fit?.status === 'superseded_by_manual_points' ? '分叉已按人工点位修正，旧截面拟合指标不再适用。' : fit?.status === 'no_improvement' ? '现有截面已接近本次候选，本次不重复调整轮廓。' : '轮廓证据不足或超出 CAD 约束；本次没有自动修改辐根和中段宽度。'}</p>}
-        <div className="photo-values">{Object.entries(a.suggested_parameters).map(([key,value]) => <span key={key}>{names[key] || key} <b>{value}</b></span>)}</div>
+        <div className="photo-values">{Object.entries(a.suggested_parameters).map(([key,value]) => <span key={key}>{names[key] || key} <b>{Array.isArray(value) ? `${value.length} 个/组` : value === 'window' ? '窗口法' : String(value)}</b></span>)}</div>
         <p>{a.scale.basis}。目标模型外径 {a.scale.target_outer_mm.toFixed(1)} mm。</p>
         {a.scale.reference_outer_mm && a.scale.reference_gap_mm !== null && <p>用户填写的参考外径 {a.scale.reference_outer_mm} mm → 外端间隙候选约 {a.scale.reference_gap_mm?.toFixed(1)} mm，尚未核验。</p>}
         <button className="secondary-button" disabled={busy || rootDirty || !a.can_apply || !!applied || !!outdated} onClick={() => onApply(a)}>{applied ? '候选已应用到草稿' : outdated ? '草稿已变更，请重新识图' : '确认点位后，将候选应用到草稿'}</button>

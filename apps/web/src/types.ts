@@ -1,4 +1,4 @@
-export const TEMPLATE_VERSION = 'forged-monoblock-v9';
+export const TEMPLATE_VERSION = 'forged-monoblock-v10';
 export type Spec = {
   rim_diameter_in: number; rim_width_in: number; offset_et_mm: number; rim_wall_mm: number;
   hub_diameter_mm: number; hub_thickness_mm: number; center_bore_mm: number; bolt_count: number;
@@ -14,8 +14,9 @@ export type Spec = {
   paired_split_start_mm: number; spoke_phase_deg: number;
   paired_shoulder_mm: number; paired_mid_mm: number; paired_tip_inset_mm: number;
   lip_extension_mm: number; lip_drop_mm: number;
+  spoke_method: 'loft' | 'window'; window_outlines_mm: [number, number][][]; window_edge_fillet_mm: number;
 };
-export type NumericSpecKey = Exclude<keyof Spec, 'spoke_style'>;
+export type NumericSpecKey = Exclude<keyof Spec, 'spoke_style' | 'spoke_method' | 'window_outlines_mm'>;
 // Snapshots from older templates keep their own spec shape.
 export type AnySpec = Spec | Record<string, number | string>;
 export type Source = { kind: 'template' | 'manual' | 'drawing' | 'measurement'; note: string };
@@ -59,10 +60,12 @@ export type PhotoAnalysis = {
   algorithm?: string;
   traces?: {group:number; side:number; samples:{accepted:boolean; points:[number,number][]}[]}[];
   section_fit?: {status:string; before_rms_ratio?:number; after_rms_ratio?:number; constraint_fraction?:number; stations:{support_groups:number; radius_ratio:number; gap_ratio:number; width_ratio:number}[]};
+  window_fit?: {held_out_iou:number[]; held_out_iou_mean:number|null; label_loo_mean:number; fit_groups:number[];
+    held_out_groups:number[]; window_error:string|null; window_count:number};
   id: string; image_id: string; base_revision: number; status: string; can_apply: boolean;
-  image_size: [number, number]; ellipse: {cx:number; cy:number; rx:number; ry:number};
+  image_size: [number, number]; ellipse: {cx:number; cy:number; rx:number; ry:number; angle_deg?:number};
   edge_coverage: number; edge_residual_px: number; outer_points: [number,number][];
-  stations: {points:[number,number][]}[]; suggested_parameters: Record<string,number>;
+  stations: {points:[number,number][]}[]; suggested_parameters: Record<string, number | string | unknown[]>;
   scale: {reference_outer_mm:number|null; target_outer_mm:number; reference_gap_mm:number|null; basis:string};
   warnings: string[];
 };

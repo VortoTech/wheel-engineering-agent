@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -53,6 +53,12 @@ class WheelSpec(BaseModel):
     valve_diameter_mm: float = Field(0, ge=0, le=16)
     valve_angle_deg: float = Field(30, ge=0, lt=360)
     valve_tilt_deg: float = Field(0, ge=-25, le=25)
+    # "loft": v9 section-lofted spokes. "window": a turned blank minus window outlines (v10).
+    spoke_method: Literal["loft", "window"] = "loft"
+    # Window outlines, XY mm in the group-0 frame; repeated spoke_count times from spoke_phase_deg.
+    window_outlines_mm: list[Annotated[list[tuple[float, float]], Field(min_length=8, max_length=400)]] = Field(
+        default_factory=list, max_length=12)
+    window_edge_fillet_mm: float = Field(2, ge=0, le=5)
 
     @model_validator(mode="after")
     def check_layout(self):

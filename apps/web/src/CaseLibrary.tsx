@@ -3,8 +3,8 @@ import { api } from './types';
 import type { Job, Project } from './types';
 
 const labels:Record<string,string>={spoke_style:'辐条类型',spoke_count:'辐条组数',spoke_phase_deg:'整体角度 °',sweep_deg:'偏转 °',spoke_width_hub_mm:'辐根宽 mm',spoke_width_rim_mm:'辐端宽 mm',paired_blade_root_mm:'单臂过渡宽 mm',paired_window_root_mm:'大窗口底部外移 mm',paired_window_blend_mm:'大窗口过渡终点 mm',paired_root_round_mm:'分叉底圆角 mm',paired_gap_flare_mm:'间隙展开 mm',paired_gap_mm:'分叉间隙 mm',paired_tip_width_mm:'单臂末端宽 mm',paired_split_start_mm:'分叉起点 mm',paired_shoulder_mm:'辐根展开 mm',paired_mid_mm:'中段展开 mm',paired_tip_inset_mm:'末端内收 mm',lip_extension_mm:'外缘延伸 mm'};
-const display=(v:number|string)=>v==='paired'?'双辐':v==='single'?'单辐':String(v);
-type Candidate = {id:string;name:string;kind:string;role:string;image_id:string|null;validation:string;spec:Record<string,number|string>;rank_score:number;reasons:string[];changes:Record<string,number|string>|null;blocked_reason:string|null;same_image:boolean};
+const display=(v:unknown)=>Array.isArray(v)?`${v.length} 个轮廓/组`:v==='paired'?'双辐':v==='single'?'单辐':v==='window'?'窗口法':v==='loft'?'截面放样':String(v);
+type Candidate = {id:string;name:string;kind:string;role:string;image_id:string|null;validation:string;spec:Record<string,unknown>;rank_score:number;reasons:string[];changes:Record<string,unknown>|null;blocked_reason:string|null;same_image:boolean};
 type Matches = {base_revision:number;basis:string;candidates:Candidate[]};
 export function CaseLibrary({project,shown,disabled,onApply}:{project:Project;shown:Job|null;disabled:boolean;onApply:(id:string,revision:number)=>void}) {
   const [matches,setMatches]=useState<Matches|null>(null), [selected,setSelected]=useState('');
