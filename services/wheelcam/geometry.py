@@ -142,11 +142,15 @@ def _fuse_with_fillet(parts, radius, split_radius, attempts=None):
     return plain, {"hub": 0.0, "rim": 0.0}
 
 
-WINDOW_FILLET_BUDGET_S = 60   # one-by-one window edge retries stop here; the worker allows 300 s per build
+WINDOW_FILLET_BUDGET_S = 60   # window edge fillet retries stop here; the worker allows 300 s per build
+WINDOW_BACK_FILLET_MM = 1.0   # the back is not seen; a small break keeps the fillet surfaces simple
 # Rim join for window-method centres: fewer junction radii, run in a child process that is killed after
 # the timeout (one failing fillet attempt on photo #18 ran > 20 min, 2026-09-13).
 WINDOW_JOIN_TIMEOUT_S = 45
-WINDOW_ROUND_JOIN_TIMEOUT_S = 100   # window edge fillets (≤ 60 s budget) + join
+# Window edge fillets (≤ 60 s budget) + join. Rounded rims make the join itself several times slower
+# (133 s on photo #18), so wheels with many window edges simply run out of time and keep sharp rims;
+# raising this to 150 s did not change that and cost 50 s per build (2026-09-17).
+WINDOW_ROUND_JOIN_TIMEOUT_S = 100
 WINDOW_JOIN_ATTEMPTS = [(1, 1), (1, 0.5), (1, 0), (0.5, 0)]
 
 
@@ -215,39 +219,66 @@ def _window_rim_edges(centre, top, bottom, hub_radius):
     return edges
 
 
+def _edge_key(edge):
+    """Position key, stable while an edge is untouched by neighbouring fillets."""
+    centre = edge.Center()
+    return (round(centre.x, 1), round(centre.y, 1), round(centre.z, 1))
+
+
 def round_window_edges(centre, top, bottom, hub_radius, requested):
     """Round the window rims; (shape, info).
 
-    Runs in the join child: an OCCT fillet can run for many minutes (photo #20, 2026-09-13) and only a
-    process can be killed.
+    One batch over every rim edge fails whenever any pair interferes, and photos #18/#20/#21 then ended
+    up with nothing rounded even though single-edge trials succeeded on 34 of 44 edges (2026-09-13). So
+    the rims are rounded a window at a time, each onto the result of the last: a window that OCCT
+    refuses costs only itself. Edges are re-found on the updated shape by position, since filleting
+    rebuilds the topology.
+
+    Runs in the join child: an OCCT fillet can run for many minutes (photo #20) and only a process can
+    be killed.
     """
     edges = _window_rim_edges(centre, top, bottom, hub_radius)
     info = {"window_edge_fillet_requested_mm": requested, "window_edge_fillet_applied_mm": 0.0,
             "window_edges_rounded": 0, "window_edges_total": len(edges), "window_fillet_budget_hit": False}
     if requested <= 0 or not edges:
         return centre, info
+    radius_for = lambda front: requested if front else min(WINDOW_BACK_FILLET_MM, requested)
+    shape, done, rounded_count = centre, set(), 0
     deadline = time.monotonic() + WINDOW_FILLET_BUDGET_S
-    for radius in (requested, requested / 2):
-        wanted = [(edge, radius if front else min(1.0, radius)) for edge, front in edges]
-        rounded = _try_fillet(centre, wanted)
-        if rounded is None:
-            # Keep only edges that round on their own; the report states how many were skipped.
-            kept = []
-            for pair in wanted:
-                if time.monotonic() > deadline:
-                    info["window_fillet_budget_hit"] = True
-                    break
-                if _try_fillet(centre, [pair]) is not None:
-                    kept.append(pair)
-            wanted = kept
-            rounded = _try_fillet(centre, wanted) if wanted else None
-        if rounded is not None:
-            info.update(window_edge_fillet_applied_mm=radius, window_edges_rounded=len(wanted))
-            return rounded, info
-        if time.monotonic() > deadline:
-            info["window_fillet_budget_hit"] = True
+    while time.monotonic() < deadline:
+        current = [(edge, front) for edge, front in _window_rim_edges(shape, top, bottom, hub_radius)
+                   if _edge_key(edge) not in done]
+        if not current:
             break
-    return centre, info
+        # One window's rim: the connected run of edges sharing vertices with the first one.
+        group, pool = [current[0]], current[1:]
+        while True:
+            vertices = {v.toTuple() for edge, _ in group for v in edge.Vertices()}
+            nearby = [pair for pair in pool if any(v.toTuple() in vertices for v in pair[0].Vertices())]
+            if not nearby:
+                break
+            group += nearby
+            pool = [pair for pair in pool if pair not in nearby]
+        attempt = _try_fillet(shape, [(edge, radius_for(front)) for edge, front in group])
+        if attempt is None and len(group) > 1:
+            # Salvage the window edge by edge rather than losing the whole rim.
+            for edge, front in group:
+                single = _try_fillet(shape, [(edge, radius_for(front))])
+                if single is not None:
+                    shape, rounded_count = single, rounded_count + 1
+                    done.add(_edge_key(edge))
+                if time.monotonic() > deadline:
+                    break
+            done.update(_edge_key(edge) for edge, _ in group)
+            continue
+        done.update(_edge_key(edge) for edge, _ in group)
+        if attempt is not None:
+            shape, rounded_count = attempt, rounded_count + len(group)
+    if time.monotonic() >= deadline:
+        info["window_fillet_budget_hit"] = True
+    if rounded_count:
+        info.update(window_edge_fillet_applied_mm=requested, window_edges_rounded=rounded_count)
+    return shape, info
 
 
 def _join_window_centre(spec: WheelSpec, lay, rim, hub):
