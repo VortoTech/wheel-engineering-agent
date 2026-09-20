@@ -32,7 +32,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.9.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.10.0", lifespan=lifespan)
     app.state.store = store
     app.include_router(routes(store))
     from .contour_review import routes as contour_routes
@@ -55,7 +55,7 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     @app.get("/api/health")
     def health():
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "cam": False,
+                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "window_fit": True, "window_method": True, "cam": False,
                                  "case_library": True, "contour_review": True, "preparation": True, "feature_export": True}}
 
     @app.get("/api/template")

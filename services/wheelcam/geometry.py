@@ -473,7 +473,10 @@ def export_model(spec: WheelSpec, output: Path, preparation: Preparation | None 
     from .appearance import export_previews
     report["presentation"] = export_previews(wheel, rim, spec, output)
     window = spec.spoke_method == "window"
-    if spec.spoke_style == "paired" or window:
+    # Window-method models can contain dozens of spline edges. OCCT's SVG hidden-line projection may
+    # run for many minutes after STEP/GLB already succeeded, so the browser uses the actual GLB for
+    # its fitted-camera overlay. Keep SVG only for the lighter lofted paired-spoke fallback view.
+    if spec.spoke_style == "paired" and not window:
         # No perspective: a transparent front projection aligned to the actual CAD bounding box.
         cq.exporters.export(wheel, str(output / "front.svg"), opt={"width": 1000, "height": None,
             "marginLeft": 0, "marginTop": 0, "projectionDir": (0, 0, 1), "showAxes": False,

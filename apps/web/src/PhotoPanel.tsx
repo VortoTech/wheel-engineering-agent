@@ -41,6 +41,8 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
   const [w, h] = a?.image_size ?? [720, 540];
   const imageURL = project.primary_image_id ? `/api/images/${project.primary_image_id}` : null;
   const front = shown?.report?.artifacts['front.svg'] ? `/api/builds/${shown.id}/front` : null;
+  const glb = shown?.report?.artifacts['wheel.glb'] ? `/api/builds/${shown.id}/glb` : null;
+  const overlayAvailable = !!front || (!!glb && !!a?.camera_fit);
   const applied = a && project.applied_analysis_id === a.id && project.revision === a.base_revision + 1;
   const outdated = a && !applied && a.base_revision !== project.revision;
   const fit = a?.section_fit;
@@ -56,10 +58,10 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
     <div className="photo-canvas">
       {imageURL ? a ? <svg ref={svgRef} viewBox={viewBox} onPointerMove={drag} onPointerUp={() => {dragging.current=null;}} onPointerCancel={() => {dragging.current=null;}} aria-label="原图、识图点位与 CAD 正面投影对照">
         <image href={imageURL} width={w} height={h}/>
-        {front && showCAD && <g opacity={opacity} transform={`translate(${a.ellipse.cx+dx} ${a.ellipse.cy+dy}) rotate(${rotation}) scale(${scale})`}>
-          {meshProjection && a.camera_fit && shown ? <foreignObject x={-a.ellipse.cx} y={-a.ellipse.cy} width={w} height={h} pointerEvents="none">
-            <PhotoProjection url={`/api/builds/${shown.id}/glb`} pose={a.camera_fit.pose} width={w} height={h}/>
-          </foreignObject> : <image href={front} x={-a.ellipse.rx} y={-a.ellipse.ry} width={a.ellipse.rx*2} height={a.ellipse.ry*2} preserveAspectRatio="none"/>}
+        {overlayAvailable && showCAD && <g opacity={opacity} transform={`translate(${a.ellipse.cx+dx} ${a.ellipse.cy+dy}) rotate(${rotation}) scale(${scale})`}>
+          {meshProjection && a.camera_fit && glb ? <foreignObject x={-a.ellipse.cx} y={-a.ellipse.cy} width={w} height={h} pointerEvents="none">
+            <PhotoProjection url={glb} pose={a.camera_fit.pose} width={w} height={h}/>
+          </foreignObject> : front ? <image href={front} x={-a.ellipse.rx} y={-a.ellipse.ry} width={a.ellipse.rx*2} height={a.ellipse.ry*2} preserveAspectRatio="none"/> : null}
         </g>}
         {points && <g fill="none" stroke="#55e6dd" strokeWidth={1.2}>
           <ellipse cx={a.ellipse.cx} cy={a.ellipse.cy} rx={a.ellipse.rx} ry={a.ellipse.ry} transform={a.ellipse.angle_deg ? `rotate(${a.ellipse.angle_deg} ${a.ellipse.cx} ${a.ellipse.cy})` : undefined}/>
@@ -86,7 +88,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
     </div>
     <ContourReview key={`${project.id}-${shown?.id}-${project.primary_image_id}-${project.revision}`} project={project} shown={shown}/>
     {a && <>
-      <div className="photo-legend"><span>青色：外圈候选</span><span>粉色：逐条辐边（弱证据处留空）</span><span>金色{meshProjection && a.camera_fit ? '实体投影' : '正面线条'}：{front ? `CAD ${shown!.id.slice(0,6)}` : '此版本没有正面投影，生成新版本后可叠加'}</span></div>
+      <div className="photo-legend"><span>青色：外圈候选</span><span>粉色：逐条辐边（弱证据处留空）</span><span>金色{meshProjection && a.camera_fit && glb ? '实体投影' : '正面线条'}：{overlayAvailable ? `CAD ${shown!.id.slice(0,6)}` : '此版本没有可用投影，生成新版本后可叠加'}</span></div>
       <div className="photo-adjust">
         {a.camera_fit && <label><input type="checkbox" checked={meshProjection} onChange={e=>setMeshProjection(e.target.checked)}/>按照片视角投影实体（关闭看正面线条）</label>}
         <label><input type="checkbox" checked={showCAD} onChange={e => setShowCAD(e.target.checked)}/>显示 CAD 投影</label>
