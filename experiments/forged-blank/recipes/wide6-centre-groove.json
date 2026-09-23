@@ -1,0 +1,11 @@
+{
+  "_photo": "~/Desktop/轮毂/Weixin Image_20260728215358_27216_4.jpg",
+  "_view_x": -0.62,
+  "lip_r": 292, "lip_face_r_in": 266, "barrel_outer_r": 270, "barrel_inner_r": 260, "width": 240,
+  "hub_r": 80, "hub_z": -42, "ring_r": 262, "ring_z": -8, "concavity_exp": 1.0,
+  "web_thick_hub": 50, "web_thick_ring": 30,
+  "family": "single", "spokes": 6, "window_r_in": 92, "window_r_out": 258,
+  "stem_w_hub": 40, "stem_w_split": 40, "window_fillet": 8, "facet_deg": 12,
+  "groove_offsets": [0], "groove_w": 7, "groove_depth": 4,
+  "lip_pockets": 0
+}
