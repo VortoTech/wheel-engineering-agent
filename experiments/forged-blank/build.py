@@ -1,9 +1,9 @@
 """Forged-blank prototype: build a wheel in machining order from one parameter set.
 
-revolved forging blank -> face facets -> through windows (2D sketch) -> spoke grooves -> lip-face pockets -> lug holes and seats.
+revolved forging blank -> face facets -> through windows (2D sketch) -> window rim edge break -> spoke grooves -> lip-face pockets -> lug holes and seats.
 All dimensions are design assumptions.
 
-Run: PYTHONPATH=services .venv/bin/python experiments/forged-blank/build.py
+Run (needs services/ on the path for wheelcam.mass_properties): PYTHONPATH=services .venv/bin/python experiments/forged-blank/build.py
      ... --recipe experiments/forged-blank/recipes/<name>.json
 """
 import argparse
@@ -19,6 +19,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 import numpy as np
+
+from wheelcam.mass_properties import volume  # GK integration; plain Volume() is wrong on many-face bodies
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,9 @@ class ForgedWheel:
     arm_angle_deg: float = 13.5
     arm_w: float = 22.0
     arm_bow: float = 6.0
+    spoke_sweep_deg: float = 0.0    # spoke rotates progressively toward the rim (leaning spokes)
     window_fillet: float = 5.0
+    edge_break: float = 1.5         # 45° chamfer on window rims (0 = sharp)
     facet_deg: float = 20.0         # 0 = flat spoke tops
     # Spoke grooves: lateral centre as a fraction of half width (0 = on the ridge).
     groove_offsets: tuple = (0.62,)
@@ -104,7 +108,30 @@ def blank(p):
 
 
 def spoke_geometry(p):
-    """2D footprint polygons and centre segments (a, b, width) of spoke 0 along +X."""
+    """2D footprint polygons and centre segments (a, b, width) of spoke 0 along +X, swept."""
+    polys, segments = _straight_spoke(p)
+    if not p.spoke_sweep_deg:
+        return polys, segments
+
+    def sweep(pt):
+        r = math.hypot(*pt)
+        t = min(max((r - p.window_r_in) / (p.window_r_out - p.window_r_in), 0), 1)
+        a = math.radians(p.spoke_sweep_deg) * t ** 1.5
+        return pt[0] * math.cos(a) - pt[1] * math.sin(a), pt[0] * math.sin(a) + pt[1] * math.cos(a)
+    dense = [[sweep(q) for q in _densify(poly, 4.0)] for poly in polys]
+    return dense, [(sweep(a), sweep(b), w) for a, b, w in segments]
+
+
+def _densify(poly, step):
+    """Insert points so a curved sweep bends the edges instead of just moving vertices."""
+    out = []
+    for a, b in zip(poly, poly[1:] + poly[:1]):
+        k = max(1, int(math.dist(a, b) / step))
+        out += [(a[0] + (b[0] - a[0]) * i / k, a[1] + (b[1] - a[1]) * i / k) for i in range(k)]
+    return out
+
+
+def _straight_spoke(p):
     hub_w, hub_in = p.stem_w_hub / 2, p.window_r_in - 30
     if p.family == 'single':
         end_r = p.window_r_out + 10
@@ -135,7 +162,8 @@ def spoke_geometry(p):
     return [stem] + arms, segments
 
 
-def windows(p):
+def window_outlines(p, samples=160):
+    """Closed window outlines (x, y) lists, corner-rounded, resampled evenly."""
     polys, _ = spoke_geometry(p)
     pitch = 360 / p.spokes
     sk = cq.Sketch().circle(p.window_r_out).circle(p.window_r_in, mode='s')
@@ -144,11 +172,73 @@ def windows(p):
         for poly in polys:
             pts = [(x * c - y * s, x * s + y * c) for x, y in poly]
             sk = sk.polygon(pts + [pts[0]], mode='s')
-    tools = []
+    outlines = []
     for face in sk._faces.Faces():
-        face = round_corners(face, p.window_fillet)
-        tools.append(cq.Solid.extrudeLinear(face.translate((0, 0, -p.width)), cq.Vector(0, 0, p.width + 20)))
+        wire = round_corners(face, p.window_fillet).outerWire()
+        outlines.append([wire.positionAt(i / samples).toTuple()[:2] for i in range(samples)])
+    return outlines
+
+
+def windows(p, outlines):
+    """One periodic spline per window, so each window has a single smooth wall."""
+    tools = []
+    for pts in outlines:
+        edge = cq.Edge.makeSpline([cq.Vector(x, y, -p.width) for x, y in pts], periodic=True)
+        face = cq.Face.makeFromWires(cq.Wire.assembleEdges([edge]))
+        tools.append(cq.Solid.extrudeLinear(face, cq.Vector(0, 0, p.width + 20)))
     return cq.Compound.makeCompound(tools)
+
+
+def top_height(body):
+    """Highest body surface z along a vertical line through (x, y)."""
+    from OCP.BRepIntCurveSurface import BRepIntCurveSurface_Inter
+    from OCP.gp import gp_Dir, gp_Lin, gp_Pnt
+    inter = BRepIntCurveSurface_Inter()
+
+    def height(x, y):
+        inter.Init(body.wrapped, gp_Lin(gp_Pnt(x, y, 200), gp_Dir(0, 0, -1)), 1e-6)
+        best = None
+        while inter.More():
+            best = inter.Pnt().Z() if best is None else max(best, inter.Pnt().Z())
+            inter.Next()
+        return best
+    return height
+
+
+def rim_break_cutters(p, body, outlines):
+    """45° edge break along every window rim, as a chamfer mill would cut it.
+
+    Each rim sample gets an upright triangle normal to the rim, from `edge_break` below the machined
+    top (ray-cast on the actual body, so facets, hub and ring are followed) rising at 45° into the
+    material; consecutive sections are lofted into short ruled wedges. This leaves small facets
+    (teeth) along the chamfer. Smooth alternatives failed on 2026-09-23: B-Rep fillet/chamfer on the
+    faceted rims, a pipe sweep (hung in OCC), and chunked smooth lofts (invalid Boolean/clean).
+    """
+    c, e = p.edge_break, 3.0
+    height = top_height(body)
+    wedges = []
+    for pts in outlines:
+        area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))
+        sign = 1 if area > 0 else -1          # CCW window: material is on the right
+        n = len(pts)
+        sections = []
+        for i in range(n):
+            (xa, ya), (xb, yb) = pts[i - 1], pts[(i + 1) % n]
+            tx, ty = xb - xa, yb - ya
+            length = math.hypot(tx, ty)
+            nx, ny = sign * ty / length, -sign * tx / length
+            x, y = pts[i]
+            z = height(x + nx * .4, y + ny * .4)
+            sections.append(None if z is None else cq.Wire.makePolygon(
+                # The 45° face runs on 0.5 mm into the window: a corner exactly on the wall made
+                # the combined Boolean silently remove nothing.
+                [cq.Vector(x - nx * 2, y - ny * 2, z - c - .5), cq.Vector(x - nx * 2, y - ny * 2, z + e),
+                 cq.Vector(x + nx * (c + e), y + ny * (c + e), z + e),
+                 cq.Vector(x - nx * .5, y - ny * .5, z - c - .5)], close=True))
+        for a, b in zip(sections, sections[1:] + sections[:1]):
+            if a and b:                        # rim not found at a sample: that stretch stays sharp
+                wedges.append(cq.Solid.makeLoft([a, b], ruled=True))
+    return wedges
 
 
 def round_corners(face, radius, min_turn_deg=25):
@@ -264,18 +354,36 @@ def build(p):
         nonlocal body
         if not tools:
             return
-        start, before = time.time(), body.Volume()
+        start, before = time.time(), volume(body)
         pitch = 360 / p.spokes
         for i in range(p.spokes if rotate else 1):
             for tool in tools:
                 body = body.cut(tool.rotate((0, 0, 0), (0, 0, 1), i * pitch) if rotate else tool)
         body = body.clean()
-        stages.append({'op': name, 'removed_mm3': round(before - body.Volume(), 1),
+        stages.append({'op': name, 'removed_mm3': round(before - volume(body), 1),
                        'valid': body.isValid(), 'solids': len(body.Solids()),
                        'seconds': round(time.time() - start, 1)})
 
     apply('face_facets', facet_cutters(p), rotate=True)
-    apply('through_windows', [windows(p)])
+    outlines = window_outlines(p)
+    apply('through_windows', [windows(p, outlines)])
+    if p.edge_break > 0:
+        apply('window_rim_edge_break', [cq.Compound.makeCompound(rim_break_cutters(p, body, outlines))])
+        # Around tight window tips the wedge ends overlap and leave loose ~1 mm³ chips floating in
+        # the window; no real tool leaves those, so drop them (and say so) if they are that small.
+        solids = sorted(body.Solids(), key=volume, reverse=True)
+        chips = sum(volume(x) for x in solids[1:])
+        if len(solids) > 1 and chips < 50:
+            body = solids[0]
+            stages[-1].update(solids=1, dropped_chips=len(solids) - 1, dropped_chip_mm3=round(chips, 1))
+        # This Boolean has silently cut nothing or part of the rim: compare with rim length x c²/2,
+        # widened where facets slope the top up into the material.
+        rim = sum(math.dist(a, b) for pts in outlines for a, b in zip(pts, pts[1:] + pts[:1]))
+        expected = rim * p.edge_break ** 2 / 2
+        widen = 1 / (1 - math.tan(math.radians(p.facet_deg))) ** 2
+        ratio = stages[-1]['removed_mm3'] / expected
+        stages[-1].update(expected_flat_mm3=round(expected, 1),
+                          status='ok' if .9 < ratio < 1.2 * widen and len(body.Solids()) == 1 else 'suspect')
     apply('spoke_grooves', groove_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
     apply('lug_holes_and_seats', lug_tools(p))
@@ -312,8 +420,8 @@ def export(shape, output, name):
     loaded = cq.importers.importStep(str(path)).val()
     cq.Assembly(shape, color=cq.Color(.55, .53, .5)).export(str(output / f'{name}.glb'))
     return {'valid': loaded.isValid(), 'solids': len(loaded.Solids()),
-            'volume_mm3': round(shape.Volume(), 1),
-            'step_volume_relative_delta': abs(loaded.Volume() - shape.Volume()) / shape.Volume()}
+            'volume_mm3': round(volume(shape), 1),
+            'step_volume_relative_delta': abs(volume(loaded) - volume(shape)) / volume(shape)}
 
 
 def main(output, recipe, photo, view_x):
@@ -342,8 +450,8 @@ def main(output, recipe, photo, view_x):
     plt.close(fig)
     report = {'experiment': 'forged-blank-v1', 'dimensions_source': 'design_assumptions',
               'manufacturing_status': 'not_released', 'stages': stages, 'exports': exports,
-              'removal_ratio': round(1 - part.Volume() / stock.Volume(), 4),
-              'part_mass_kg_6061': round(part.Volume() * 2700 / 1e9, 2)}
+              'removal_ratio': round(1 - volume(part) / volume(stock), 4),
+              'part_mass_kg_6061': round(volume(part) * 2700 / 1e9, 2)}
     (output / 'recipe.json').write_text(json.dumps(asdict(p), indent=2))
     (output / 'report.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
