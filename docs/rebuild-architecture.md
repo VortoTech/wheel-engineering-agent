@@ -115,6 +115,14 @@ WheelCAM 的产品主线不再定义为“商品图直接生成一个看起来�
 
 6. 后续才依次做 Camera/Scale、3D 参数预测、Design Intent、逆渲染优化、多视图融合和工程验证。
 
+### 锻坯模板（forged-blank-v1）待办
+
+2026-09-24 起，锻坯模板（`services/wheelcam/forged_blank.py`，工作台「锻坯」页）是主要造型路线，见 `experiments/forged-blank/README.md`。
+
+- [ ] **CAM 试跑**：取一个锻坯 STEP（建议 `work6-tapered`，6 MB，最简单）导入实际使用的 CAM 软件，确认能读入、能对窗口锐边出 1.5×45° 倒角刀路（报告 `cam_operations`）、能对锻坯 `stock.step` 生成粗加工。结果决定是否需要处理 STEP 体积（6–36 MB）或改变构造方式。等待用户提供 CAM 环境。
+- [ ] 真实规格校准：已按公开规格校准 HF6-4（20×9.5 ET+30）与 WORK Crag T-Grabic II（16×6.5 ET+38）的外廓与 ET；其余三款型号未确认，仍为目测。实测数据到位后再校准辐条尺寸。
+- [ ] 照片 → 锻坯配方：由照片识别结果直接生成配方，替代手写 JSON。
+
 长期约束：
 
 - 不直接做 Image → STEP 黑盒生成。

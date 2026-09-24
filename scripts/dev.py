@@ -11,6 +11,14 @@ python = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/pyt
 if not python.exists():
     sys.exit("请先按 README 安装 Python 依赖。")
 env = os.environ.copy()
+# Local WHEELCAM_* settings from the gitignored .env; the shell environment wins. Other keys in .env
+# (unrelated secrets) are deliberately not passed to the servers.
+dotenv = root / ".env"
+if dotenv.is_file():
+    for line in dotenv.read_text().splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key.startswith("WHEELCAM_") and key not in env:
+            env[key] = value.strip()
 env["PYTHONPATH"] = str(root / "services")
 processes = []
 exit_code = 0
