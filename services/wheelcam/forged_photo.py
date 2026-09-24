@@ -304,12 +304,22 @@ def auto_group_count(image, base: dict, rim_points, hub_point, candidates=range(
 
 
 def choose_group_count(spread: dict) -> int:
-    """Best-agreeing N, stepped up to a multiple while it stays within 1.3x (divisors also agree)."""
-    chosen, stepped = min(spread, key=spread.get), True
+    """Best-agreeing N, stepped up to a multiple while that multiple still clearly agrees.
+
+    Divisors of the true count agree too, so the minimum is often a divisor. Agreement is scored
+    against the median spread over all N (what misaligned sectors look like): 1 = as good as the best,
+    0 = no better than misaligned. A multiple is taken while its score stays >= 0.5. A plain ratio to
+    the best failed on a glossy wheel where every sector is noisy (27216: 12 chosen instead of 6).
+    """
+    best = min(spread, key=spread.get)
+    baseline = float(np.median(list(spread.values())))
+    span = max(baseline - spread[best], 1e-9)
+    score = {n: (baseline - v) / span for n, v in spread.items()}
+    chosen, stepped = best, True
     while stepped:
         stepped = False
         for m in range(2 * chosen, max(spread) + 1, chosen):
-            if m in spread and spread[m] <= 1.3 * spread[chosen]:
+            if m in score and score[m] >= .5:
                 chosen, stepped = m, True
                 break
     return chosen

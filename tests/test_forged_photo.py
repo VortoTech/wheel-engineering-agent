@@ -137,4 +137,9 @@ def test_group_rule_prefers_the_largest_consistent_multiple():
     hf6 = {3: .1359, 4: .2402, 5: .2968, 6: .1573, 7: .3035, 8: .30, 9: .2935, 10: .3042, 11: .3059, 12: .2563}
     work = {3: .1768, 4: .2827, 5: .2907, 6: .2006, 7: .2957, 8: .3005, 9: .3029, 10: .3071, 11: .3065, 12: .2991}
     assert choose_group_count(hf6) == 6 and choose_group_count(work) == 6
+    # Glossy black 6-spoke (27216): every sector is noisy; the old 1.3x-ratio rule stepped on to 12.
+    glossy = {3: .2652, 4: .3437, 5: .3589, 6: .2882, 7: .364, 8: .3716, 9: .3766, 10: .3773, 11: .3762, 12: .3718}
+    assert choose_group_count(glossy) == 6
+    five = {3: .2564, 4: .2577, 5: .1846, 6: .2779, 7: .2782, 8: .283, 9: .283, 10: .282, 11: .2871, 12: .2879}  # WORK 5-spoke, 6 lugs
+    assert choose_group_count(five) == 5
     assert choose_group_count({3: .30, 4: .28, 5: .10, 6: .29, 10: .31, 12: .3}) == 5   # a true 5 is not pushed to 10

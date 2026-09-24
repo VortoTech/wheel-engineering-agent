@@ -222,10 +222,23 @@ def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=N
             result = {"groups": groups, "group_evidence": evidence, "windows": windows, "notes": notes}
             try:
                 recipe, report = fit_recipe(body.base_recipe, body.rim_points, body.hub_point, windows, groups)
-                report["warnings"] = notes + report["warnings"]
-                result.update(recipe=recipe, report=report)
-            except ValueError as exc:                       # windows found but not fittable: hand them to the user
-                result.update(recipe=None, report=None, fit_error=str(exc))
+            except ValueError as exc:
+                recipe, report, error = None, None, str(exc)
+                # Evenly spaced pairs read as N groups but fit as 2N single spokes; try that once.
+                if not body.groups and 2 * groups <= 12:
+                    doubled, doubled_notes = auto_windows(image, body.base_recipe, body.rim_points, body.hub_point, 2 * groups)
+                    try:
+                        recipe, report = fit_recipe(body.base_recipe, body.rim_points, body.hub_point, doubled, 2 * groups)
+                        notes = doubled_notes + [f"按 {groups} 组无法拟合（{error}），改按 {2 * groups} 组单辐拟合。"]
+                        groups, windows = 2 * groups, doubled
+                        result.update(groups=groups, windows=windows)
+                    except ValueError:
+                        pass
+                if recipe is None:                          # windows found but not fittable: hand them to the user
+                    result.update(recipe=None, report=None, fit_error=error)
+                    return result
+            report["warnings"] = notes + report["warnings"]
+            result.update(recipe=recipe, report=report, notes=notes)
             return result
         except (ValueError, TypeError) as exc:
             raise HTTPException(422, str(exc)) from exc
