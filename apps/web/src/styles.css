@@ -393,3 +393,5 @@ legend{font-size:14px;padding:0 10px 0 0;color:#cbd4df;letter-spacing:.03em}
 .agent-question{color:#ffd28b!important}.agent-approval{display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:12px}.agent-approval input{accent-color:var(--accent)}
 .agent-measurements{padding:10px;border:1px solid #806633;border-radius:6px;background:#2d281d}.agent-measurements p{font-size:12px;margin:7px 0;color:#f0d69b}
 .agent-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agent-actions button:last-child{background:#204634}.agent-boundary,.agent-limitations p{font-size:11px;line-height:1.55;color:var(--muted)}.agent-limitations{border-top:1px solid var(--line);padding-top:8px}
+
+.forged-recipe-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }

@@ -482,6 +482,31 @@ def build(p):
     return stock, body, stages
 
 
+PRESET_NAMES = {
+    "hf6-y-split": "6 组 Y 形分叉 · 深凹（20″，HF-6 风格）",
+    "v12-hub-fork": "12 辐 · 中心分叉偏转（22″）",
+    "tree6-branching": "网状分叉 · 24 窗（22″）",
+    "wide6-centre-groove": "6 根宽直辐 · 中心槽（22″）",
+    "work6-tapered": "6 根外宽辐 · 平面（16″，WORK 风格）",
+}
+
+
+def presets(directory=None) -> list[dict]:
+    """Checked-in example recipes as full, validated recipe dicts (defaults if none are found)."""
+    import json
+    from pathlib import Path
+
+    directory = Path(directory) if directory else Path(__file__).resolve().parents[2] / "experiments" / "forged-blank" / "recipes"
+    items = []
+    for path in sorted(directory.glob("*.json"), key=lambda p: list(PRESET_NAMES).index(p.stem) if p.stem in PRESET_NAMES else 99) if directory.is_dir() else []:
+        try:
+            items.append({"id": path.stem, "name": PRESET_NAMES.get(path.stem, path.stem),
+                          "recipe": asdict(recipe_from_dict(json.loads(path.read_text())))})
+        except (ValueError, TypeError):
+            continue                               # a broken example must not break the panel
+    return items or [{"id": "default", "name": "默认（6 组 Y 形分叉）", "recipe": asdict(ForgedWheel())}]
+
+
 def recipe_from_dict(data: dict) -> ForgedWheel:
     """Validated ForgedWheel from a recipe dict; unknown keys and '_' render hints are rejected/dropped."""
     data = {k: v for k, v in (data or {}).items() if not k.startswith('_')}
@@ -511,7 +536,7 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
     import json
     from pathlib import Path
 
-    from .mass_properties import measure_volume
+    from .mass_properties import measure_volume, volume_method
 
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -546,7 +571,7 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
         "checks": checks, "solid_count": len(part.Solids()),
         "volume_mm3": round(measurement.volume_mm3, 3), "volume_measurement": measurement.to_dict(),
         "bbox_mm": [round(v, 4) for v in (bbox.xlen, bbox.ylen, bbox.zlen)],
-        "face_count": len(part.Faces()), "step_volume_relative_delta": delta,
+        "face_count": len(part.Faces()), "step_volume_relative_delta": delta, "step_volume_method": volume_method(),
         "template_version": TEMPLATE_VERSION, "units": "mm",
         "coordinates": "右手系，轮毂轴线为 Z，轮辋宽度中面 Z=0，+Z 为外侧（装饰面）",
         "status": "geometry_checked", "engineering_approved": False, "manufacturing_status": "not_released",

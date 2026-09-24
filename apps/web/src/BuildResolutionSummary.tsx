@@ -24,12 +24,13 @@ function VolumeSummary({measurement, stepMethod}: {measurement?: VolumeMeasureme
   </div>;
 }
 
-export function BuildResolutionSummary({resolution, volumeMeasurement, stepVolumeMethod}: {
+export function BuildResolutionSummary({resolution, volumeMeasurement, stepVolumeMethod, missingNote}: {
   resolution?: BuildResolution; volumeMeasurement?: VolumeMeasurement; stepVolumeMethod?: VolumeMethod;
+  missingNote?: string;   // replaces the "old version" text for templates that record construction differently
 }) {
   return <>
     {!resolution ? <div className="prep-result"><h3>请求与实际构造</h3>
-      <p>旧版本尚无逐特征构造记录，不能视为按请求完整生成。</p></div>
+      <p>{missingNote ?? '旧版本尚无逐特征构造记录，不能视为按请求完整生成。'}</p></div>
     : <div className="prep-result" role="status">
     <h3>{resolution.status === 'degraded' ? '降级构建 · 需要复核' : resolution.status === 'unverified'
       ? '构造结果尚未核实' : '已记录特征按请求生成'}</h3>

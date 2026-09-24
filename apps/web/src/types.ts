@@ -64,10 +64,17 @@ export type Report = {
   handoff?: { status: string; feature_count: number; operation_count: number };
   presentation?: { status: 'display_only'; decorative_fastener_count: number; note: string } | null;
   rotational_symmetry?: {status:string;groups:number;period_deg:number;master_window_count:number;scope:string};
+  forged?: { stages: { op: string; removed_mm3?: number; status?: string; dropped_chips?: number }[];
+    removal_ratio: number; part_mass_kg_6061: number; stock_volume_mm3: number; suspect_operations: string[] };
 };
+export const FORGED_TEMPLATE = 'forged-blank-v1';
+// Mirrors ForgedWheel in services/wheelcam/forged_blank.py; the API validates every key.
+export type ForgedRecipe = { family: 'y_split' | 'single' | 'skeleton'; spokes: number; skeleton?: unknown } & Record<string, unknown>;
+export type ForgedPreset = { id: string; name: string; recipe: ForgedRecipe };
 export type Job = {
   id: string; status: 'queued' | 'running' | 'succeeded' | 'failed';
-  snapshot: { photo_analysis?: PhotoAnalysis; name: string; spec: AnySpec; sources: Sources; preparation?: Preparation; draft_revision: number; template_version: string };
+  snapshot: { photo_analysis?: PhotoAnalysis; name: string; spec: AnySpec; sources: Sources; preparation?: Preparation; draft_revision: number; template_version: string;
+    template?: string; forged?: ForgedRecipe };
   report: Report | null; error: string | null; created_at: string; finished_at: string | null;
 };
 export type ReconstructionReport = {

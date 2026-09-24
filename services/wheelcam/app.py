@@ -186,6 +186,12 @@ def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=N
             raise HTTPException(409, str(exc)) from exc
         return {"id": job_id, "status": "queued"}
 
+    @app.get("/api/forged/presets")
+    def forged_presets():
+        from dataclasses import asdict
+        from .forged_blank import ForgedWheel, presets
+        return {"defaults": asdict(ForgedWheel()), "presets": presets()}
+
     @app.post("/api/projects/{project_id}/forged-builds", status_code=202)
     def generate_forged(project_id: str, body: ForgedBuildRequest):
         from dataclasses import asdict

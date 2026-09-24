@@ -67,3 +67,15 @@ def test_forged_build_endpoint_queues_template_snapshot(client):
     assert "spec" in snapshot                      # the viewer still reads the draft spec
     assert client.post(url, json={"expected_revision": 1, "recipe": FAST}).status_code == 409   # one job at a time
     assert client.post("/api/projects/nope/forged-builds", json={"expected_revision": 1}).status_code in (404, 409)
+
+
+def test_presets_endpoint_returns_defaults_and_valid_recipes(client):
+    data = client.get("/api/forged/presets").json()
+    assert data["defaults"]["family"] == "y_split" and data["defaults"]["spokes"] == 6
+    ids = [p["id"] for p in data["presets"]]
+    assert {"hf6-y-split", "tree6-branching", "work6-tapered"} <= set(ids)
+    for preset in data["presets"]:
+        assert recipe_from_dict(preset["recipe"]).spokes >= 3        # every preset is a full, valid recipe
+        assert not any(key.startswith("_") for key in preset["recipe"])
+    tree = next(p for p in data["presets"] if p["id"] == "tree6-branching")["recipe"]
+    assert tree["family"] == "skeleton" and len(tree["skeleton"]["edges"]) == 7
