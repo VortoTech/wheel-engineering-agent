@@ -42,5 +42,6 @@ Volumes use `wheelcam.mass_properties.volume` (Gauss–Kronrod). Plain `Shape.Vo
 
 ## Known gaps
 
+- **STEP size** (6–36 MB after moving the edge break to CAM): about 75% is B-spline edge curves that OCC approximates where windows, pockets and grooves meet the curved top/back (WORK: 625 curves, ~65k points). Coarser window sampling or fewer loft sections barely helps (5.7 → 4.0–5.2 MB); `ShapeCustom::BSplineRestriction` at 0.01 mm produced an invalid B-Rep (2026-09-24). Revisit only if a CAM system actually struggles with these files.
 - Not modelled: spoke side pockets, back weight pockets, centre-cap recess, window draft, real rim bead/drop-centre profile, multi-spoke/mesh families.
 - The WORK spokes' slight lean is not matched: `spoke_sweep_deg: 10` made them look like a turbine, so its recipe leaves it at 0.
