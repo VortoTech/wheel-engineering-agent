@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .storage import Store, now
+from .sf3d import collect as collect_sf3d, command as sf3d_command, prepare_input as prepare_sf3d_input
 
 
 class Worker:
@@ -39,6 +40,8 @@ class Worker:
         with self.store.connection() as db:
             db.execute("UPDATE jobs SET status='failed',error=?,finished_at=? WHERE status='running'",
                        ("上次生成因服务中断而停止，请重新生成；已完成版本仍保留。", now()))
+            db.execute("UPDATE reconstruction_jobs SET status='failed',error=?,finished_at=? WHERE status='running'",
+                       ("上次视觉重建因服务中断而停止，请重新生成；已完成结果仍保留。", now()))
         self.thread.start()
 
     def stop(self):
@@ -58,8 +61,14 @@ class Worker:
                 row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
                 if row:
                     db.execute("UPDATE jobs SET status='running' WHERE id=?", (row["id"],))
+                    kind = "cad"
+                else:
+                    row = db.execute("SELECT * FROM reconstruction_jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+                    if row:
+                        db.execute("UPDATE reconstruction_jobs SET status='running' WHERE id=?", (row["id"],))
+                        kind = "reconstruction"
             if row:
-                self.run(dict(row))
+                self.run(dict(row)) if kind == "cad" else self.run_reconstruction(dict(row))
             else:
                 self.stopped.wait(0.3)
 
@@ -105,3 +114,47 @@ class Worker:
             db.execute("UPDATE jobs SET status=?,report=?,error=?,finished_at=? WHERE id=?",
                        ("failed" if error else "succeeded", json.dumps(report, ensure_ascii=False) if report else None,
                         error, now(), job["id"]))
+
+    def run_reconstruction(self, job):
+        destination = self.store.root / "reconstructions" / job["id"]
+        staging = self.store.root / "reconstructions" / (job["id"] + ".building")
+        staging.mkdir(exist_ok=True)
+        error = None
+        report = None
+        try:
+            image = self.store.root / "images" / f'{job["image_id"]}.jpg'
+            prepared_image, preprocessing = prepare_sf3d_input(image, staging / "source.png")
+            args, config = sf3d_command(prepared_image, staging)
+            env = os.environ.copy()
+            env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+            numba_cache = self.store.root / ".cache" / "numba"
+            numba_cache.mkdir(parents=True, exist_ok=True)
+            env["NUMBA_CACHE_DIR"] = str(numba_cache)
+            with (staging / "reconstruction.log").open("w") as log:
+                self.process = subprocess.Popen(args, stdout=log, stderr=log, env=env, cwd=config["root"])
+                try:
+                    code = self.process.wait(timeout=config["timeout"])
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+                    raise ValueError("视觉重建超过时间限制，请检查模型环境或降低纹理分辨率。")
+                if code != 0:
+                    raise ValueError("Stable Fast 3D 运行失败；请检查模型访问权限、依赖与任务日志。")
+            _, artifact = collect_sf3d(staging)
+            snapshot = json.loads(job["snapshot"])
+            report = {
+                "provider": job["provider"], "device": config["device"], "model": config["model"],
+                "source_image_id": job["image_id"], "source_image_sha256": snapshot["image_sha256"],
+                "artifact": artifact, "preprocessing": preprocessing, "usage": "visual_reference_only",
+                "limitations": snapshot["limitations"],
+            }
+            (staging / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+            staging.rename(destination)
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            self.process = None
+        with self.store.connection() as db:
+            db.execute("UPDATE reconstruction_jobs SET status=?,report=?,error=?,finished_at=? WHERE id=?",
+                       ("failed" if error else "succeeded",
+                        json.dumps(report, ensure_ascii=False) if report else None, error, now(), job["id"]))

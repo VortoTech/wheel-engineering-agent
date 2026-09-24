@@ -22,6 +22,7 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "images").mkdir(exist_ok=True)
         (self.root / "models").mkdir(exist_ok=True)
+        (self.root / "reconstructions").mkdir(exist_ok=True)
         with self.connection() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
@@ -43,10 +44,27 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_images_project ON images(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at);
+                CREATE TABLE IF NOT EXISTS reconstruction_jobs (
+                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+                    image_id TEXT NOT NULL REFERENCES images(id), provider TEXT NOT NULL,
+                    status TEXT NOT NULL, snapshot TEXT NOT NULL, report TEXT,
+                    error TEXT, created_at TEXT NOT NULL, finished_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_reconstruction_project
+                    ON reconstruction_jobs(project_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_reconstruction_queue
+                    ON reconstruction_jobs(status, created_at);
                 CREATE TABLE IF NOT EXISTS image_analyses (
                     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
                     image_id TEXT NOT NULL REFERENCES images(id), result TEXT NOT NULL, created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS agent_cad_runs (
+                    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+                    base_revision INTEGER NOT NULL, resulting_revision INTEGER NOT NULL,
+                    plan TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_cad_runs_project
+                    ON agent_cad_runs(project_id, created_at);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)")}
             if "preparation" not in columns:
@@ -100,6 +118,13 @@ class Store:
                 "SELECT * FROM images WHERE project_id=? ORDER BY created_at", (project_id,))]
             result["jobs"] = [self.job_dict(job) for job in db.execute(
                 "SELECT * FROM jobs WHERE project_id=? ORDER BY created_at DESC", (project_id,))]
+            result["reconstructions"] = [self.job_dict(job) for job in db.execute(
+                "SELECT * FROM reconstruction_jobs WHERE project_id=? ORDER BY created_at DESC", (project_id,))]
+            result["agent_cad_runs"] = [
+                {**dict(run), "plan": json.loads(run["plan"]), "result": json.loads(run["result"])}
+                for run in db.execute(
+                    "SELECT * FROM agent_cad_runs WHERE project_id=? ORDER BY created_at DESC", (project_id,))
+            ]
             analysis = db.execute("SELECT result FROM image_analyses WHERE project_id=? AND image_id=? ORDER BY created_at DESC LIMIT 1",
                                   (project_id, row["primary_image_id"])).fetchone()
             result["photo_analysis"] = json.loads(analysis[0]) if analysis else None
@@ -146,4 +171,39 @@ class Store:
                 snapshot["case_selection"] = json.loads(row["case_selection"])
             db.execute("INSERT INTO jobs(id,project_id,status,snapshot,created_at) VALUES(?,?,?,?,?)",
                        (job_id, project_id, "queued", json.dumps(snapshot, ensure_ascii=False), now()))
+        return job_id
+
+    def enqueue_reconstruction(self, project_id, expected_revision, provider="stable-fast-3d"):
+        """Snapshot the primary image for a visual-only reconstruction job."""
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            if row["revision"] != expected_revision:
+                raise ValueError("项目已在其他窗口更新，请重新载入后生成。")
+            if not row["primary_image_id"]:
+                raise ValueError("请先添加并选择主参考图。")
+            image = db.execute("SELECT * FROM images WHERE id=? AND project_id=?",
+                               (row["primary_image_id"], project_id)).fetchone()
+            if image is None:
+                raise ValueError("主参考图不存在，请重新选择。")
+            pending = db.execute(
+                "SELECT id FROM reconstruction_jobs WHERE project_id=? AND status IN ('queued','running')",
+                (project_id,)).fetchone()
+            if pending:
+                raise ValueError("该项目已有视觉重建任务正在运行。")
+            job_id = uid()
+            snapshot = {
+                "name": row["name"], "draft_revision": row["revision"],
+                "image_id": image["id"], "image_name": image["name"],
+                "image_sha256": image["sha256"], "provider": provider,
+                "usage": "visual_reference_only",
+                "limitations": ["非参数化 CAD", "不生成 STEP", "不可用于尺寸、强度或加工判断"],
+            }
+            db.execute(
+                "INSERT INTO reconstruction_jobs(id,project_id,image_id,provider,status,snapshot,created_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (job_id, project_id, image["id"], provider, "queued",
+                 json.dumps(snapshot, ensure_ascii=False), now()))
         return job_id

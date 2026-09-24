@@ -6,23 +6,27 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .agent_cad import AgentCadPlan, AgentPlanApply, ConfirmedEvidenceConflict, evaluate_plan
+from .agent_orchestrator import AgentProposalRequest, OpenAICompatibleAgentProvider, provider_status
 from .storage import Store, now, uid
 from .worker import Worker
+from .sf3d import status as sf3d_status
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def create_app(data_dir: Path | None = None, start_worker=True):
+def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=None):
     store = Store(data_dir or Path(os.getenv("WHEELCAM_DATA_DIR", str(ROOT / "data"))))
     from .case_library import install, routes
     install(store)
     worker = Worker(store)
+    agent_provider = agent_provider or OpenAICompatibleAgentProvider.from_environment()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -32,11 +36,13 @@ def create_app(data_dir: Path | None = None, start_worker=True):
         if start_worker:
             worker.stop()
 
-    app = FastAPI(title="WheelCAM", version="0.10.0", lifespan=lifespan)
+    app = FastAPI(title="WheelCAM", version="0.15.0", lifespan=lifespan)
     app.state.store = store
     app.include_router(routes(store))
     from .contour_review import routes as contour_routes
     app.include_router(contour_routes(store))
+    from .sector_study import routes as sector_routes
+    app.include_router(sector_routes(store))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
     @app.middleware("http")
@@ -52,11 +58,26 @@ def create_app(data_dir: Path | None = None, start_worker=True):
     async def missing(request, exc):
         return JSONResponse({"detail": "项目或文件不存在。"}, status_code=404)
 
+    @app.exception_handler(ConfirmedEvidenceConflict)
+    async def confirmed_evidence_locked(request, exc):
+        return JSONResponse({"detail": exc.detail}, status_code=409)
+
     @app.get("/api/health")
     def health():
+        reconstruction = sf3d_status()
+        agent = provider_status(agent_provider)
         return {"status": "ok", "template_version": TEMPLATE_VERSION,
-                "capabilities": {"parametric_cad": True, "image_inference": False, "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "window_fit": True, "window_method": True, "cam": False,
-                                 "case_library": True, "contour_review": True, "preparation": True, "feature_export": True}}
+                "capabilities": {"parametric_cad": True, "agent_cad_ir": True, "agent_model_provider": agent["configured"], "image_inference": reconstruction["available"], "local_image_candidates": True, "continuous_spoke_contours": True, "photo_pose_fit": True, "editable_root_points": True, "window_fit": True, "window_method": True, "independent_rim_pockets": True, "cam": False,
+                                 "case_library": True, "contour_review": True, "preparation": True, "feature_export": True, "window_side_draft": True, "window_face_relief": True, "window_spoke_ridge": True},
+                "visual_reconstruction": reconstruction, "agent": agent}
+
+    @app.get("/api/agent-cad/status")
+    def agent_cad_status():
+        return provider_status(agent_provider)
+
+    @app.get("/api/reconstruction/status")
+    def reconstruction_status():
+        return sf3d_status()
 
     @app.get("/api/template")
     def template():
@@ -90,10 +111,88 @@ def create_app(data_dir: Path | None = None, start_worker=True):
                 raise HTTPException(409, "项目已在其他窗口更新，请重新载入，当前修改尚未保存。")
         return store.project(project_id)
 
+    @app.post("/api/projects/{project_id}/agent-cad/preview")
+    def preview_agent_cad(project_id: str, plan: AgentCadPlan):
+        project = store.project(project_id)
+        if project["revision"] != plan.base_revision:
+            raise HTTPException(409, "Agent 计划基于旧草稿，请读取最新 revision 后重新规划。")
+        return evaluate_plan(project["spec"], project["sources"], plan)
+
+    @app.post("/api/projects/{project_id}/agent-cad/propose")
+    def propose_agent_cad(project_id: str, body: AgentProposalRequest):
+        if agent_provider is None:
+            raise HTTPException(503, provider_status(None)["reason"])
+        project = store.project(project_id)
+        if project["revision"] != body.expected_revision:
+            raise HTTPException(409, "草稿已改变，请让 Agent 基于最新 revision 重新规划。")
+        image_path = None
+        if body.include_primary_image and project.get("primary_image_id"):
+            image_path = store.root / "images" / f"{project['primary_image_id']}.jpg"
+        try:
+            from .agent_tools import propose_with_tools
+            plan, tool_trace = propose_with_tools(agent_provider, store, project, body.goal, image_path)
+            if plan.base_revision != project["revision"]:
+                raise ValueError("Agent 返回的 base_revision 与当前草稿不一致。")
+            preview = evaluate_plan(project["spec"], project["sources"], plan)
+        except ConfirmedEvidenceConflict:
+            raise
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if store.project(project_id)["revision"] != body.expected_revision:
+            raise HTTPException(409, "分析期间草稿已改变，请重新规划。")
+        return {"provider": provider_status(agent_provider), "plan": plan, "preview": preview,
+                "tool_trace": tool_trace}
+
+    @app.post("/api/projects/{project_id}/agent-cad/apply")
+    def apply_agent_cad(project_id: str, body: AgentPlanApply):
+        with store.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            if row["revision"] != body.plan.base_revision:
+                raise HTTPException(409, "Agent 计划基于旧草稿，请读取最新 revision 后重新规划。")
+            result = evaluate_plan(
+                json.loads(row["spec"]), json.loads(row["sources"]), body.plan,
+                body.approved_action_ids,
+            )
+            if result["pending_approval_action_ids"]:
+                raise HTTPException(409, {
+                    "message": "关键工程参数或草图修改需要明确批准。",
+                    "pending_approval_action_ids": result["pending_approval_action_ids"],
+                })
+            resulting_revision = row["revision"] + 1
+            run_id, timestamp = uid(), now()
+            db.execute(
+                "UPDATE projects SET spec=?,sources=?,applied_analysis_id=NULL,revision=?,updated_at=? WHERE id=?",
+                (json.dumps(result["proposed_spec"], ensure_ascii=False),
+                 json.dumps(result["proposed_sources"], ensure_ascii=False),
+                 resulting_revision, timestamp, project_id),
+            )
+            db.execute(
+                "INSERT INTO agent_cad_runs VALUES(?,?,?,?,?,?,?)",
+                (run_id, project_id, body.plan.base_revision, resulting_revision,
+                 body.plan.model_dump_json(), json.dumps(result, ensure_ascii=False), timestamp),
+            )
+        return {"agent_run_id": run_id, "result": result, "project": store.project(project_id)}
+
     @app.post("/api/projects/{project_id}/builds", status_code=202)
     def generate(project_id: str, body: BuildRequest):
         try:
             job_id = store.enqueue(project_id, body.expected_revision)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"id": job_id, "status": "queued"}
+
+    @app.post("/api/projects/{project_id}/reconstructions", status_code=202)
+    def reconstruct(project_id: str, body: BuildRequest):
+        state = sf3d_status()
+        if not state["available"]:
+            raise HTTPException(503, state["reason"])
+        try:
+            job_id = store.enqueue_reconstruction(project_id, body.expected_revision)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"id": job_id, "status": "queued"}
@@ -247,9 +346,39 @@ def create_app(data_dir: Path | None = None, start_worker=True):
                 raise HTTPException(404, "图片不存在。")
         return FileResponse(store.root / "images" / f"{image_id}.jpg", media_type="image/jpeg")
 
+    @app.get("/api/projects/{project_id}/front-reference")
+    def front_reference(project_id: str, mode: str = "rectified"):
+        """Render a reversible, provenance-bound annotation aid from the source photo."""
+        from .front_reference import estimate_tilt_deg, rectify_front, symmetry_guide
+        if mode not in {"rectified", "symmetry"}:
+            raise HTTPException(422, "正视参考图模式仅支持 rectified 或 symmetry。")
+        project = store.project(project_id)
+        analysis = project.get("photo_analysis")
+        image_id = project.get("primary_image_id")
+        if not image_id:
+            raise HTTPException(422, "请先选择主参考图。")
+        if not analysis or analysis.get("image_id") != image_id or not analysis.get("ellipse"):
+            raise HTTPException(422, "请先对当前主参考图提取外圈候选。")
+        path = store.root / "images" / f"{image_id}.jpg"
+        with Image.open(path) as source:
+            result = rectify_front(source, analysis["ellipse"], analysis.get("image_size"))
+        if mode == "symmetry":
+            groups = int((analysis.get("window_fit") or {}).get("groups")
+                         or (analysis.get("spokes") or {}).get("groups")
+                         or project["spec"].get("spoke_count", 5))
+            result = symmetry_guide(result, groups)
+        output = io.BytesIO()
+        result.save(output, "PNG", optimize=True)
+        tilt = estimate_tilt_deg(analysis["ellipse"])
+        return Response(output.getvalue(), media_type="image/png", headers={
+            "Cache-Control": "private, max-age=60",
+            "X-WheelCAM-Derivation": f"ellipse-to-circle-v1; tilt={tilt:.2f}; mode={mode}",
+            "X-WheelCAM-Source": analysis.get("image_sha256", "unknown"),
+        })
+
     @app.get("/api/builds/{job_id}/{artifact}")
     def artifact(job_id: str, artifact: str):
-        names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "report": "report.json",
+        names = {"step": "wheel.step", "glb": "wheel.glb", "recipe": "recipe.json", "engineering": "engineering.json", "report": "report.json",
                  "features": "features.json", "operations": "operations.csv", "handoff": "handoff.zip",
                  "stock": "stock.step", "caliper": "caliper-envelope.step", "presentation": "presentation.glb", "front": "front.svg"}
         if artifact not in names:
@@ -263,6 +392,22 @@ def create_app(data_dir: Path | None = None, start_worker=True):
             raise HTTPException(404, "导出文件缺失，请重新生成。")
         return FileResponse(path, filename=f"wheelcam-{job_id[:8]}-{names[artifact]}",
                             media_type="model/gltf-binary" if artifact in {"glb", "presentation"} else "image/svg+xml" if artifact == "front" else "application/octet-stream",
+                            headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+    @app.get("/api/reconstructions/{job_id}/{artifact}")
+    def reconstruction_artifact(job_id: str, artifact: str):
+        names = {"glb": "reference.glb", "report": "report.json"}
+        if artifact not in names:
+            raise HTTPException(404, "文件不存在。")
+        with store.connection() as db:
+            row = db.execute("SELECT status FROM reconstruction_jobs WHERE id=?", (job_id,)).fetchone()
+            if not row or row["status"] != "succeeded":
+                raise HTTPException(404, "该视觉重建没有可用文件。")
+        path = store.root / "reconstructions" / job_id / names[artifact]
+        if not path.is_file():
+            raise HTTPException(404, "视觉重建文件缺失，请重新生成。")
+        return FileResponse(path, filename=f"wheelcam-visual-{job_id[:8]}-{names[artifact]}",
+                            media_type="model/gltf-binary" if artifact == "glb" else "application/json",
                             headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     frontend = ROOT / "apps" / "web" / "dist"

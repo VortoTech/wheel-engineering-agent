@@ -2,13 +2,32 @@
 
 项目代号：`wheel-cam`，正式名称待定。创建日期：2026-09-12。
 
-当前阶段：本地建模与加工准备样机 v0.10（开发分支）。模板 `forged-monoblock-v10` 保留 v9 的截面放样轮辐，并新增窗口法：中心盘与轮辐坯同轴回转，再按照片窗口标注拟合出的窗口轮廓铣穿，Y 形分叉、双辐、多辐可用同一方法表达。详见 [单图拟合与识图 · 窗口法](docs/photo-fitting.md#窗口法从窗口标注拟合v10)。
+当前阶段：本地建模与加工准备样机 v0.15（开发分支）。模板 `forged-monoblock-v15` 保留照片窗口拟合、独立外圈盲槽与侧壁拔模；`window-fit-v3` 使用完整二维边界，v0.15 进一步从每组三个窗口之间的实体通道提取两条正向双辐脊线。所有单图无法确定的脊线高度、槽深、厚度、拔模和背面结构仍明确记录为模板假设。详见 [单图拟合与识图 · 窗口法](docs/photo-fitting.md#窗口法从窗口标注拟合v10)。
+
+> **2026-09-22 架构重置：** 项目主线改为“工程参数空间 → Design Intent / Feature Tree → 参数化 B-Rep → STEP 回读与验证”。照片曲面、单图深度和通用 image-to-3D 只保留为候选证据，不再作为工程主模型。每次 CAD 导出新增 `engineering.json`，显式记录参数来源、置信度、UNKNOWN 和 `not_released` 状态。详见 [架构重置说明](docs/rebuild-architecture.md)。
+
+AI Agent 采用“主动建模、受控执行”：可以通过类型化 Action IR 修改参数、替换轮辐草图、标记 UNKNOWN 和请求测量，但不能注入任意 CAD 脚本或绕过工程验证。详见 [Engineering Reconstruction Agent V1](docs/engineering-reconstruction-agent.md)。
+
+工程一致性修正已加入：Agent 不得覆盖人工/图纸/实测输入；构建请求、最终配方和逐特征结果分别记录，降级构建不再与按请求生成混同；窗口拟合与 CAD 共用含拱高的毛坯基面。范围和剩余限制见 [工程一致性第一批修正](docs/foundation-consistency.md)。
+
+新增默认不接入工作台的 [可执行母扇区实验](docs/master-sector-program.md)：按稳定特征 ID 编辑主窗/分叉窗/根部小孔，编译到同一个 CAD adapter，并比较真实 STEP 的重放等价与局部修改。仍保留 MiMo 和现有工程模型，不将合成夹具结果当作照片重建提升。
+
+该实验进一步发现旧体积积分存在精度设置敏感问题。现已将几何、加工准备和预览分区统一到带分段积分的 Gauss–Kronrod 计量，并拒绝无效/非有限实体；旧报告的体积、重量、去料比例明确提示需重建复核。整轮差分及复合造型仍有未通过项，不能据此替换原模型或宣布可加工。详见 [计量修复与独立校核](docs/volume-measurement.md) 和 [实际验证记录](docs/validation.md)。
+
+Agent 模型为可选接入。设置 `WHEELCAM_AGENT_BASE_URL` 与 `WHEELCAM_AGENT_MODEL` 后，工作台 Agent 页签可调用
+OpenAI-compatible 多模态接口生成受控修改计划；需要鉴权时通过服务端环境设置 `WHEELCAM_AGENT_API_KEY`。
+未配置时界面明确显示“AI 模型尚未连接”，不会使用模拟结果。主参考图默认不发送，须逐次勾选同意。
+已有 PinPawo Model Profile 时可设置 `WHEELCAM_AGENT_PROFILE=pinpawo:primary`，避免复制或暴露 Token。
+当前 Xiaomi Token Plan 验证配置还需覆盖 `WHEELCAM_AGENT_MODEL=mimo-v2.6-pro` 与
+`WHEELCAM_AGENT_INPUT_MODALITIES=text,image`；原 profile 不会被 WheelCAM 改写，图片仍须在每次提案前显式勾选。
 
 v9 在锻造单片 v2 基础上加入可选气门孔，并提供卡钳整圈包络检查、圆柱/杯形锻坯包含与余量检查、去除率与重量估算、加工特征 JSON / 工序 CSV / 交接 ZIP 导出。所有结果绑定模型版本和输入来源。支持逐支臂连续边缘跟踪、多组截面拟合与渐变分叉槽；新增相机姿态拟合、独立分叉底角，以及三个点位修正后重新生成 CAD 的闭环，实际模型可按拟合视角叠加原图；通用视觉大模型、完整图片重建、真实 CAM 与 NC 输出尚未实现。
 
 新增照片参考双辐样例：点击“新建双辐样例”生成独立项目，调整 8 组 / 16 根支臂、组内间隙、端部宽度及分叉位置。黑银分色预览与可关闭的中心盖、周圈螺栓已接入；展示附件不进入工程实体和计算。详见 [照片双辐样例](docs/paired-photo.md)。
 
 新增单图造型优化：可调轮唇延伸与落差、辐根展开、中段宽度和末端内收；“照片对照与识图”可提取点位、填写可选参考外径，核对后将受支持候选应用到草稿。详见 [单图拟合与识图](docs/photo-fitting.md)。
+
+可选接入 Stable Fast 3D，将主参考图生成带纹理 GLB 作为视觉造型参考。视觉重建使用独立队列和目录，不会显示为 CAD 几何检查通过，也不提供 STEP 或加工结论。安装与许可边界见 [Stable Fast 3D 视觉重建](docs/stable-fast-3d.md)。
 
 ## 启动本地工作台
 
@@ -68,6 +87,9 @@ PYTHONPATH=services uv run uvicorn wheelcam.app:app --host 127.0.0.1 --port 1876
 
 ## 文档入口
 
+- [架构重置说明](docs/rebuild-architecture.md)：新的工程数据流、P0/P1 门槛，以及旧视觉实验的冻结边界。
+- [CAD Agent 后端评估](docs/cad-agent-backends.md)：MiMo、FreeCAD MCP、GenCAD 与 Zoo 的职责边界和接入顺序。
+- [单组辐条曲面研究](docs/sector-surface.md)：六组结构标注、可编辑局部灰模、原图对照与独立观察；整轮验收尚未通过。
 - [产品与技术框架](docs/framework.md)：输入边界、产品模块、数据流、技术选型、工程验证和扩展方向。
 - [首版范围与实施路线](docs/mvp.md)：阶段交付物、验收依据、待补资料和近期开发顺序。
 - [本地工作台](docs/local-workbench.md)：当前实现、启动、数据保存和模板限制。

@@ -59,6 +59,20 @@ class WheelSpec(BaseModel):
     window_outlines_mm: list[Annotated[list[tuple[float, float]], Field(min_length=8, max_length=400)]] = Field(
         default_factory=list, max_length=12)
     window_edge_fillet_mm: float = Field(2, ge=0, le=5)
+    # Shallow front-face shoulder derived from every fitted window outline; 0 preserves old models.
+    window_face_relief_mm: float = Field(0, ge=0, le=3)
+    # Raised paired-spoke centre bands derived from the solid webs between three fitted windows.
+    window_spoke_ridge_mm: float = Field(0, ge=0, le=3)
+    # Back opening contracts from the photographed front outline; a single-photo design assumption.
+    window_side_draft_deg: float = Field(0, ge=0, le=10)
+    # Independent front-lip pocket array. A zero count keeps legacy geometry unchanged.
+    rim_pocket_count: int = Field(0, ge=0, le=40, strict=True)
+    rim_pocket_phase_deg: float = Field(0, ge=0, lt=360)
+    rim_pocket_radial_mm: float = Field(30, ge=10, le=48)
+    rim_pocket_width_mm: float = Field(14, ge=6, le=28)
+    rim_pocket_depth_mm: float = Field(7, ge=2, le=14)
+    rim_pocket_inset_mm: float = Field(7, ge=3, le=20)
+    rim_pocket_corner_mm: float = Field(3, ge=0.5, le=8)
 
     @model_validator(mode="after")
     def check_layout(self):
@@ -70,7 +84,8 @@ class WheelSpec(BaseModel):
 
 class ParameterSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["template", "manual", "drawing", "measurement"] = "template"
+    kind: Literal["template", "manual", "drawing", "measurement", "observed", "inferred", "unknown"] = "template"
+    confidence: float | None = Field(None, ge=0, le=1)
     note: str = Field("概念模板默认值，未作工程确认", max_length=200)
 
 

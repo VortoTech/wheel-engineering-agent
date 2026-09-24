@@ -17,9 +17,12 @@ STYLE_KEYS = {'spoke_style', 'spoke_count', 'spoke_phase_deg', 'sweep_deg',
               'paired_root_round_mm', 'paired_gap_flare_mm', 'paired_gap_mm',
               'paired_tip_width_mm', 'paired_split_start_mm', 'paired_shoulder_mm',
               'paired_mid_mm', 'paired_tip_inset_mm', 'lip_extension_mm',
-              'spoke_method', 'window_outlines_mm', 'window_edge_fillet_mm'}
+              'spoke_method', 'window_outlines_mm', 'window_edge_fillet_mm', 'window_face_relief_mm', 'window_spoke_ridge_mm', 'window_side_draft_deg',
+              'rim_pocket_count', 'rim_pocket_phase_deg', 'rim_pocket_radial_mm',
+              'rim_pocket_width_mm', 'rim_pocket_depth_mm', 'rim_pocket_inset_mm',
+              'rim_pocket_corner_mm'}
 # Edge roundings are process choices, not proportions: they are carried over without scaling.
-UNSCALED = {'window_edge_fillet_mm'}
+UNSCALED = {'window_edge_fillet_mm', 'window_face_relief_mm', 'window_spoke_ridge_mm', 'rim_pocket_count', 'rim_pocket_phase_deg'}
 
 
 def _scaled(key, value, factor):

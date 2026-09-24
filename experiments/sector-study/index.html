@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WheelCAM · 六组 Y 形局部证据</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#121b25;color:#edf1f6;font:15px/1.6 system-ui,sans-serif}main{max-width:1580px;margin:auto;padding:24px}h1{font-size:25px;margin:0}h2{font-size:17px;margin:12px 16px}p{color:#b8c5d2;margin:10px 0}a{color:#f4c474;margin-right:16px}.notice{border-left:4px solid #f4bc66;background:#273340;padding:12px 18px;margin:16px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{background:#1d2b3a;border:1px solid #3b4d61;border-radius:9px;overflow:hidden}.card p{padding:0 16px 12px;font-size:13px}.visual{display:block;width:100%;background:#e2e5e7;aspect-ratio:235/170}.visual svg{width:100%;height:100%;display:block}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}.bottom svg{max-height:650px}.bottom img{width:100%;display:block;background:#cbd2d7}.controls{padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}input{max-width:180px}table{border-collapse:collapse;width:100%;margin:15px 0}td,th{padding:8px 12px;border-bottom:1px solid #425266;text-align:left}.cyan{color:#00d6e7}.pink{color:#ff69ab}.yellow{color:#ffc360}#error{color:#ffaaa0}.links{margin:20px 0}@media(max-width:900px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}}
+</style><main>
+<h1>先把一组做准 · 原图约束的 Y 形辐条</h1>
+<div class="notice"><strong>已纠正结构：6 组 Y 形 / 6 个螺栓位置，不是此前的 5 组。</strong><br>这次只生成右侧局部模型；相邻组诊断尚未通过，不生成完整轮毂。</div>
+<p>下方三栏使用同一个原图区域。青色为正面边界，黄色虚线为待确认部位。深度和侧壁厚度是假设，不是从照片测量得到。</p>
+<div class="grid">
+<article class="card"><h2>① 原始商品图</h2><div class="visual"><svg viewBox="320 180 235 170"><image href="source.jpg" width="620" height="591"/></svg></div><p>开口里的灰色可能是后方桶壁；不能把灰色都分割成辐条。照片未经 AI 改写。</p></article>
+<article class="card"><h2>② 人工核对的正面边界</h2><div class="visual" id="annotation"></div><p><span class="cyan">青色：Y 形正面轮廓。</span><span class="yellow">黄色：螺栓座与小孔待确认。</span>这些点仍可修正；端部是与轮毂的接缝，不是悬空端面。</p></article>
+<article class="card"><h2>③ 局部模型同视角叠加</h2><div class="visual"><svg viewBox="320 180 235 170"><image id="reference" href="source.jpg" width="620" height="591"/><image id="model" href="geometry-reference.png" width="620" height="591" opacity=".65"/></svg></div><div class="controls"><button id="gray">灰模几何</button><button id="metal">枪灰金属</button><label>模型透明度 <input id="opacity" type="range" min="0" max="1" step=".05" value=".65"></label><label><input id="photo" type="checkbox" checked>显示原图</label></div><p>灰模验证抬高正面、边缘过渡和实体倒角；金属版验证反光。两者是同一几何。外圈与螺栓座仍是分离参考件。</p></article>
+</div>
+<div class="bottom">
+<article class="card"><h2>局部凹凸 · 灰模与枪灰金属</h2><img id="oblique" src="geometry-oblique.png" alt="局部 Y 形凹凸几何"><div class="controls"><button id="grayOblique">灰模几何</button><button id="metalOblique">枪灰金属</button></div><p>正面中心相对边缘抬高，边缘带渐变并增加实体圆角。宽度、高度和材质是单图外观假设，不是实测加工尺寸。</p></article>
+<article class="card"><h2>相邻组旋转诊断 · 不隐藏错误</h2><div id="validation"></div><p><span class="pink">粉色：同一 Y 形旋转 60° 的预测边界。</span><span class="cyan">青色点：另一组原图观察。</span>这一组用于发现五等分错误，不是未参与决策的独立测试集。</p><div style="padding:0 16px" id="metrics"></div></article>
+</div>
+<details><summary>查看原图上的 6 组主干与 6 个螺栓位置</summary><div id="structure" style="max-width:800px"></div></details>
+<p id="error"></p><div class="links"><a href="local-sector.blend">下载 Blender 局部文件</a><a href="local-sector.glb">局部 GLB</a><a href="annotations.json">原图标注</a><a href="report.json">误差与限制报告</a><a href="../">上一轮对照</a></div>
+</main><script>
+async function loadSVG(id,file,viewBox){const r=await fetch(file);if(!r.ok)throw Error(file+' '+r.status);document.getElementById(id).innerHTML=await r.text();const s=document.querySelector('#'+id+' svg');s.setAttribute('viewBox',viewBox);s.style.width='100%';s.style.display='block'}
+async function init(){await Promise.all([loadSVG('annotation','annotation.svg','320 180 235 170'),loadSVG('validation','validation.svg','295 60 205 195'),loadSVG('structure','structure.svg','0 0 620 591')]);const r=await (await fetch('report.json')).json();document.getElementById('metrics').innerHTML='<table><tr><th>结构假设</th><th>中位偏差</th><th>最大偏差</th></tr>'+r.topology_comparison.map(x=>`<tr><td>${x.groups} 组</td><td>${x.median_px.toFixed(1)} px</td><td>${x.max_px.toFixed(1)} px</td></tr>`).join('')+'</table><p>状态：'+(r.validation.passed?'局部诊断阈值通过（非工程验收）':'未通过局部诊断阈值，暂不复制成整轮')+'。</p>';document.body.dataset.ready='true'}
+document.getElementById('opacity').oninput=e=>document.getElementById('model').setAttribute('opacity',e.target.value);
+document.getElementById('photo').onchange=e=>document.getElementById('reference').setAttribute('opacity',e.target.checked?1:0);
+document.getElementById('gray').onclick=()=>document.getElementById('model').setAttribute('href','geometry-reference.png');
+document.getElementById('metal').onclick=()=>document.getElementById('model').setAttribute('href','metal-reference.png');
+document.getElementById('grayOblique').onclick=()=>document.getElementById('oblique').src='geometry-oblique.png';
+document.getElementById('metalOblique').onclick=()=>document.getElementById('oblique').src='metal-oblique.png';
+init().catch(e=>document.getElementById('error').textContent='加载失败：'+e.message);
+</script></html>

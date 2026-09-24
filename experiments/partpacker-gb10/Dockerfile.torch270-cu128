@@ -1,0 +1,38 @@
+FROM nvcr.io/nvidia/pytorch:25.02-py3
+
+ARG PARTPACKER_COMMIT=178d6c9408ecde857e6e716bab2763df6ce8bdc0
+LABEL org.wheelcam.experiment="partpacker-gb10" \
+      org.wheelcam.experiment.variant="torch-2.7-cuda-12.8" \
+      org.wheelcam.partpacker.commit="${PARTPACKER_COMMIT}"
+
+COPY wheels/Cython-3.0.12-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl /opt/wheelcam/Cython-3.0.12-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+COPY wheels/kiui-0.2.16-py3-none-any.whl /opt/wheelcam/kiui-0.2.16-py3-none-any.whl
+RUN PIP_CONSTRAINT=/dev/null PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+    python3 -m pip install --no-cache-dir /opt/wheelcam/Cython-3.0.12-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl \
+    && python3 -m pip install --no-cache-dir --no-deps --no-build-isolation \
+      --index-url https://pypi.tuna.tsinghua.edu.cn/simple pymcubes==0.1.6 \
+    && python3 -m pip install --no-cache-dir \
+      --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+      transformers==4.46.2 tokenizers==0.20.3 trimesh==4.6.9 fpsample==0.3.3 \
+    && python3 -m pip install --no-cache-dir \
+      --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+      /opt/wheelcam/kiui-0.2.16-py3-none-any.whl
+
+COPY wheelcam_mesh_compat.py apply_compat.py validate_compat.py run_partpacker.sh /opt/wheelcam/
+RUN chmod 0755 /opt/wheelcam/run_partpacker.sh \
+    && python3 /opt/wheelcam/validate_compat.py \
+    && python3 - <<'PY'
+import importlib.metadata as m
+import numpy, torch, torchvision, transformers
+assert numpy.__version__ == "1.26.4"
+assert transformers.__version__ == "4.46.2"
+print("torch", torch.__version__, "cuda", torch.version.cuda)
+print("torchvision", torchvision.__version__)
+print("numpy", numpy.__version__)
+print("transformers", transformers.__version__)
+for name in ("tokenizers", "trimesh", "fpsample", "kiui", "pymcubes"):
+    print(name, m.version(name))
+PY
+
+WORKDIR /work
+ENTRYPOINT ["/opt/wheelcam/run_partpacker.sh"]

@@ -6,24 +6,17 @@ import math
 from pathlib import Path
 
 import cadquery as cq
-from OCP.BRepGProp import BRepGProp
-from OCP.GProp import GProp_GProps
 
 from .models import Preparation, StockSpec, WheelSpec
+from .mass_properties import volume, volume_method
 from .template import LUG_SEAT_THICKNESS, TEMPLATE_VERSION, layout
 
 VOLUME_TOLERANCE_MM3 = 0.001
 DISTANCE_TOLERANCE_MM = 0.00001
 
 
-def volume(shape):
-    props = GProp_GProps()
-    BRepGProp.VolumeProperties_s(shape.wrapped, props, 1e-8, True)
-    return props.Mass()
-
-
 def checked_volume(shape):
-    if not shape.isValid():
+    if shape.isNull() or not shape.isValid():
         raise ValueError("加工准备布尔运算未得到有效几何，不能判定通过。")
     value = volume(shape)
     if not math.isfinite(value) or value < -VOLUME_TOLERANCE_MM3:
@@ -63,7 +56,7 @@ def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | 
     if prep.caliper:
         c = prep.caliper
         envelope = caliper_shape(spec, c)
-        overlap = checked_volume(wheel.intersect(envelope))
+        overlap = checked_volume(wheel.copy().intersect(envelope.copy()))
         distance = checked_distance(wheel, envelope) if overlap <= VOLUME_TOLERANCE_MM3 else 0.0
         status = "interference" if overlap > VOLUME_TOLERANCE_MM3 else (
             "insufficient_clearance" if distance <= DISTANCE_TOLERANCE_MM or distance + DISTANCE_TOLERANCE_MM < c.required_clearance_mm else "clear")
@@ -77,7 +70,7 @@ def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | 
         s = prep.stock
         blank = stock_shape(s)
         stock_volume = checked_volume(blank)
-        missing = checked_volume(wheel.cut(blank))
+        missing = checked_volume(wheel.copy().cut(blank.copy()))
         contained = missing <= VOLUME_TOLERANCE_MM3
         # Distances to boundary faces, not to the solid (which would be zero for containment).
         allowance = checked_distance(wheel, cq.Compound.makeCompound(blank.Faces())) if contained else None
@@ -102,6 +95,8 @@ def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | 
             "stock_kg": round(stock_volume * kg_per_mm3, 4) if stock_volume is not None else None,
             "removed_kg": round(removed * kg_per_mm3, 4) if removed is not None else None,
             "scope": "按同一种均匀密度计算的 CAD 净重；不含轮胎、紧固件、气门嘴、涂层及密度偏差"}
+    for section in result.values():
+        section["volume_method"] = volume_method()
     return result
 
 
@@ -136,6 +131,17 @@ def feature_manifest(spec: WheelSpec, snapshot, step_sha256):
             "seat_top_z_mm": spec.offset_et_mm + LUG_SEAT_THICKNESS, "socket_diameter_mm": lay["lug_pocket_diameter"]}, "正面", "钻孔 / 锥面座 / 沉孔")
     if lay["front_lip"]:
         add("front-lip-01", "revolved_lip", "照片拟合加宽轮唇", lay["front_lip"], "正面", "轮唇曲面车削 / 精加工")
+    if lay["rim_pocket_band"]:
+        band = lay["rim_pocket_band"]
+        for index in range(band["count"]):
+            add(f"rim-pocket-{index + 1:02}", "front_rim_pocket", f"外圈盲槽 {index + 1}", {
+                "rotation_deg": band["phase_deg"] + index * 360 / band["count"],
+                "center_radius_mm": band["pocket_center_radius_mm"],
+                "radial_length_mm": band["radial_length_mm"],
+                "tangential_width_mm": band["tangential_width_mm"],
+                "corner_radius_mm": band["corner_radius_mm"], "depth_mm": band["depth_mm"],
+                "floor_skin_mm": band["floor_skin_mm"], "axis": [0, 0, -1]},
+                "正面/分度待确认", "外圈槽开粗 / 侧壁与槽底精铣")
     for index in range(spec.spoke_count):
         angle = spec.spoke_phase_deg + index * 360 / spec.spoke_count
         descriptor = {"rotation_deg": angle, "rotation_axis": [0, 0, 1],
@@ -179,9 +185,18 @@ def feature_manifest(spec: WheelSpec, snapshot, step_sha256):
                         "工序按类型分组，编号不代表已验证的加工顺序；无刀路、后处理或 NC"]}
 
 
-def write_handoff_files(output: Path, spec, snapshot):
+def write_handoff_files(output: Path, spec, snapshot, *, build_resolution=None):
     step_hash = hashlib.sha256((output / "wheel.step").read_bytes()).hexdigest()
     manifest = feature_manifest(spec, snapshot, step_hash)
+    if build_resolution is not None:
+        manifest["build_resolution"] = build_resolution
+        manifest["requested_spec"] = build_resolution["requested_spec"]
+        # Preserve the existing spec/sources pairing: evidence describes the request,
+        # never a kernel-selected replacement. Actual recipe is a separate record.
+        manifest["spec"] = build_resolution["requested_spec"]
+        manifest["resolved_recipe"] = build_resolution["resolved_recipe"]
+        manifest["build_status"] = build_resolution["status"]
+        manifest["limitations"].append("spec/sources 是请求证据；特征候选按 resolved_recipe 计算，实际构造差异见 build_resolution，不能沿用输入来源认证降级后的值。")
     (output / "features.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     with (output / "operations.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.writer(stream)

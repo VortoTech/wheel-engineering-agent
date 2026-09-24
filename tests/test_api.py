@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from wheelcam.app import create_app
+from wheelcam.agent_cad import AgentCadPlan
 from wheelcam.worker import Worker
 
 
@@ -51,6 +52,62 @@ def test_validation_and_snapshot_immutability(client):
     assert fresh["jobs"][0]["snapshot"]["spec"]["spoke_count"] == 6
     assert fresh["spec"]["spoke_count"] == 7
     assert client.get(f'/api/builds/{queued.json()["id"]}/step').status_code == 404
+
+
+def test_agent_cad_preview_approval_apply_and_audit(client):
+    project = create(client)
+    url = f'/api/projects/{project["id"]}/agent-cad'
+    plan = {
+        "base_revision": project["revision"], "goal": "按参考图调整轮辐数量和曲率", "actions": [
+            {"id": "spokes", "operation": "set_parameter", "target": "spoke_count", "value": 8,
+             "source": "observed", "confidence": .96, "rationale": "正视图周期计数", "evidence_refs": ["image:test"]},
+            {"id": "curve", "operation": "set_parameter", "target": "face_curve", "value": .7,
+             "source": "inferred", "confidence": .7, "rationale": "轮廓拟合候选"},
+        ],
+    }
+    preview = client.post(f'{url}/preview', json=plan)
+    assert preview.status_code == 200
+    assert preview.json()["pending_approval_action_ids"] == ["spokes"]
+    blocked = client.post(f'{url}/apply', json={"plan": plan, "approved_action_ids": []})
+    assert blocked.status_code == 409
+    applied = client.post(f'{url}/apply', json={"plan": plan, "approved_action_ids": ["spokes"]})
+    assert applied.status_code == 200
+    payload = applied.json()
+    assert payload["project"]["spec"]["spoke_count"] == 8
+    assert payload["project"]["sources"]["spoke_count"]["kind"] == "observed"
+    assert payload["project"]["sources"]["face_curve"]["kind"] == "inferred"
+    assert payload["project"]["revision"] == 2
+    assert payload["project"]["agent_cad_runs"][0]["id"] == payload["agent_run_id"]
+    assert client.post(f'{url}/preview', json=plan).status_code == 409
+
+
+def test_agent_provider_is_explicit_and_proposal_is_validated(client, tmp_path):
+    assert client.get('/api/agent-cad/status').json()['mode'] == 'not_connected'
+    project = create(client)
+    unavailable = client.post(f'/api/projects/{project["id"]}/agent-cad/propose', json={
+        'expected_revision': 1, 'goal': '调整轮辐曲率'})
+    assert unavailable.status_code == 503
+
+    class FakeProvider:
+        def status(self):
+            return {'provider': 'fake-test', 'configured': True, 'model': 'fixture',
+                    'supports_primary_image': True, 'mode': 'mock_provider'}
+        def propose(self, project, goal, image_path):
+            assert goal == '调整轮辐曲率'
+            assert image_path is None
+            return AgentCadPlan(base_revision=project['revision'], goal=goal, actions=[{
+                'id': 'curve', 'operation': 'set_parameter', 'target': 'face_curve', 'value': .65,
+                'source': 'inferred', 'confidence': .7, 'rationale': '测试 provider 候选',
+            }])
+
+    with TestClient(create_app(tmp_path / 'provider', start_worker=False, agent_provider=FakeProvider())) as live:
+        connected = live.post('/api/projects', json={'name': 'Agent provider'}).json()
+        response = live.post(f'/api/projects/{connected["id"]}/agent-cad/propose', json={
+            'expected_revision': connected['revision'], 'goal': '调整轮辐曲率'})
+        assert response.status_code == 200
+        assert response.json()['provider']['mode'] == 'mock_provider'
+        assert response.json()['preview']['proposed_spec']['face_curve'] == .65
+        assert response.json()['preview']['can_apply'] is True
 
 
 def test_reference_image_validation_primary_and_snapshot(client, tmp_path):
@@ -194,12 +251,12 @@ def test_preparation_validation_and_download_routes(client):
     job = store.enqueue(project['id'], 1)
     directory = store.root / 'models' / job
     directory.mkdir()
-    for route, filename in [('features', 'features.json'), ('operations', 'operations.csv'), ('handoff', 'handoff.zip'), ('stock', 'stock.step'), ('caliper', 'caliper-envelope.step')]:
+    for route, filename in [('engineering', 'engineering.json'), ('features', 'features.json'), ('operations', 'operations.csv'), ('handoff', 'handoff.zip'), ('stock', 'stock.step'), ('caliper', 'caliper-envelope.step')]:
         (directory / filename).write_bytes(b'test')
         assert client.get(f'/api/builds/{job}/{route}').status_code == 404
     with store.connection() as db:
         db.execute("UPDATE jobs SET status='succeeded' WHERE id=?", (job,))
-    for route in ['features', 'operations', 'handoff', 'stock', 'caliper']:
+    for route in ['engineering', 'features', 'operations', 'handoff', 'stock', 'caliper']:
         assert client.get(f'/api/builds/{job}/{route}').content == b'test'
     (directory / 'stock.step').unlink()
     assert client.get(f'/api/builds/{job}/stock').status_code == 404

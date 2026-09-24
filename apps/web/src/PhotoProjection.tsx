@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { PhotoPose } from './types';
 
 /** A real, depth-tested CAD mesh projection; never deforms the reference photo. */
-export function PhotoProjection({ url, pose, width, height }: {url:string; pose:PhotoPose; width:number; height:number}) {
+export function PhotoProjection({ url, pose, width, height, neutral = false }: {url:string; pose:PhotoPose; width:number; height:number; neutral?:boolean}) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState('加载实体投影…');
   useEffect(() => {
@@ -19,6 +19,11 @@ export function PhotoProjection({ url, pose, width, height }: {url:string; pose:
     renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%';
     container.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
+    if (neutral) {
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x526070, 2));
+      const light = new THREE.DirectionalLight(0xffffff, 3);
+      light.position.set(-2, 3, 5); scene.add(light);
+    }
     const d = pose.distance_radii;
     const camera = d >= 1e5
       ? new THREE.OrthographicCamera(-pose.cx/pose.scale_px,(width-pose.cx)/pose.scale_px,
@@ -54,13 +59,15 @@ export function PhotoProjection({ url, pose, width, height }: {url:string; pose:
       model.traverse(child => {
         if (child instanceof THREE.Mesh) {
           (Array.isArray(child.material) ? child.material : [child.material]).forEach(m=>m.dispose());
-          child.material = new THREE.MeshBasicMaterial({color:0xe8aa50,side:THREE.DoubleSide});
+          child.material = neutral
+            ? new THREE.MeshStandardMaterial({color:0xb8bdc5,metalness:0,roughness:.75,side:THREE.DoubleSide})
+            : new THREE.MeshBasicMaterial({color:0xe8aa50,side:THREE.DoubleSide});
         }
       });
       normalized.add(model); renderer.render(scene,camera); setStatus('');
     },undefined,()=> { if (!disposed) setStatus('实体投影加载失败，可切换正面轮廓查看。'); });
     return () => { disposed=true; if(model)dispose(model); renderer.dispose(); renderer.domElement.remove(); };
-  },[url,pose,width,height]);
+  },[url,pose,width,height,neutral]);
   return <div className="photo-projection" style={{width:'100%',height:'100%',pointerEvents:'none'}}>
     <div ref={host} style={{width:'100%',height:'100%'}}/>
     {status && <span role="status">{status}</span>}

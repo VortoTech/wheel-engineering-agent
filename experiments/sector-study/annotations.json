@@ -1,0 +1,41 @@
+{
+  "schema": "wheelcam-independent-sector-v1",
+  "source_image": "data/images/4ba1b11f7d354ff1a3b51d5b58f3a40f.source",
+  "source_sha256": "1ad16a0e0d28f716d2fb58987d1295f8932c1a8fdd434cc62d018a987f7ae8ef",
+  "image_size": [620, 591],
+  "method": "Assistant manually traced original photo at 4x display; no rotated annotations reused. Subject to human correction.",
+  "units": "source pixels; 3D uses outer rim radius = 1, not millimetres",
+  "structure": {"spoke_groups":6,"group_angle_deg":60,"lug_centers":[[309,205],[351,235],[349,289],[308,319],[255,287],[255,233]],"root_centers":[[340,262],[328,239],[290,239],[277,261],[289,283],[330,284]],"note":"Six Y stems and six lug positions counted directly in original photo. Previous five-group assumption rejected."},
+  "master": {
+    "name": "right-hand Y spoke visible front surface",
+    "boundary": [[340,256],[362,258],[385,258],[400,256],[416,250],[440,237],[465,223],[490,209],[504,203],[506,208],[493,216],[469,231],[445,246],[426,256],[422,260],[422,264],[426,268],[446,281],[470,297],[495,314],[503,319],[501,324],[490,318],[465,303],[440,288],[416,276],[400,272],[382,269],[360,269],[340,270],[338.5,266],[338.5,260]],
+    "root_seam": [[340,256],[340,270]],
+    "panel_boundary": [[340,256],[352,255],[359,251],[362,239],[368,234],[379,234],[392,237],[404,242],[416,250],[440,237],[465,223],[490,209],[504,203],[506,208],[493,216],[469,231],[445,246],[426,256],[422,260],[422,264],[426,268],[446,281],[470,297],[495,314],[503,319],[501,324],[490,318],[465,303],[440,288],[416,276],[405,284],[395,291],[379,294],[366,292],[361,285],[358,274],[349,270],[340,270],[338.5,266],[338.5,260]],
+    "panel_note": "Experimental manually interpreted outer skin of root-side ribs around the two narrow openings. User identified the upper/lower root openings as the intended detail. Outline, rear exits and depth still require review. Does not include bolt seats or claim a measured hub connection.",
+    "tip_seams": [[[504,203],[506,208]],[[503,319],[501,324]]],
+    "ridge_guides": [[[341,257],[385,257],[403,254],[422,246],[451,230],[480,213],[503,202]],[[340,269],[384,270],[403,272],[421,279],[450,295],[479,312],[500,323]]],
+    "groove_guides": [[[351,263],[382,264],[400,261],[422,254],[448,240],[476,224],[500,209]],[[351,264],[382,265],[400,269],[421,277],[447,292],[475,308],[499,320]]],
+    "groove_note": "Editable interpretation of the front-surface channels, not measured depth. Guides are independent of the window extraction algorithm.",
+    "note": "Boundary targets the front skin, not the rear visible silhouette or specular stripes. Root is cut at hub interface. Tip seams are attachment cuts, not observed free edges."
+  },
+  "rim_points": [[365,12],[438,25],[512,77],[565,150],[585,230],[578,320],[554,394],[505,461],[433,503],[359,520],[290,508],[222,471],[169,408],[136,337],[123,260],[139,182],[181,112],[260,42]],
+  "hub_center": [309,262],
+  "rim_arc": [[502,190],[515,211],[525,241],[529,263],[525,292],[514,321],[500,342],[514,347],[529,326],[540,294],[544,265],[540,239],[529,206],[517,182]],
+  "bolt_seats": [
+    {"center":[350,235],"rx":12,"ry":15,"note":"Visible ellipse only; axial seat depth is not observed"},
+    {"center":[349,289],"rx":12,"ry":15,"note":"Visible ellipse only; axial seat depth is not observed"}
+  ],
+  "uncertain_pockets": [
+    [[363,247],[364,242],[371,239],[383,239],[397,241],[402,244],[399,248],[384,250],[371,250],[365,249]],
+    [[364,280],[371,278],[384,278],[399,281],[402,284],[399,287],[384,289],[371,287],[365,284]]
+  ],
+  "opening_note": "Experimental v6 re-trace of the two visible bright narrow root openings. Extra axial sections retain their tapered ends instead of treating only the bright middle as the complete opening. The darker continuation, rear exit and physical wall thickness remain ambiguous.",
+  "validation": {
+    "group_rotation_deg": 60,
+    "points": [[326,233],[335,241],[349,222],[364,204],[378,185],[399,173],[430,162],[465,146],[473,153],[377,82],[366,78],[367,112],[363,147],[358,170]],
+    "used_for_optimization": false,
+    "used_for_topology_diagnosis": true,
+    "note": "Upper-right group's visible front boundary observations. Used to diagnose six versus five groups; NOT an untouched held-out validation set. Nearest-boundary diagnostic only."
+  },
+  "uncertainties": ["Orthographic camera is only a conditional approximation", "Front dish depth inferred conditional on planar rim and hub center", "Backside, wall thickness, junction radii and bolt-seat depth unmeasured", "Root openings are explicit through-hole or recess hypotheses; rear exits and surrounding rib outline remain unverified"]
+}

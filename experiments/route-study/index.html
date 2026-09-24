@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WheelCAM · 免费建模路线对照</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111923;color:#e2e8ee;font:15px/1.6 system-ui,sans-serif}main{max-width:1440px;margin:auto;padding:28px}h1{font-size:26px;margin:0}p{color:#b9c7d3}header{display:flex;gap:28px;align-items:center;margin:20px 0}header img{width:210px;border-radius:8px}button,a{color:#e5b563}button{padding:8px 16px;background:#223245;border:1px solid #526476;border-radius:6px;cursor:pointer}button[aria-pressed=true]{background:#e5b563;color:#172331}section{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}article{background:#1b2735;border:1px solid #35475a;border-radius:10px;overflow:hidden}article img{width:100%;display:block}article h2{font-size:17px;margin:14px 16px 8px}article p{margin:8px 16px;font-size:14px}footer{padding:16px}small{display:block;color:#d4b98f;margin:16px 0}a{margin-right:12px}@media(max-width:850px){section{grid-template-columns:repeat(2,1fr)}}@media(max-width:550px){section{grid-template-columns:1fr}header{display:block}}
+</style><main>
+<h1>WheelCAM · 免费建模路线对照</h1>
+<header><img src="source.jpg" alt="用户提供的原始商品图"><div>
+<p>同一灰色材质、同一灯光、统一外径。新曲面使用相同的控制曲线。</p>
+<p>这是建模路线试验，不是已完成的照片重建。新模型没有补齐螺栓座等细节；厚度、背面和曲线均含假设。</p>
+<button aria-pressed="true" data-view="front">正面</button> <button aria-pressed="false" data-view="oblique">斜视</button>
+<small>AI 样本复用此前原图生成结果，仅按包围盒推定朝向；相机未对齐商品图，不能从这些图计算照片准确率。</small>
+</div></header><section id="cards"></section>
+<footer>模型文件保留供检查。GLB 为视觉网格；CAD 样板为独立零件组合，不是经验证的单一工程实体。</footer>
+</main><script>
+const routes=[
+['baseline','A · 当前 CAD 基线','现有窗口法模型。保留原始几何，不做细节修复。'],
+['baseline-smoothed','B · Blender 平滑旧模型','小幅拉普拉斯平滑＋平滑法线。测试表面处理能否解决形状问题。'],
+['cad-loft','C · CAD 变截面放样','重新生成细长曲面辐条。椭圆截面；曲线为人工假设，尚未进行照片优化。'],
+['blender-subd','D · Blender 细分曲面','与 C 共用控制曲线，采用可编辑细分曲面；不是 AI 自动还原。'],
+['sf3d-existing','E · Stable Fast 3D 既有结果','同一原图的历史生成网格，移除贴图后统一渲染；本轮未重新推理。']];
+const cards=document.querySelector('#cards');
+for(const [id,title,note] of routes){const card=document.createElement('article');card.innerHTML=`<h2>${title}</h2><img data-route="${id}" src="${id}-front.png" alt="${title}灰模"><p>${note}</p><p><a href="${id}.blend">Blender 文件</a><a href="${id}.glb">GLB</a>${id==='cad-loft'?'<a href="cad-loft.step">STEP 组合件</a>':''}</p>`;cards.append(card)}
+document.querySelectorAll('button').forEach(button=>button.onclick=()=>{document.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===button));document.querySelectorAll('[data-route]').forEach(img=>img.src=`${img.dataset.route}-${button.dataset.view}.png`)});
+</script></html>

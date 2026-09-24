@@ -77,6 +77,53 @@ def separation(first, second):
     return float(min(_point_segment(a, b0, b1).min(), _point_segment(b, a0, a1).min()))
 
 
+def spoke_ridge_outlines(outlines, count, width_ratio=0.58, stations=24):
+    """Return two narrow positive-face bands between a three-window group.
+
+    Window fitting defines the negative space reliably but leaves the surviving
+    web as one visually flat face.  Sampling the two solid runs between three
+    ordered openings gives centre/width constraints for the paired spoke itself.
+    The result stays inside the existing material and is suitable for a shallow
+    raised ridge; it does not invent a new outer silhouette.
+    """
+    if len(outlines) != 3:
+        return []
+    polygons = [np.asarray(outline, float) for outline in outlines]
+    minimum = max(np.hypot(p[:, 0], p[:, 1]).min() for p in polygons) + 2
+    maximum = min(np.hypot(p[:, 0], p[:, 1]).max() for p in polygons) - 2
+    if maximum - minimum < 20:
+        return []
+    all_points = np.vstack(polygons)
+    angles = np.unwrap(np.arctan2(all_points[:, 1], all_points[:, 0]))
+    centre = float(np.median(angles))
+    half_period = math.pi / count
+    samples = np.linspace(centre - half_period * .995, centre + half_period * .995, 721)
+    ridges = [[], []]
+    for radius in np.linspace(minimum, maximum, stations):
+        points = np.column_stack([radius * np.cos(samples), radius * np.sin(samples)])
+        opened = np.logical_or.reduce([_inside(points, polygon) for polygon in polygons])
+        changes = np.diff(np.r_[False, opened, False].astype(int))
+        runs = [(a, b - 1) for a, b in zip(np.where(changes == 1)[0], np.where(changes == -1)[0])
+                if b - a >= 3]
+        if len(runs) != 3:
+            continue
+        for index in range(2):
+            left, right = samples[runs[index][1]], samples[runs[index + 1][0]]
+            if right <= left:
+                continue
+            middle = (left + right) / 2
+            half = (right - left) * width_ratio / 2
+            ridges[index].append((radius, middle - half, middle + half))
+    result = []
+    for ridge in ridges:
+        if len(ridge) < max(8, stations // 2):
+            continue
+        left = [(r * math.cos(a), r * math.sin(a)) for r, a, _ in ridge]
+        right = [(r * math.cos(b), r * math.sin(b)) for r, _, b in reversed(ridge)]
+        result.append(left + right)
+    return result
+
+
 def check(outlines, count, hub_r, rim_r):
     """Validate window outlines against the turned blank; raise ValueError with the reason.
 

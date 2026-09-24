@@ -6,12 +6,15 @@ import { Box, Contrast, Crosshair, Layers2, Rotate3D, ScanLine } from 'lucide-re
 
 type Runtime = { camera: THREE.PerspectiveCamera; controls: OrbitControls; size: number };
 
-export function Viewer({ url, building, displayOnly = false }: { url: string | null; building: boolean; displayOnly?: boolean }) {
+export function Viewer({ url, building, displayOnly = false, axisMode = 'cad-z-up', label, initialNeutral = false, unitLabel = 'mm', inspectionLighting = false }: {
+  url: string | null; building: boolean; displayOnly?: boolean;
+  axisMode?: 'cad-z-up' | 'native-y-up'; label?: string; initialNeutral?: boolean; unitLabel?: string; inspectionLighting?: boolean;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const runtime = useRef<Runtime | null>(null);
   const [wireframe, setWireframe] = useState(false);
   const [section, setSection] = useState(false);
-  const [neutral, setNeutral] = useState(false);
+  const [neutral, setNeutral] = useState(initialNeutral);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const options = useRef({ wireframe, section, neutral });
@@ -32,7 +35,7 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
     renderer.localClippingEnabled = true;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.6;
+    renderer.toneMappingExposure = inspectionLighting ? 1 : 1.6;
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100000);
@@ -41,12 +44,12 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
     controls.dampingFactor = 0.09;
     controls.minDistance = 0.3;
     controls.maxDistance = 6000;
-    scene.add(new THREE.HemisphereLight(0xc7defa, 0x404a5e, 3));
-    const key = new THREE.DirectionalLight(0xf5f6ff, 4.2);
-    key.position.set(2, 4, 5); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa6cfff, 3);
+    scene.add(new THREE.HemisphereLight(0xc7defa, 0x404a5e, inspectionLighting ? .7 : 3));
+    const key = new THREE.DirectionalLight(0xf5f6ff, inspectionLighting ? 3 : 4.2);
+    key.position.set(inspectionLighting ? -4 : 2, 4, inspectionLighting ? 1 : 5); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xa6cfff, inspectionLighting ? .35 : 3);
     fill.position.set(-3, -1, 2); scene.add(fill);
-    const back = new THREE.DirectionalLight(0xffffff, 3);
+    const back = new THREE.DirectionalLight(0xffffff, inspectionLighting ? .5 : 3);
     back.position.set(1, 2, -4); scene.add(back);
     const clipping = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
     const materials: THREE.MeshStandardMaterial[] = [];
@@ -74,8 +77,8 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
       new GLTFLoader().load(url, (gltf) => {
         if (disposed) { disposeModel(gltf.scene); return; }
         model = gltf.scene;
-        // CadQuery exports glTF in Y-up. Restore the CAD Z-axis for the front view.
-        model.rotation.x += Math.PI / 2;
+        // CadQuery needs its Z-axis restored; external reconstruction GLBs keep native orientation.
+        if (axisMode === 'cad-z-up') model.rotation.x += Math.PI / 2;
         model.updateMatrixWorld(true);
         const bounds = new THREE.Box3().setFromObject(model);
         const dimensions = bounds.getSize(new THREE.Vector3());
@@ -87,10 +90,10 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
             const converted = original.map((source) => {
               const material = source instanceof THREE.MeshStandardMaterial ? source.clone()
                 : new THREE.MeshStandardMaterial({ color: 0x9ca9bb });
-              const dark = Math.max(material.color.r, material.color.g, material.color.b) < 0.2;
-              if (dark) material.color.multiplyScalar(1.5);
-              material.metalness = dark ? 0.08 : 0.65;
-              material.roughness = dark ? 0.6 : 0.3;
+              const dark = Math.max(material.color.r, material.color.g, material.color.b) < 0.3;
+              if (dark) material.color.multiplyScalar(1.25);
+              material.metalness = dark ? 0.72 : 0.65;
+              material.roughness = dark ? 0.32 : 0.3;
               material.side = THREE.DoubleSide;
               material.userData.baseColor = material.color.clone();
               material.userData.baseMetalness = material.metalness;
@@ -141,7 +144,7 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
       if (grid) { grid.geometry.dispose(); (grid.material as THREE.Material).dispose(); }
       renderer.dispose(); renderer.domElement.remove(); runtime.current = null;
     };
-  }, [url]);
+  }, [url, axisMode, inspectionLighting]);
 
   const view = (front: boolean) => {
     const current = runtime.current;
@@ -152,9 +155,9 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
   };
 
   return <div className="viewer">
-    <div className="viewport-label"><span className="live-dot"/> {url ? displayOnly ? '外观预览 · 附件仅展示' : '轮毂实体 · 不含展示附件' : '建模空间'} <span>· mm</span></div>
+    <div className="viewport-label"><span className="live-dot"/> {label ?? (url ? displayOnly ? '外观预览 · 附件仅展示' : '轮毂实体 · 不含展示附件' : '建模空间')} {axisMode === 'cad-z-up' && <span>· {unitLabel}</span>}</div>
     <div className="canvas" ref={container} aria-label="轮毂三维模型，可拖动旋转、滚轮缩放"/>
-    {!url && <div className="viewer-empty"><Box size={48} strokeWidth={1}/><h2>从第一版轮毂开始</h2><p>确认右侧参数，生成可编辑的三维实体。</p><span>周期轮辐 · 锻造单片模板</span></div>}
+    {!url && <div className="viewer-empty"><Box size={48} strokeWidth={1}/><h2>{axisMode === 'native-y-up' ? '从主参考图生成视觉网格' : '从第一版轮毂开始'}</h2><p>{axisMode === 'native-y-up' ? '该网格用于造型对照，不是参数化 CAD。' : '确认右侧参数，生成可编辑的三维实体。'}</p><span>{axisMode === 'native-y-up' ? 'Stable Fast 3D · GLB' : '周期轮辐 · 锻造单片模板'}</span></div>}
     {(loading || building) && <div className="viewer-progress" role="status"><span className="spinner"/>{building ? '正在构建并检查实体，上一版仍可查看' : '正在加载模型'}</div>}
     {error && <div className="viewer-error" role="alert">{error}</div>}
     <div className="viewport-tools">
@@ -166,6 +169,6 @@ export function Viewer({ url, building, displayOnly = false }: { url: string | n
       <button onClick={() => setSection(!section)} className={section ? 'active' : ''} aria-pressed={section} title="剖切" aria-label="切换剖切"><ScanLine size={18}/></button>
     </div>
     <div className="viewport-hint">拖动旋转 <i/> 滚轮缩放 <i/> 右键平移</div>
-    <div className="axis-label"><b>Z</b><span>X</span><em>Y</em></div>
+    <div className="axis-label"><b>{axisMode === 'native-y-up' ? 'Y' : 'Z'}</b><span>X</span><em>{axisMode === 'native-y-up' ? 'Z' : 'Y'}</em></div>
   </div>;
 }

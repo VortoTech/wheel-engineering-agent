@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import { ContourReview } from './ContourReview';
 import { PhotoProjection } from './PhotoProjection';
-import type { Job, PhotoAnalysis, Project } from './types';
+import type { Job, PhotoAnalysis, PhotoPose, Project } from './types';
 
 const names: Record<string, string> = { spoke_method: '轮辐构造', window_outlines_mm: '窗口轮廓', hub_diameter_mm: '中心盘直径 mm', spoke_count: '组数', spoke_phase_deg: '整体角度 °', paired_gap_mm: '间隙 mm', paired_tip_width_mm: '端宽 mm', paired_shoulder_mm: '辐根展开 mm', paired_mid_mm: '中段展开 mm', paired_gap_flare_mm: '分叉展开 mm', paired_root_round_mm: '底部圆角 mm', paired_split_start_mm: '分叉起点 mm' };
 
@@ -17,6 +17,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
   const [showCAD, setShowCAD] = useState(true);
   const [opacity, setOpacity] = useState(.45);
   const [meshProjection, setMeshProjection] = useState(true);
+  const [projectionMode, setProjectionMode] = useState<'fitted'|'front'>('fitted');
   const [editRoot, setEditRoot] = useState(false);
   const [rootGroup, setRootGroup] = useState(0);
   const [rootPoints, setRootPoints] = useState<[number,number][]>([]);
@@ -40,8 +41,16 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
   useEffect(() => { setDx(0); setDy(0); setScale(1); setRotation(0); setOuter(''); setZoom(1); }, [project.id, project.primary_image_id]);
   const [w, h] = a?.image_size ?? [720, 540];
   const imageURL = project.primary_image_id ? `/api/images/${project.primary_image_id}` : null;
+  const rectifiedURL = a && project.primary_image_id ? `/api/projects/${project.id}/front-reference?mode=rectified` : null;
+  const symmetryURL = a && project.primary_image_id ? `/api/projects/${project.id}/front-reference?mode=symmetry` : null;
   const front = shown?.report?.artifacts['front.svg'] ? `/api/builds/${shown.id}/front` : null;
   const glb = shown?.report?.artifacts['wheel.glb'] ? `/api/builds/${shown.id}/glb` : null;
+  const fittedPose = a?.camera_fit?.pose;
+  const projectionPose: PhotoPose | undefined = fittedPose && projectionMode === 'front' ? {
+    ...fittedPose,
+    cx: a!.ellipse.cx, cy: a!.ellipse.cy, scale_px: (a!.ellipse.rx + a!.ellipse.ry) / 2,
+    distance_radii: 1e6, rotation: [[1,0,0],[0,1,0],[0,0,1]], angles_deg: [0,0,0],
+  } : fittedPose;
   const overlayAvailable = !!front || (!!glb && !!a?.camera_fit);
   const applied = a && project.applied_analysis_id === a.id && project.revision === a.base_revision + 1;
   const outdated = a && !applied && a.base_revision !== project.revision;
@@ -59,8 +68,8 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
       {imageURL ? a ? <svg ref={svgRef} viewBox={viewBox} onPointerMove={drag} onPointerUp={() => {dragging.current=null;}} onPointerCancel={() => {dragging.current=null;}} aria-label="原图、识图点位与 CAD 正面投影对照">
         <image href={imageURL} width={w} height={h}/>
         {overlayAvailable && showCAD && <g opacity={opacity} transform={`translate(${a.ellipse.cx+dx} ${a.ellipse.cy+dy}) rotate(${rotation}) scale(${scale})`}>
-          {meshProjection && a.camera_fit && glb ? <foreignObject x={-a.ellipse.cx} y={-a.ellipse.cy} width={w} height={h} pointerEvents="none">
-            <PhotoProjection url={glb} pose={a.camera_fit.pose} width={w} height={h}/>
+          {meshProjection && projectionPose && glb ? <foreignObject x={-a.ellipse.cx} y={-a.ellipse.cy} width={w} height={h} pointerEvents="none">
+            <PhotoProjection url={glb} pose={projectionPose} width={w} height={h}/>
           </foreignObject> : front ? <image href={front} x={-a.ellipse.rx} y={-a.ellipse.ry} width={a.ellipse.rx*2} height={a.ellipse.ry*2} preserveAspectRatio="none"/> : null}
         </g>}
         {points && <g fill="none" stroke="#55e6dd" strokeWidth={1.2}>
@@ -86,11 +95,22 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
         </g>)}
       </svg> : <img src={imageURL} alt="当前主参考图，等待提取候选"/> : <p>先添加并选择一张主参考图。</p>}
     </div>
+    {rectifiedURL && symmetryURL && <section className="front-reference" aria-label="正视校正参考">
+      <div className="front-reference-heading">
+        <div><strong>正视校正参考</strong><p className="photo-help">只把已检测的外圈椭圆拉回圆形并裁掉椭圆外区域；不会补造看不见的厚度或背面。若外圈本身包含侧面桶身，需先重标正面轮缘。</p></div>
+        <span>派生图 · 非原始证据</span>
+      </div>
+      <div className="front-reference-grid">
+        <a href={rectifiedURL} target="_blank" rel="noreferrer"><img src={rectifiedURL} alt="由外圈椭圆几何校正得到的正视参考"/><b>几何正视校正</b><small>用于重新描外圈、窗口与辐条轴线</small></a>
+        <a href={symmetryURL} target="_blank" rel="noreferrer"><img src={symmetryURL} alt="把一个清晰母扇区按轮辐组数重复得到的对称描线参考"/><b>母扇区 × {project.spec.spoke_count} 对称辅助</b><small>{project.spec.spoke_count} 组严格相同；只帮助定造型，不作为新实物证据</small></a>
+      </div>
+    </section>}
     <ContourReview key={`${project.id}-${shown?.id}-${project.primary_image_id}-${project.revision}`} project={project} shown={shown}/>
     {a && <>
       <div className="photo-legend"><span>青色：外圈候选</span><span>粉色：逐条辐边（弱证据处留空）</span><span>金色{meshProjection && a.camera_fit && glb ? '实体投影' : '正面线条'}：{overlayAvailable ? `CAD ${shown!.id.slice(0,6)}` : '此版本没有可用投影，生成新版本后可叠加'}</span></div>
       <div className="photo-adjust">
-        {a.camera_fit && <label><input type="checkbox" checked={meshProjection} onChange={e=>setMeshProjection(e.target.checked)}/>按照片视角投影实体（关闭看正面线条）</label>}
+        {a.camera_fit && <><label><input type="checkbox" checked={meshProjection} onChange={e=>setMeshProjection(e.target.checked)}/>显示实体投影</label>
+          {meshProjection && glb && <label>投影检查<select aria-label="投影检查模式" value={projectionMode} onChange={e=>setProjectionMode(e.target.value as 'fitted'|'front')}><option value="fitted">照片拟合视角</option><option value="front">严格正视 · 检查 {project.spec.spoke_count} 等分</option></select></label>}</>}
         <label><input type="checkbox" checked={showCAD} onChange={e => setShowCAD(e.target.checked)}/>显示 CAD 投影</label>
         <label>对照放大<input aria-label="对照放大" type="range" min={1} max={3} step={.25} value={zoom} onChange={e => setZoom(Number(e.target.value))}/><span>{zoom.toFixed(2)}×</span></label>
         <label><input type="checkbox" checked={points} onChange={e => setPoints(e.target.checked)}/>显示检测点位</label>
@@ -101,6 +121,7 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
         <strong>{a.camera_fit.status==='fitted' ? '照片观察角度已拟合' : '沿用正面对齐，相机证据不足'}</strong>
         {a.camera_fit.before_held_out_px !== undefined && <p>未参与拟合的辐条组：轴线偏差 {a.camera_fit.before_held_out_px.toFixed(1)} → {a.camera_fit.after_held_out_px?.toFixed(1)} px。验证组 {a.camera_fit.held_out_groups.map(g=>g+1).join('、')}。</p>}
         <p className="photo-help">{a.camera_fit.note}。该指标衡量轴线对齐，不代表完整轮廓精度。</p>
+        <p className="photo-help">照片拟合视角会因透视和凹面深度让各组投影看起来大小不同；切到“严格正视”后，{project.spec.spoke_count} 组应完全等分。若严格正视仍不一致，才是实体复制错误。</p>
       </div>}
       {a.root_fit && <div className="photo-root-editor">
         <strong>分叉底部与转接点</strong>
@@ -125,12 +146,18 @@ export function PhotoPanel({ project, shown, busy, onAnalyze, onApply, onRefineR
           {shown.report.skeleton.stations.map((s,i)=><tr key={s.fraction}><td>{['辐根过渡','前段','中段','后段','末端'][i]}</td><td>{s.blade_width_mm.toFixed(1)} mm</td><td>{s.depth_mm.toFixed(1)} mm</td></tr>)}
         </tbody></table><p className="photo-help">{shown.report.skeleton.note}</p>
       </div>}
+      {shown?.report?.rotational_symmetry && <div className="photo-camera-result">
+        <strong>实体对称约束 · {shown.report.rotational_symmetry.groups} 组 × {shown.report.rotational_symmetry.period_deg.toFixed(1)}°</strong>
+        <p className="photo-help">{shown.report.rotational_symmetry.scope}。每组使用 {shown.report.rotational_symmetry.master_window_count} 个母窗口。</p>
+      </div>}
       <div className="photo-candidates">
         <strong>{a.window_fit ? (a.status === 'candidates' ? '可核对的窗口法候选' : '窗口轮廓未通过模板校验') : a.status === 'candidates' ? '可核对的双辐候选' : '检测存在歧义，请人工核对'}</strong>
         {!a.window_fit && <p>外圈边缘覆盖 {(a.edge_coverage*100).toFixed(0)}% · 拟合中位残差 {a.edge_residual_px} px（检测图分辨率，非实物精度）</p>}
         {a.window_fit ? <div className="photo-fit-result">
           <strong>{applied ? '窗口轮廓已应用 · 以当前 CAD 版本为准' : `每组 ${a.window_fit.window_count} 个窗口 · 待应用生成`}</strong>
-          <p>未参与拟合的第 {a.window_fit.held_out_groups.map(g => g + 1).join('、')} 组：重合度 {a.window_fit.held_out_iou_mean?.toFixed(2) ?? '—'}；标注自身各组一致性（可达上限）{a.window_fit.label_loo_mean.toFixed(2)}。</p>
+          <p>同图第 {a.window_fit.held_out_groups.map(g => g + 1).join('、')} 组一致性重合度 {a.window_fit.held_out_iou_mean?.toFixed(2) ?? '—'}；标注各组一致性 {a.window_fit.label_loo_mean.toFixed(2)}。各组参与过相机和相位选择，非独立盲测，也不是精度上限。</p>
+          {a.window_fit.sector_consensus && <p className="photo-help">母扇区共识：基准第 {a.window_fit.sector_consensus.medoid_group + 1} 组；有效组 {a.window_fit.sector_consensus.inlier_groups.map(g=>g+1).join('、')}；{a.window_fit.sector_consensus.outlier_groups.length ? ` 排除组 ${a.window_fit.sector_consensus.outlier_groups.map(g=>g+1).join('、')}；` : ' 无异常组；'}相位校正 {a.window_fit.sector_consensus.phase_offsets_deg.map(v=>`${v.toFixed(1)}°`).join(' / ')}。</p>}
+          {a.window_fit.contour_method === 'full_2d_cell_boundary_v3' && <p className="photo-help">轮廓提取：完整二维边界，保留分叉、内凹和局部转折；不再压缩成每个半径的左右包络。</p>}
           {a.window_fit.window_error && <p className="photo-help">{a.window_fit.window_error}</p>}
           <p className="photo-help">在假设的辐条正面上按面积计算，只评价正面窗口形状，不代表深度或实物尺寸。</p>
         </div> : fit?.status === 'fitted' ? <div className="photo-fit-result">

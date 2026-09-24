@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { Caliper, Material, Preparation, PreparationReport, Source, Stock } from './types';
 
-const sourceNames = { template: '模板假设', manual: '手动输入', drawing: '图纸标注', measurement: '实物测量' };
+const sourceNames = { template: '模板假设', manual: '手动输入', drawing: '图纸标注', measurement: '实物测量',
+  observed: 'Agent 观测', inferred: 'Agent 推断', unknown: '未知' };
 const assumed: Source = { kind: 'template', note: '演示假设，请以实际资料替换；未作工程审核' };
 const defaultCaliper: Caliper = { inner_radius_mm: 90, outer_radius_mm: 180, z_min_mm: -70, z_max_mm: 10, required_clearance_mm: 3, source: assumed };
 const defaultStock: Stock = { outer_diameter_mm: 520, height_mm: 280, center_z_mm: 0, cavity_diameter_mm: 390, front_web_mm: 120, required_allowance_mm: 1, source: assumed };

@@ -1,16 +1,17 @@
-"""Pure-math layout of template forged-monoblock-v10.
+"""Pure-math layout of template forged-monoblock-v15.
 
 No CAD kernel import: the API validates specs with this module before queueing a build.
 Coordinates: millimetres, wheel axis Z, rim width mid-plane Z=0, +Z is the outboard (face) side.
 Rim profile points are (r, z); spoke section points are (u, z), u along the section's in-plane axis.
-v10 keeps the v9 lofted spokes (spoke_method "loft") and adds "window": a turned spoke blank with the
-same dished front/back curves, minus window outlines fitted from a photo.
+v14 keeps the v13 crown-shaped window surface, preserves complete 2D fitted-window boundaries,
+and can add an explicitly assumed shallow front shoulder around those boundaries.
+The photographed face therefore gets visible radial sculpture, not only hidden back-side draft.
 """
 import math
 
 from . import windows as window_rules
 
-TEMPLATE_VERSION = "forged-monoblock-v10"
+TEMPLATE_VERSION = "forged-monoblock-v15"
 INCH = 25.4
 
 # Rim contour approximating a J flange, 5° bead seat with hump, and a drop well on the outboard side.
@@ -119,6 +120,35 @@ def slot_half_width(slot, r):
     return root + (slot["gap_mm"]/2-root)*t*t*(3-2*t)
 
 
+def _spoke_bounds(spec, tip_width, tip_inset=0.0):
+    """Shared radial extents and apex elevations for lofts and window blanks."""
+    radius, half = spec.rim_diameter_in * INCH / 2, spec.rim_width_in * INCH / 2
+    return {
+        "root_r": spec.hub_diameter_mm / 2 - 10,
+        "tip_r": radius - 1.5 - tip_width ** 2 / (8 * radius) - tip_inset,
+        "root_apex": spec.offset_et_mm + spec.hub_thickness_mm - HUB_PAD_PROUD,
+        "tip_apex": half + spec.rim_wall_mm + FLANGE_EXTRA - max(TIP_SETBACK, spec.junction_fillet_mm + 3),
+    }
+
+
+def window_blank_profile(spec):
+    """Quadratic Bezier controls shared by CAD construction and photo fitting.
+
+    This only describes the uncut base blank, not a valid wheel or any local
+    relief/ridge/fillet. It intentionally does not need window outlines, allowing
+    the fitting stage to use the correct surface before its outlines exist.
+    Normal WheelSpec validation and layout still require valid cutout outlines.
+    """
+    bounds = _spoke_bounds(spec, spec.spoke_width_rim_mm)
+    r0, r1 = bounds["root_r"], bounds["tip_r"]
+    z0 = bounds["root_apex"] - spec.spoke_crown_mm
+    z1 = bounds["tip_apex"] - spec.spoke_crown_mm
+    top = [(r0, z0), ((r0 + r1) / 2, z0 + (z1-z0) * (1-spec.face_curve) / 2 + spec.spoke_crown_mm), (r1, z1)]
+    root_depth, tip_depth = spec.spoke_thickness_mm, spec.spoke_thickness_mm * TIP_DEPTH_RATIO
+    bottom = [(r, z-depth) for (r, z), depth in zip(top, (root_depth, (root_depth+tip_depth)/2, tip_depth))]
+    return {"top_rz": top, "bottom_rz": bottom}
+
+
 def layout(spec):
     """Derived dimensions, rim profile and spoke frames. Raises ValueError for infeasible specs."""
     D, W = spec.rim_diameter_in * INCH, spec.rim_width_in * INCH
@@ -129,14 +159,14 @@ def layout(spec):
     junction = spec.junction_fillet_mm
     hub_r = spec.hub_diameter_mm / 2
     hub_front = spec.offset_et_mm + spec.hub_thickness_mm
-    # The spoke↔rim fillet needs room below the flange face, or it wraps over the lip edge and fails.
-    apex_tip = half + flange - max(TIP_SETBACK, junction + 3)
-    apex_root = hub_front - HUB_PAD_PROUD
     crown = spec.spoke_crown_mm
     # The window method only borrows the dished front/back curves; loft-only shape fields are ignored.
     window_method = getattr(spec, "spoke_method", "loft") == "window"
     paired = spec.spoke_style == "paired" and not window_method
     tip_width = spec.paired_gap_mm + 2 * spec.paired_tip_width_mm if paired else spec.spoke_width_rim_mm
+    bounds = _spoke_bounds(spec, tip_width, spec.paired_tip_inset_mm if paired else 0)
+    # The spoke↔rim fillet needs room below the flange face, or it wraps over the lip edge and fails.
+    apex_tip, apex_root = bounds["tip_apex"], bounds["root_apex"]
     if not paired and not window_method and (spec.paired_blade_root_mm or spec.paired_window_root_mm or spec.paired_root_round_mm or spec.paired_gap_flare_mm or spec.paired_shoulder_mm or spec.paired_mid_mm or spec.paired_tip_inset_mm or spec.lip_extension_mm):
         raise ValueError("轮廓展开和加宽轮唇目前仅用于双辐模板。")
     if paired:
@@ -164,8 +194,7 @@ def layout(spec):
         raise ValueError("中心孔与安装孔沉孔之间的间隔不足。")
 
     # Spokes: sections on vertical planes along a swept, dished centre path.
-    r_root = hub_r - 10
-    r_tip = R - 1.5 - tip_width ** 2 / (8 * R) - (spec.paired_tip_inset_mm if paired else 0)
+    r_root, r_tip = bounds["root_r"], bounds["tip_r"]
     if r_tip - r_root < 80:
         raise ValueError("中心盘相对轮辋过大，轮辐长度不足。")
     if not window_method and spec.spoke_count * spec.spoke_width_hub_mm > 0.85 * 2 * math.pi * r_root:
@@ -403,19 +432,44 @@ def layout(spec):
                            (inner, top - spec.lip_drop_mm - 6), (outer, top - 6)],
                "radii": [1.2, 1.2, 1.2, 1.2], "inner_radius_mm": inner,
                "radial_width_mm": outer - inner, "drop_mm": spec.lip_drop_mm}
+    rim_pocket_band = None
+    if spec.rim_pocket_count:
+        outer = R + FLANGE_HEIGHT - 2
+        pocket_outer = outer - spec.rim_pocket_inset_mm
+        pocket_inner = pocket_outer - spec.rim_pocket_radial_mm
+        inner = pocket_inner - 5
+        centre = (pocket_inner + pocket_outer) / 2
+        pitch = 2 * math.pi * centre / spec.rim_pocket_count
+        if inner <= hub_r + 25:
+            raise ValueError("外圈槽径向长度过大，已接近中心盘；请缩短槽或减小内缩量。")
+        if spec.rim_pocket_width_mm + 4 > pitch:
+            raise ValueError("外圈槽过宽或数量过多，相邻槽之间保留材料不足。")
+        if spec.rim_pocket_corner_mm * 2 >= min(spec.rim_pocket_width_mm, spec.rim_pocket_radial_mm):
+            raise ValueError("外圈槽圆角过大，请减小圆角或加大槽尺寸。")
+        top = half + flange - 2
+        skin = 4.0
+        rim_pocket_band = {
+            "count": spec.rim_pocket_count, "phase_deg": spec.rim_pocket_phase_deg,
+            "outer_radius_mm": outer, "inner_radius_mm": inner,
+            "pocket_center_radius_mm": centre, "pocket_inner_radius_mm": pocket_inner,
+            "pocket_outer_radius_mm": pocket_outer, "radial_length_mm": spec.rim_pocket_radial_mm,
+            "tangential_width_mm": spec.rim_pocket_width_mm, "corner_radius_mm": spec.rim_pocket_corner_mm,
+            "depth_mm": spec.rim_pocket_depth_mm, "front_z_mm": top,
+            "back_z_mm": top - spec.rim_pocket_depth_mm - skin, "floor_skin_mm": skin,
+            "scope": "外圈槽数量与轮辐组数独立；正面比例来自单图，轴向深度和背部材料为模板假设",
+        }
     window_blank = None
     if window_method:
-        # Turned blank: the v9 quadratic front/back between the first and last section, revolved.
-        f0, f1 = sections[0], sections[-1]
-        r0, r1, delta = f0["r"], f1["r"], f1["front"] - f0["front"]
-        top = [(r0, f0["front"]), ((r0 + r1) / 2, f0["front"] + delta * (1 - spec.face_curve) / 2), (r1, f1["front"])]
-        bottom = [(r, z - d) for (r, z), d in zip(top, [f0["depth"], (f0["depth"] + f1["depth"]) / 2, f1["depth"]])]
+        profile = window_blank_profile(spec)
         rim_outer = R + FLANGE_HEIGHT
         checks = window_rules.check(spec.window_outlines_mm, spec.spoke_count, hub_r, rim_outer)
-        window_blank = {"top_rz": top, "bottom_rz": bottom, "outlines_mm": spec.window_outlines_mm,
+        window_blank = {**profile, "outlines_mm": spec.window_outlines_mm,
                         "hub_keep_radius_mm": hub_r + window_rules.HUB_KEEP_MM,
-                        "edge_fillet_mm": spec.window_edge_fillet_mm, **checks,
-                        "scope": "正面窗口轮廓来自照片拟合；侧壁竖直、无拔模，前后曲面与厚度沿用模板假设"}
+                        "edge_fillet_mm": spec.window_edge_fillet_mm,
+                        "face_relief_mm": spec.window_face_relief_mm,
+                        "spoke_ridge_mm": spec.window_spoke_ridge_mm,
+                        "side_draft_deg": spec.window_side_draft_deg, **checks,
+                        "scope": "正面窗口来自输入草图，来源见配方；背面开口按质心径向收小近似拔模，非已验证恒定法向角；前后曲面与厚度沿用模板假设"}
     skeleton_stations = []
     if paired:
         for t in (.125,.25,.5,.75,1):
@@ -431,6 +485,7 @@ def layout(spec):
         "skeleton_stations": skeleton_stations,
         "interspoke_window": window,
         "front_lip": lip,
+        "rim_pocket_band": rim_pocket_band,
         "paired_slot": paired_slot,
         "rim_polygon": rim_polygon, "sections": sections, "pockets": pockets,
         "hub_front_z": hub_front, "hub_radius": hub_r,
@@ -440,6 +495,7 @@ def layout(spec):
             "spoke_group_count": spec.spoke_count,
             "spoke_blade_count": spec.spoke_count * (2 if paired else 1),
             **({"window_count": len(spec.window_outlines_mm) * spec.spoke_count} if window_method else {}),
+            **({"rim_pocket_count": spec.rim_pocket_count} if spec.rim_pocket_count else {}),
             "bead_seat_diameter_mm": round(D, 3),
             "outer_diameter_mm": round(D + 2 * FLANGE_HEIGHT, 3),
             "rim_width_mm": round(W, 3),

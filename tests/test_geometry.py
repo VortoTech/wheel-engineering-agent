@@ -101,6 +101,8 @@ def test_export_artifacts_preserve_solid(tmp_path):
     spec = WheelSpec()
     report = export_model(spec, tmp_path)
     assert report["checks"]["step_roundtrip"]
+    assert report["step_stability"]["fallback_used"] is False
+    assert len(report["step_stability"]["attempts"]) == 1
     imported = cq.importers.importStep(str(tmp_path / "wheel.step")).val()
     assert len(imported.Solids()) == 1
     assert imported.BoundingBox().xlen == pytest.approx(18 * INCH + 2 * FLANGE_HEIGHT, abs=1e-4)
@@ -113,3 +115,10 @@ def test_export_artifacts_preserve_solid(tmp_path):
     assert any(accessor.get("count", 0) > 100 for accessor in gltf["accessors"])
     assert report["engineering_approved"] is False
     assert report["derived"]["backspacing_mm"] > 0
+    engineering = json.loads((tmp_path / "engineering.json").read_text())
+    assert engineering["schema_version"] == "wheel-engineering-v1"
+    assert engineering["manufacturing_status"] == "not_released"
+    assert engineering["engineering_approved"] is False
+    assert engineering["parameters"]["spoke_thickness_mm"]["source"] == "default"
+    assert "spoke_thickness_mm" in engineering["critical_unconfirmed"]
+    assert report["artifacts"]["engineering.json"]["sha256"]

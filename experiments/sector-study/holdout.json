@@ -1,0 +1,13 @@
+{
+  "schema": "wheelcam-sector-holdout-v1",
+  "source_sha256": "1ad16a0e0d28f716d2fb58987d1295f8932c1a8fdd434cc62d018a987f7ae8ef",
+  "name": "lower-right Y group",
+  "group_rotation_deg": -60,
+  "points": [[350,323],[361,349],[368,380],[374,417],[378,448],[370,453],[363,421],[358,392],[352,361],[401,344],[428,358],[457,374]],
+  "created_at": "2026-09-21",
+  "method": "Assistant manually selected visible front-boundary observations on the original photo before evaluating this group. No predicted points were copied. Correspondence and exact edge position still need human review.",
+  "reviewed": false,
+  "used_for_optimization": false,
+  "used_for_camera": false,
+  "note": "Freeze these observations for reporting. Do not move them or tune the model against them to obtain a passing score. After model tuning informed by this report, use new independent observations for final acceptance."
+}

@@ -1,0 +1,8 @@
+# Keep the NVIDIA base image's ARM64 CUDA-enabled torch, torchvision,
+# transformers, OpenCV, einops and tqdm instead of downgrading that tested
+# stack to the upstream x86/CUDA 12.1 lock.
+# pymeshlab is deliberately excluded because it has no compatible wheel here.
+# Inherit NumPy 2.1.0 from the NVIDIA 26.02 base image. Its image constraint is
+# numpy<=2.1, and forcing upstream's 1.26.4 would break the validated base stack.
+trimesh==4.6.9
+fpsample==0.3.3

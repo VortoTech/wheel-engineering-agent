@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 from scipy.optimize import least_squares
 
-from .template import layout
+from .template import layout, window_blank_profile
 
 
 def rotation(ax, ay, az):
@@ -30,16 +30,36 @@ def project(points, pose):
 
 
 @lru_cache(maxsize=128)
-def _front_bounds(spec_json):
-    lay = layout(SimpleNamespace(**json.loads(spec_json)))
-    first,last = lay['sections'][0],lay['sections'][-1]
-    return first['r'],last['r'],first['front'],last['front']
+def _front_profile(spec_json, method):
+    values = json.loads(spec_json)
+    if method is not None:
+        values['spoke_method'] = method
+    spec = SimpleNamespace(**values)
+    if values['spoke_method'] == 'window':
+        # These exact Bezier controls also construct the revolved CAD blank.
+        return tuple(tuple(point) for point in window_blank_profile(spec)['top_rz'])
+    lay = layout(spec)
+    first, last = lay['sections'][0], lay['sections'][-1]
+    r0, r1, z0, z1 = first['r'], last['r'], first['front'], last['front']
+    # Preserve the legacy loft section-edge proxy. This is not the entire
+    # crowned/filleted loft face and must not be described as such.
+    return ((r0, z0), ((r0+r1)/2, z0+(z1-z0)*(1-values['face_curve'])/2), (r1, z1))
 
 
-def front_z(spec, radial):
-    r0,r1,z0,z1 = _front_bounds(spec.model_dump_json())
-    t = np.clip((np.asarray(radial)-r0)/(r1-r0), 0, 1)
-    return z0+(z1-z0)*((1-spec.face_curve)*t+spec.face_curve*t*t)
+def front_z(spec, radial, *, method=None):
+    """Base spoke-front elevation, clamped at the profile's radial endpoints.
+
+    Window mode evaluates the same quadratic Bezier as the CAD blank, including
+    its crown. It deliberately excludes cutouts, local relief, positive ridges,
+    fillets, the hub disc and the rim outside the blank's radial span. ``method``
+    lets window fitting target that surface while its input is still a loft spec.
+    The loft branch retains its historical section-edge proxy.
+    """
+    if method not in (None, 'loft', 'window'):
+        raise ValueError('Unknown front surface method.')
+    (r0, z0), (_, zm), (r1, z1) = _front_profile(spec.model_dump_json(), method)
+    t = np.clip((np.asarray(radial, dtype=float)-r0)/(r1-r0), 0, 1)
+    return (1-t)**2*z0 + 2*(1-t)*t*zm + t*t*z1
 
 
 def unproject_front(points, pose, spec, theta=None):

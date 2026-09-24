@@ -3,20 +3,25 @@ import math
 import cadquery as cq
 
 from .preparation import checked_volume
+from .mass_properties import volume_method
 from .template import layout
 
 
 def export_previews(wheel, rim, spec, output):
     silver, black = cq.Color(0.65, 0.67, 0.70), cq.Color(0.07, 0.075, 0.085)
     if spec.spoke_style != 'paired':
-        cq.Assembly(wheel, name='wheel-body', color=silver).export(str(output / 'wheel.glb'), tolerance=0.15, angularTolerance=0.1)
+        # Photo-fitted window bodies use a neutral gunmetal preview so their fillets and draft are
+        # legible against white product photos. This changes only GLB appearance, never STEP geometry.
+        colour = cq.Color(0.14, 0.15, 0.16) if spec.spoke_method == 'window' else silver
+        cq.Assembly(wheel, name='wheel-body', color=colour).export(str(output / 'wheel.glb'), tolerance=0.15, angularTolerance=0.1)
         return None
     shape = wheel.val()
     # Partition the finished shape by the original rim, so colors do not create duplicate material.
-    rim_part = shape.intersect(rim)
-    face_part = shape.cut(rim)
-    total = checked_volume(rim_part) + checked_volume(face_part)
-    if abs(total - checked_volume(shape)) / total > 1e-5:
+    rim_part = shape.copy().intersect(rim.copy())
+    face_part = shape.copy().cut(rim.copy())
+    rim_volume, face_volume, body_volume = map(checked_volume, (rim_part, face_part, shape))
+    total = rim_volume + face_volume
+    if total <= 0 or abs(total - body_volume) / total > 1e-5:
         raise ValueError('分色预览的实体分区体积不一致。')
     assembly = cq.Assembly(name='wheel-body')
     assembly.add(rim_part, name='rim-silver', color=silver)
@@ -60,6 +65,9 @@ def export_previews(wheel, rim, spec, output):
                      loc=cq.Location(cq.Vector(radius * math.cos(angle), radius * math.sin(angle), z + 5)))
     assembly.export(str(output / 'presentation.glb'), tolerance=0.15, angularTolerance=0.1)
     return {'status': 'display_only', 'decorative_fastener_count': 40,
+            'partition_check': {'volume_method': volume_method(), 'body_volume_mm3': body_volume,
+                                'rim_volume_mm3': rim_volume, 'face_volume_mm3': face_volume,
+                                'relative_residual': abs(total - body_volume) / total},
             'attachments': ['center_cap', 'cap_trim', 'fastener_ring', 'rim_fasteners'] + (['lug_inserts', 'ring_beads'] if refined else []),
             'style': 'photo-fit-v2' if refined else 'photo-fit-v1',
             'excluded_from': ['wheel.step', 'body_volume', 'weight', 'caliper_check', 'stock_check', 'machining_features'],

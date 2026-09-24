@@ -10,4 +10,6 @@ __pycache__/
 .DS_Store
 .env
 .logs/
+.local/
 artifacts/
+experiments/partpacker-gb10/results/

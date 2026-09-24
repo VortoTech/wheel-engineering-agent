@@ -1,0 +1,4 @@
+wheels/*.whl
+!wheels/.gitkeep
+results/**/*.glb
+results/**/*.glb.partial
