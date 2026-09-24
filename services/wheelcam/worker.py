@@ -95,7 +95,9 @@ class Worker:
                         if self.stopped.wait(0.2):
                             self.process.terminate()
                             break
-                    code = self.process.wait(timeout=self.timeout)
+                    forged = json.loads(job["snapshot"]).get("template") == "forged-blank-v1"
+                    # Forged builds cut per-sample rim wedges and run 4-8 min; keep the 300 s limit elsewhere.
+                    code = self.process.wait(timeout=max(self.timeout, 900) if forged else self.timeout)
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                     self.process.wait()

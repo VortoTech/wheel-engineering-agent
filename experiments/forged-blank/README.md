@@ -1,5 +1,7 @@
 # Forged-blank prototype
 
+The geometry now lives in `services/wheelcam/forged_blank.py` as the **`forged-blank-v1`** template, alongside the main window-method template. `build.py` here is the experiment CLI (renders against the reference photo); `POST /api/projects/{id}/forged-builds` with `{"expected_revision", "recipe"}` queues the same build in the workbench (900 s worker limit instead of 300 s), producing `wheel.step`, `wheel.glb`, `stock.step`, `recipe.json` and a viewer-compatible `report.json`. Exported parts use the main template's coordinates (Z=0 at the rim-width mid-plane). There is no UI for it yet.
+
 Builds a wheel in forging/machining order from one `ForgedWheel` parameter set:
 
 1. **Revolved forging blank**: hub plateau, concave face web (`z_top`/`z_back` profiles), lip face ring, barrel. One solid, so hub and spokes are never separate bodies.

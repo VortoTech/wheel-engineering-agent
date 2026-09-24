@@ -137,7 +137,8 @@ class Store:
         result["report"] = json.loads(result["report"]) if result["report"] else None
         return result
 
-    def enqueue(self, project_id, expected_revision):
+    def enqueue(self, project_id, expected_revision, forged=None):
+        """Queue a build; `forged` (a validated ForgedWheel dict) selects the forged-blank template."""
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
@@ -167,6 +168,9 @@ class Store:
                     snapshot["photo_analysis"] = json.loads(analysis[0])
                     snapshot["image_usage"] = "local_candidates_reviewed_before_apply"
             snapshot["model_id"] = job_id
+            if forged is not None:
+                from .forged_blank import TEMPLATE_VERSION as FORGED_VERSION
+                snapshot.update(template=FORGED_VERSION, template_version=FORGED_VERSION, forged=forged)
             if "case_selection" in row.keys() and row["case_selection"]:
                 snapshot["case_selection"] = json.loads(row["case_selection"])
             db.execute("INSERT INTO jobs(id,project_id,status,snapshot,created_at) VALUES(?,?,?,?,?)",

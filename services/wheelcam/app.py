@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ForgedBuildRequest, ProjectCreate, TEMPLATE_VERSION, WheelSpec
 from .agent_cad import AgentCadPlan, AgentPlanApply, ConfirmedEvidenceConflict, evaluate_plan
 from .agent_orchestrator import AgentProposalRequest, OpenAICompatibleAgentProvider, provider_status
 from .storage import Store, now, uid
@@ -185,6 +185,22 @@ def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=N
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"id": job_id, "status": "queued"}
+
+    @app.post("/api/projects/{project_id}/forged-builds", status_code=202)
+    def generate_forged(project_id: str, body: ForgedBuildRequest):
+        from dataclasses import asdict
+        from .forged_blank import recipe_from_dict
+        try:
+            recipe = asdict(recipe_from_dict(body.recipe))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        try:
+            job_id = store.enqueue(project_id, body.expected_revision, forged=recipe)
+        except KeyError as exc:
+            raise HTTPException(404, "项目不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"id": job_id, "status": "queued", "template": "forged-blank-v1"}
 
     @app.post("/api/projects/{project_id}/reconstructions", status_code=202)
     def reconstruct(project_id: str, body: BuildRequest):

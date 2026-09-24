@@ -204,6 +204,10 @@ class BuildRequest(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class ForgedBuildRequest(BuildRequest):
+    recipe: dict = Field(default_factory=dict)
+
+
 class AnalysisRequest(BuildRequest):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     reference_outer_mm: float | None = Field(None, ge=100, le=1200)
