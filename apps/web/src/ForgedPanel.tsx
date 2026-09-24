@@ -26,7 +26,7 @@ const groups: { title: string; fields: Field[] }[] = [
   ] },
   { title: '加工细节', fields: [
     { key: 'facet_deg', label: '辐条正面斜面角（0 为平面）', min: 0, max: 30, step: .5, unit: '°', families: ['y_split', 'single', 'skeleton'] },
-    { key: 'edge_break', label: '窗口棱边倒角（0 为锐边）', min: 0, max: 3, step: .25, unit: 'mm', families: ['y_split', 'single', 'skeleton'] },
+    { key: 'edge_break', label: '窗口棱边倒角（CAM 加工，0 为不倒角）', min: 0, max: 3, step: .25, unit: 'mm', families: ['y_split', 'single', 'skeleton'], hint: 'CAD 中保持锐边，倒角作为加工工序写入报告' },
     { key: 'groove_depth', label: '辐条凹槽深度', min: 0, max: 6, step: .25, unit: 'mm', families: ['y_split', 'single', 'skeleton'], hint: '凹槽位置来自配方 groove_offsets' },
     { key: 'back_pocket_skin', label: '背腔顶面留量（0 为无背腔）', min: 0, max: 20, step: .5, unit: 'mm', families: ['y_split', 'single', 'skeleton'] },
     { key: 'lip_pockets', label: '外圈槽数量（0 为无）', min: 0, max: 40, step: 1, unit: '个', families: ['y_split', 'single', 'skeleton'] },
@@ -94,7 +94,7 @@ export function ForgedPanel({ recipe, onRecipe, disabled, onError }: {
   const grooves = Array.isArray(recipe.groove_offsets) ? recipe.groove_offsets.length : 0;
   return <>
     <div className="template-heading"><div><span className="section-eyebrow">FORGED-BLANK-V1</span><h2>锻坯减材模板</h2></div></div>
-    <p className="dimension-note">按加工顺序建模：回转锻坯 → 辐条正面斜面 → 穿透窗口 → 窗口倒角 → 凹槽 → 背腔 → 外圈槽 → 螺栓孔。所有尺寸为设计假设，非实测。</p>
+    <p className="dimension-note">按加工顺序建模：回转锻坯 → 辐条正面斜面 → 穿透窗口 → 凹槽 → 背腔 → 外圈槽 → 螺栓孔；窗口棱边倒角交给 CAM。所有尺寸为设计假设，非实测。</p>
     <div className="parameter"><div className="parameter-top"><label htmlFor="forged-preset">从预设开始</label>
       <select id="forged-preset" value="" disabled={disabled} onChange={(event) => { const preset = presets.find((item) => item.id === event.target.value); if (preset) onRecipe(preset.recipe, `已载入预设：${preset.name}`); }}>
         <option value="" disabled>选择预设…</option>
@@ -117,6 +117,6 @@ export function ForgedPanel({ recipe, onRecipe, disabled, onError }: {
       <button className="secondary-button" disabled={disabled} onClick={() => importInput.current?.click()}><FileUp size={15}/>导入配方 JSON</button>
       <button className="secondary-button" onClick={exportRecipe}><ArrowDownToLine size={15}/>导出当前配方</button>
     </div>
-    <p className="dimension-note">轮辋、轮缘、中心孔等外廓尺寸来自预设或导入的配方，面板不单独调整，避免尺寸之间互相冲突。生成约需 3–8 分钟。</p>
+    <p className="dimension-note">轮辋、轮缘、中心孔等外廓尺寸来自预设或导入的配方，面板不单独调整，避免尺寸之间互相冲突。生成约需 1–5 分钟。</p>
   </>;
 }

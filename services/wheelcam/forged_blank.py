@@ -1,10 +1,13 @@
 """Forged-blank wheel template: build a wheel in machining order from one parameter set.
 
-revolved forging blank -> face facets -> through windows (2D sketch) -> window rim edge break
--> spoke grooves -> back weight pockets -> lip-face pockets -> lug holes and seats.
+revolved forging blank -> face facets -> through windows (2D sketch) -> spoke grooves -> back weight pockets -> lip-face pockets -> lug holes and seats.
 
 Prototype origin and design notes: experiments/forged-blank/README.md. All default dimensions are
 design assumptions, not measurements; manufacturing status is always not_released.
+
+Window-rim edge breaks are left to CAM (report `cam_operations`): every attempt to model them in the
+B-Rep either multiplied STEP size 3-11x (per-sample wedges) or failed in OCC Booleans on faceted and
+grooved spokes (smooth ring tools, 2026-09-23/24). CAM chamfers sharp edges directly.
 """
 import math
 import time
@@ -50,7 +53,7 @@ class ForgedWheel:
     arm_bow: float = 6.0
     spoke_sweep_deg: float = 0.0    # spoke rotates progressively toward the rim (leaning spokes)
     window_fillet: float = 5.0
-    edge_break: float = 1.5         # 45° chamfer on window rims (0 = sharp)
+    edge_break: float = 1.5         # 45° chamfer on window rims, machined in CAM (0 = none); CAD keeps sharp edges
     facet_deg: float = 20.0         # 0 = flat spoke tops
     # Spoke grooves: lateral centre as a fraction of half width (0 = on the ridge).
     groove_offsets: tuple = (0.62,)
@@ -245,58 +248,6 @@ def windows(p, outlines):
     return cq.Compound.makeCompound(tools)
 
 
-def top_height(body):
-    """Highest body surface z along a vertical line through (x, y)."""
-    from OCP.BRepIntCurveSurface import BRepIntCurveSurface_Inter
-    from OCP.gp import gp_Dir, gp_Lin, gp_Pnt
-    inter = BRepIntCurveSurface_Inter()
-
-    def height(x, y):
-        inter.Init(body.wrapped, gp_Lin(gp_Pnt(x, y, 200), gp_Dir(0, 0, -1)), 1e-6)
-        best = None
-        while inter.More():
-            best = inter.Pnt().Z() if best is None else max(best, inter.Pnt().Z())
-            inter.Next()
-        return best
-    return height
-
-
-def rim_break_cutters(p, body, outlines):
-    """45° edge break along every window rim, as a chamfer mill would cut it.
-
-    Each rim sample gets an upright triangle normal to the rim, from `edge_break` below the machined
-    top (ray-cast on the actual body, so facets, hub and ring are followed) rising at 45° into the
-    material; consecutive sections are lofted into short ruled wedges. This leaves small facets
-    (teeth) along the chamfer. Smooth alternatives failed on 2026-09-23: B-Rep fillet/chamfer on the
-    faceted rims, a pipe sweep (hung in OCC), and chunked smooth lofts (invalid Boolean/clean).
-    """
-    c, e = p.edge_break, 3.0
-    height = top_height(body)
-    wedges = []
-    for pts in outlines:
-        area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))
-        sign = 1 if area > 0 else -1          # CCW window: material is on the right
-        n = len(pts)
-        sections = []
-        for i in range(n):
-            (xa, ya), (xb, yb) = pts[i - 1], pts[(i + 1) % n]
-            tx, ty = xb - xa, yb - ya
-            length = math.hypot(tx, ty)
-            nx, ny = sign * ty / length, -sign * tx / length
-            x, y = pts[i]
-            z = height(x + nx * .4, y + ny * .4)
-            sections.append(None if z is None else cq.Wire.makePolygon(
-                # The 45° face runs on 0.5 mm into the window: a corner exactly on the wall made
-                # the combined Boolean silently remove nothing.
-                [cq.Vector(x - nx * 2, y - ny * 2, z - c - .5), cq.Vector(x - nx * 2, y - ny * 2, z + e),
-                 cq.Vector(x + nx * (c + e), y + ny * (c + e), z + e),
-                 cq.Vector(x - nx * .5, y - ny * .5, z - c - .5)], close=True))
-        for a, b in zip(sections, sections[1:] + sections[:1]):
-            if a and b:                        # rim not found at a sample: that stretch stays sharp
-                wedges.append(cq.Solid.makeLoft([a, b], ruled=True))
-    return wedges
-
-
 def round_corners(face, radius, min_turn_deg=25):
     """2D fillet only at real corners; sampled polylines have near-collinear vertices."""
     corners = []
@@ -458,23 +409,6 @@ def build(p):
     apply('face_facets', facet_cutters(p), rotate=True)
     outlines = window_outlines(p)
     apply('through_windows', [windows(p, outlines)])
-    if p.edge_break > 0:
-        apply('window_rim_edge_break', [cq.Compound.makeCompound(rim_break_cutters(p, body, outlines))])
-        # Around tight window tips the wedge ends overlap and leave loose ~1 mm³ chips floating in
-        # the window; no real tool leaves those, so drop them (and say so) if they are that small.
-        solids = sorted(body.Solids(), key=volume, reverse=True)
-        chips = sum(volume(x) for x in solids[1:])
-        if len(solids) > 1 and chips < 50:
-            body = solids[0]
-            stages[-1].update(solids=1, dropped_chips=len(solids) - 1, dropped_chip_mm3=round(chips, 1))
-        # This Boolean has silently cut nothing or part of the rim: compare with rim length x c²/2,
-        # widened where facets slope the top up into the material.
-        rim = sum(math.dist(a, b) for pts in outlines for a, b in zip(pts, pts[1:] + pts[:1]))
-        expected = rim * p.edge_break ** 2 / 2
-        widen = 1 / (1 - math.tan(math.radians(p.facet_deg))) ** 2
-        ratio = stages[-1]['removed_mm3'] / expected
-        stages[-1].update(expected_flat_mm3=round(expected, 1),
-                          status='ok' if .9 < ratio < 1.2 * widen and len(body.Solids()) == 1 else 'suspect')
     apply('spoke_grooves', groove_cutters(p), rotate=True)
     apply('back_pockets', back_pocket_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
@@ -558,12 +492,18 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
     checks["step_roundtrip"] = reopened.isValid() and len(reopened.Solids()) == 1 and delta < 5e-5
     cq.exporters.export(stock, str(output / "stock.step"))
     cq.Assembly(part, color=cq.Color(.55, .53, .5)).export(str(output / "wheel.glb"))
+    # Mounting face (hub back) in main-template coordinates; relative to the rim mid-plane this is ET.
+    mounting_face_z = z_back(p, p.hub_r) + p.width / 2
+    from .models import Preparation
+    from .preparation import check_preparation
+    preparation = check_preparation(part, None, Preparation.model_validate((snapshot or {}).get("preparation") or {}),
+                                    output, mounting_face_z_mm=mounting_face_z, export_stock=False)
     if not (output / "recipe.json").exists():
         (output / "recipe.json").write_text(json.dumps(snapshot or {"forged": asdict(p)}, ensure_ascii=False, indent=2))
     limitations = [
         "锻坯模板：所有尺寸为设计假设（按商品图目测），非实测；未做强度、疲劳或加工验证。",
         "轮辋为简化截面，未按 ETRTO / TRA 核对胎圈座与轮缘。",
-        "窗口棱边为逐点楔形 45° 倒角，表面有细小台阶，未达 CAM 直接使用精度。",
+        "窗口棱边在 CAD 中为锐边；棱边倒角作为加工工序交给 CAM（见 cam_operations）。",
     ]
     if suspect:
         limitations.insert(0, f"以下工序结果可疑，须复核：{', '.join(suspect)}")
@@ -571,18 +511,25 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
         "checks": checks, "solid_count": len(part.Solids()),
         "volume_mm3": round(measurement.volume_mm3, 3), "volume_measurement": measurement.to_dict(),
         "bbox_mm": [round(v, 4) for v in (bbox.xlen, bbox.ylen, bbox.zlen)],
-        "face_count": len(part.Faces()), "step_volume_relative_delta": delta, "step_volume_method": volume_method(),
+        "face_count": len(part.Faces()),
+        "derived": {"outer_diameter_mm": round(2 * p.lip_r, 1), "overall_width_mm": round(p.width, 1),
+                    "offset_et_mm": round(mounting_face_z, 1), "concavity_mm": round(-p.hub_z, 1)},
+        "preparation": preparation, "step_volume_relative_delta": delta, "step_volume_method": volume_method(),
         "template_version": TEMPLATE_VERSION, "units": "mm",
         "coordinates": "右手系，轮毂轴线为 Z，轮辋宽度中面 Z=0，+Z 为外侧（装饰面）",
         "status": "geometry_checked", "engineering_approved": False, "manufacturing_status": "not_released",
         "forged": {"stages": stages, "removal_ratio": round(1 - measurement.volume_mm3 / volume(stock), 4),
                    "part_mass_kg_6061": round(measurement.volume_mm3 * 2700 / 1e9, 2),
                    "stock_volume_mm3": round(volume(stock), 1), "suspect_operations": suspect},
+        "cam_operations": [{"op": "window_rim_edge_break", "size_mm": p.edge_break, "angle_deg": 45,
+                            "edges": "all through-window rims, front (face) side",
+                            "note": "Not modelled in CAD; chamfer the sharp rim edges in CAM."}] if p.edge_break > 0 else [],
         "model_id": (snapshot or {}).get("model_id"), "draft_revision": (snapshot or {}).get("draft_revision"),
         "limitations": limitations,
     }
     report["artifacts"] = {name: {"sha256": hashlib.sha256((output / name).read_bytes()).hexdigest(),
                                   "bytes": (output / name).stat().st_size}
-                           for name in ("wheel.step", "wheel.glb", "stock.step", "recipe.json") if (output / name).exists()}
+                           for name in ("wheel.step", "wheel.glb", "stock.step", "caliper-envelope.step", "recipe.json")
+                           if (output / name).exists()}
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     return report

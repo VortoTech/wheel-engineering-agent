@@ -34,7 +34,7 @@ export type Stock = { outer_diameter_mm: number; height_mm: number; center_z_mm:
 export type Material = { name: string; density_kg_m3: number; source: Source };
 export type Preparation = { caliper?: Caliper | null; stock?: Stock | null; material?: Material | null };
 export type PreparationReport = {
-  caliper: { status: string; minimum_clearance_mm?: number; required_clearance_mm?: number; overlap_mm3?: number; input?: Caliper };
+  caliper: { status: string; minimum_clearance_mm?: number; required_clearance_mm?: number; overlap_mm3?: number | null; input?: Caliper };
   stock: { status: string; stock_volume_mm3?: number; missing_volume_mm3?: number; removal_percent?: number | null; minimum_allowance_mm?: number | null; required_allowance_mm?: number; input?: Stock };
   weight: { status: string; finished_kg?: number; stock_kg?: number | null; removed_kg?: number | null; input?: Material };
 };
@@ -66,6 +66,7 @@ export type Report = {
   rotational_symmetry?: {status:string;groups:number;period_deg:number;master_window_count:number;scope:string};
   forged?: { stages: { op: string; removed_mm3?: number; status?: string; dropped_chips?: number }[];
     removal_ratio: number; part_mass_kg_6061: number; stock_volume_mm3: number; suspect_operations: string[] };
+  cam_operations?: { op: string; size_mm: number; angle_deg: number; edges: string; note: string }[];
 };
 export const FORGED_TEMPLATE = 'forged-blank-v1';
 // Mirrors ForgedWheel in services/wheelcam/forged_blank.py; the API validates every key.

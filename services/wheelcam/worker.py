@@ -96,7 +96,8 @@ class Worker:
                             self.process.terminate()
                             break
                     forged = json.loads(job["snapshot"]).get("template") == "forged-blank-v1"
-                    # Forged builds cut per-sample rim wedges and run 4-8 min; keep the 300 s limit elsewhere.
+                    # Forged builds with facets, grooves and pockets take up to ~5 min (HF-6 geometry alone 240 s);
+                    # 900 s leaves headroom for STEP export and checks. Keep the 300 s limit elsewhere.
                     code = self.process.wait(timeout=max(self.timeout, 900) if forged else self.timeout)
                 except subprocess.TimeoutExpired:
                     self.process.kill()

@@ -8,7 +8,7 @@ from pathlib import Path
 import cadquery as cq
 
 from .models import Preparation, StockSpec, WheelSpec
-from .mass_properties import volume, volume_method
+from .mass_properties import VolumeMeasurementError, volume, volume_method
 from .template import LUG_SEAT_THICKNESS, TEMPLATE_VERSION, layout
 
 VOLUME_TOLERANCE_MM3 = 0.001
@@ -41,13 +41,17 @@ def stock_shape(stock: StockSpec):
     return body
 
 
-def caliper_shape(spec: WheelSpec, caliper):
-    bottom = spec.offset_et_mm + caliper.z_min_mm
+def caliper_shape(spec: WheelSpec | None, caliper, mounting_face_z_mm: float | None = None):
+    """Caliper z is relative to the mounting face: the spec's ET, or an explicit face height."""
+    bottom = (spec.offset_et_mm if mounting_face_z_mm is None else mounting_face_z_mm) + caliper.z_min_mm
     height = caliper.z_max_mm - caliper.z_min_mm
     return cq.Workplane("XY", origin=(0, 0, bottom)).circle(caliper.outer_radius_mm).circle(caliper.inner_radius_mm).extrude(height).val()
 
 
-def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | None = None):
+def check_preparation(wheel, spec: WheelSpec | None, prep: Preparation, output: Path | None = None, *,
+                      mounting_face_z_mm: float | None = None, export_stock: bool = True):
+    """Caliper / supplier stock / weight checks. Templates without a WheelSpec pass the mounting-face
+    height; `export_stock=False` keeps a template's own stock.step from being overwritten."""
     result = {"caliper": {"status": "not_checked", "reason": "未提供卡钳包络"},
               "stock": {"status": "not_checked", "reason": "未提供锻坯规格"},
               "weight": {"status": "not_checked", "reason": "未提供材料与密度"}}
@@ -55,13 +59,22 @@ def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | 
     stock_volume = None
     if prep.caliper:
         c = prep.caliper
-        envelope = caliper_shape(spec, c)
-        overlap = checked_volume(wheel.copy().intersect(envelope.copy()))
+        envelope = caliper_shape(spec, c, mounting_face_z_mm)
+        intersection = wheel.copy().intersect(envelope.copy())
+        try:
+            overlap = checked_volume(intersection)
+            overlap_measured = True
+        except VolumeMeasurementError:
+            # A small, complex overlap can miss the strict integration limit. Interference is still
+            # certain if the intersection holds solid material; report it without a volume.
+            if not any(solid.Volume() > VOLUME_TOLERANCE_MM3 for solid in intersection.Solids()):
+                raise
+            overlap, overlap_measured = math.inf, False
         distance = checked_distance(wheel, envelope) if overlap <= VOLUME_TOLERANCE_MM3 else 0.0
         status = "interference" if overlap > VOLUME_TOLERANCE_MM3 else (
             "insufficient_clearance" if distance <= DISTANCE_TOLERANCE_MM or distance + DISTANCE_TOLERANCE_MM < c.required_clearance_mm else "clear")
         result["caliper"] = {"status": status, "minimum_clearance_mm": round(distance, 5),
-            "overlap_mm3": round(overlap, 6), "required_clearance_mm": c.required_clearance_mm,
+            "overlap_mm3": round(overlap, 6) if overlap_measured else None, "required_clearance_mm": c.required_clearance_mm,
             "method": "conservative_full_turn_annular_envelope", "input": c.model_dump(),
             "scope": "相对安装面的径向/轴向矩形绕 Z 轴旋转 360°；只检查此包络，未包含配重、气门嘴及变形"}
         if output:
@@ -84,7 +97,7 @@ def check_preparation(wheel, spec: WheelSpec, prep: Preparation, output: Path | 
             "minimum_allowance_mm": round(allowance, 5) if allowance is not None else None,
             "required_allowance_mm": s.required_allowance_mm,
             "scope": "同轴圆柱/杯形锻坯，内腔向 -Z 开口；所有边界均按待加工面计算统一最小余量"}
-        if output:
+        if output and export_stock:
             cq.exporters.export(blank, str(output / "stock.step"))
     if prep.material:
         material = prep.material

@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from wheelcam.app import create_app
 from wheelcam.forged_blank import TEMPLATE_VERSION, recipe_from_dict
 
-# Plain spokes, no facets / edge break / grooves / pockets: the real CAD path in seconds.
-FAST = {"family": "single", "spokes": 5, "facet_deg": 0, "edge_break": 0, "groove_offsets": [],
+# Plain spokes, no facets / grooves / pockets: the real CAD path in seconds (edge break is CAM-only).
+FAST = {"family": "single", "spokes": 5, "facet_deg": 0, "groove_offsets": [],
         "back_pocket_skin": 0, "lip_pockets": 0}
 
 
@@ -41,6 +41,11 @@ def test_build_subprocess_dispatches_forged_template(tmp_path):
     assert {"wheel.step", "wheel.glb", "stock.step", "recipe.json"} <= set(report["artifacts"])
     assert report["manufacturing_status"] == "not_released" and report["model_id"] == "m1"
     assert 0 < report["forged"]["removal_ratio"] < 1
+    # The edge break is a CAM operation, not modelled geometry.
+    assert report["cam_operations"] == [{"op": "window_rim_edge_break", "size_mm": 1.5, "angle_deg": 45,
+                                         "edges": "all through-window rims, front (face) side",
+                                         "note": "Not modelled in CAD; chamfer the sharp rim edges in CAM."}]
+    assert "window_rim_edge_break" not in [s["op"] for s in report["forged"]["stages"]]
     # Main-template coordinates: Z=0 at the rim-width mid-plane, so the part is centred in Z.
     import cadquery as cq
     bbox = cq.importers.importStep(str(tmp_path / "wheel.step")).val().BoundingBox()
@@ -79,3 +84,31 @@ def test_presets_endpoint_returns_defaults_and_valid_recipes(client):
         assert not any(key.startswith("_") for key in preset["recipe"])
     tree = next(p for p in data["presets"] if p["id"] == "tree6-branching")["recipe"]
     assert tree["family"] == "skeleton" and len(tree["skeleton"]["edges"]) == 7
+
+
+def test_forged_preparation_checks_caliper_stock_and_et(tmp_path):
+    import hashlib
+    from dataclasses import replace as dc_replace
+    from wheelcam.forged_blank import export_model, z_back
+    p = recipe_from_dict(FAST)
+    et = z_back(p, p.hub_r) + p.width / 2                   # mounting face vs rim mid-plane
+    caliper = {"inner_radius_mm": 90, "outer_radius_mm": 180, "z_min_mm": -70, "z_max_mm": -3,
+               "required_clearance_mm": 2, "source": {"kind": "manual"}}
+    stock = {"outer_diameter_mm": 600, "height_mm": 260, "center_z_mm": 0, "cavity_diameter_mm": 0,
+             "front_web_mm": 260, "required_allowance_mm": 1, "source": {"kind": "manual"}}
+    report = export_model(FAST, tmp_path, {"preparation": {"caliper": caliper, "stock": stock,
+                                                           "material": {"name": "6061", "density_kg_m3": 2700}}})
+    assert report["derived"]["offset_et_mm"] == round(et, 1)
+    prep = report["preparation"]
+    assert prep["caliper"]["status"] == "clear", prep["caliper"]             # inboard of the mounting face
+    assert prep["stock"]["status"] == "contained" and prep["weight"]["status"] == "estimated"
+    assert "caliper-envelope.step" in report["artifacts"]
+    # The supplier blank is checked but must not replace the template's own forging blank.
+    own = hashlib.sha256((tmp_path / "stock.step").read_bytes()).hexdigest()
+    assert own == report["artifacts"]["stock.step"]["sha256"]
+    assert prep["stock"]["stock_volume_mm3"] > report["forged"]["stock_volume_mm3"]   # 600 mm cylinder > own blank
+
+    # Negative control: the same envelope pushed forward into the spokes must interfere.
+    forward = dict(caliper, z_min_mm=5, z_max_mm=60)
+    bad = export_model(FAST, tmp_path / "bad", {"preparation": {"caliper": forward}})
+    assert bad["preparation"]["caliper"]["status"] == "interference"
