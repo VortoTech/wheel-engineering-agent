@@ -59,6 +59,9 @@ class ForgedWheel:
     groove_offsets: tuple = (0.62,)
     groove_w: float = 4.0
     groove_depth: float = 3.0
+    # Back weight pockets: U-channel under each spoke (0 skin = off).
+    back_pocket_skin: float = 0.0   # material left under the machined top, mm
+    back_pocket_wall: float = 4.5   # side walls left each side, mm
     # Lip face pockets (0 = plain lip face).
     lip_pockets: int = 20
     lip_pocket_r: tuple = (228.0, 247.0)
@@ -108,7 +111,13 @@ def blank(p):
 
 
 def spoke_geometry(p):
-    """2D footprint polygons and centre segments (a, b, width) of spoke 0 along +X, swept."""
+    """Footprint polygons and centre segments of spoke 0 along +X, swept.
+
+    A segment is (path, width, knots): `path` is the spoke centreline (a polyline that follows
+    arm bow and sweep, so facets, grooves and pockets stay centred); `width` is the nominal width
+    used by facets and grooves; knots are (t, width) pairs along the path giving the real footprint
+    width, for back pockets.
+    """
     polys, segments = _straight_spoke(p)
     if not p.spoke_sweep_deg:
         return polys, segments
@@ -119,7 +128,7 @@ def spoke_geometry(p):
         a = math.radians(p.spoke_sweep_deg) * t ** 1.5
         return pt[0] * math.cos(a) - pt[1] * math.sin(a), pt[0] * math.sin(a) + pt[1] * math.cos(a)
     dense = [[sweep(q) for q in _densify(poly, 4.0)] for poly in polys]
-    return dense, [(sweep(a), sweep(b), w) for a, b, w in segments]
+    return dense, [([sweep(q) for q in path], w, knots) for path, w, knots in segments]
 
 
 def _densify(poly, step):
@@ -138,27 +147,37 @@ def _straight_spoke(p):
         half = p.stem_w_split / 2
         side = [(hub_in, hub_w + 6), (p.window_r_in, hub_w),
                 (p.window_r_in + 25, hub_w + (half - hub_w) * .25), (end_r, half)]
-        return [side + [(x, -y) for x, y in side[::-1]]], [((p.window_r_in, 0.0), (p.window_r_out, 0.0), p.stem_w_split)]
+        span = p.window_r_out - p.window_r_in
+        radii = [x for x, _ in side[1:]]
+        knots = tuple(((r - p.window_r_in) / span, 2 * float(np.interp(r, radii, [y for _, y in side[1:]])))
+                      for r in (p.window_r_in, p.window_r_in + 25, p.window_r_out))
+        path = [(r, 0.0) for r in np.linspace(p.window_r_in, p.window_r_out, 9)]
+        return [side + [(x, -y) for x, y in side[::-1]]], [(path, p.stem_w_split, knots)]
     split = (p.split_r, 0.0)
     stem_pts = [(hub_in, hub_w + 6), (p.window_r_in, hub_w),
                 (p.window_r_in + 16, p.stem_w_split / 2 + 3), (p.split_r, p.stem_w_split / 2)]
     stem = stem_pts + [(x, -y) for x, y in stem_pts[::-1]]
-    arms, segments = [], [((p.window_r_in, 0.0), split, p.stem_w_split)]
+    stem_knots = ((0.0, p.stem_w_hub), (16 / (p.split_r - p.window_r_in), p.stem_w_split + 6), (1.0, p.stem_w_split))
+    stem_path = [(r, 0.0) for r in np.linspace(p.window_r_in, p.split_r, 5)]
+    arms, segments = [], [(stem_path, p.stem_w_split, stem_knots)]
     for sign in (1, -1):
         end = polar(p.window_r_out + 10, sign * p.arm_angle_deg)
         dx, dy = end[0] - split[0], end[1] - split[1]
         length = math.hypot(dx, dy)
         nx, ny = -dy / length, dx / length
-        centre = []
-        for t in np.linspace(0, 1, 7):
+
+        def arm_centre(t, dx=dx, dy=dy, nx=nx, ny=ny, sign=sign):
             bow = p.arm_bow * math.sin(math.pi * t) * sign
-            centre.append((split[0] - 12 * (1 - t) + dx * t + nx * bow,
-                           split[1] + dy * t + ny * bow))
+            return split[0] - 12 * (1 - t) + dx * t + nx * bow, split[1] + dy * t + ny * bow
+        centre = [arm_centre(t) for t in np.linspace(0, 1, 7)]
         half = p.arm_w / 2
         left = [(x + nx * half, y + ny * half) for x, y in centre]
         right = [(x - nx * half, y - ny * half) for x, y in centre]
         arms.append(left + right[::-1])
-        segments.append((split, polar(p.window_r_out, sign * p.arm_angle_deg), p.arm_w))
+        # Features run on the same bowed centreline, from the split out to the window edge.
+        us = [u for u in np.linspace(0, 1, 201) if p.split_r <= math.hypot(*arm_centre(u)) <= p.window_r_out]
+        path = [arm_centre(u) for u in np.linspace(us[0], us[-1], 9)]
+        segments.append((path, p.arm_w, ((0.0, p.arm_w), (1.0, p.arm_w))))
     return [stem] + arms, segments
 
 
@@ -270,17 +289,24 @@ def face_height(p, x, y, s, fade):
     return z_top(p, math.hypot(x, y)) - abs(s) * tan * fade
 
 
-def segment_loft(p, a, b, section):
-    """Ruled loft of quads section(t, fade, point_at) along segment a->b."""
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    length = math.hypot(dx, dy)
-    nx, ny = -dy / length, dx / length
+def segment_loft(p, path, section, n=13):
+    """Ruled loft of quads section(fade, point_at, t) placed along the centreline polyline `path`.
+
+    `point_at(s)` gives the point at lateral offset s, normal to the local path direction.
+    """
+    pts = np.array(path, dtype=float)
+    cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    total = cum[-1]
     wires = []
-    for t in np.linspace(0, 1, 7):
+    for t in np.linspace(0, 1, n):
         fade = min(1.0, t / .18, (1 - t) / .18)
-        cx, cy = a[0] + dx * t, a[1] + dy * t
-        pts = section(fade, lambda s: (cx + nx * s, cy + ny * s))
-        wires.append(cq.Wire.makePolygon([cq.Vector(*q) for q in pts], close=True))
+        at_len = lambda u: np.array([np.interp(u * total, cum, pts[:, 0]), np.interp(u * total, cum, pts[:, 1])])
+        cx, cy = at_len(t)
+        tx, ty = at_len(min(t + .02, 1)) - at_len(max(t - .02, 0))
+        length = math.hypot(tx, ty)
+        nx, ny = -ty / length, tx / length
+        quad = section(fade, lambda s: (cx + nx * s, cy + ny * s), t)
+        wires.append(cq.Wire.makePolygon([cq.Vector(*q) for q in quad], close=True))
     return cq.Solid.makeLoft(wires, ruled=True)
 
 
@@ -290,34 +316,62 @@ def facet_cutters(p):
         return []
     tan = math.tan(math.radians(p.facet_deg))
     cutters = []
-    for a, b, width in spoke_geometry(p)[1]:
+    for path, width, knots in spoke_geometry(p)[1]:
         for side in (1, -1):
-            def section(fade, at, side=side, reach=width / 2 + 5):
+            def section(fade, at, t, side=side, reach=width / 2 + 5):
                 lift = .5 - .8 * fade
                 low = []
                 for s in (-1.5 * side, reach * side):
                     x, y = at(s)
                     low.append((x, y, z_top(p, math.hypot(x, y)) + lift - side * s * tan * fade))
                 return low + [(x, y, z_top(p, math.hypot(x, y)) + 25) for x, y, _ in low[::-1]]
-            cutters.append(segment_loft(p, a, b, section))
+            cutters.append(segment_loft(p, path, section))
     return cutters
 
 
 def groove_cutters(p):
     """Channels milled into the finished spoke top, parallel to the facet slope."""
     cutters = []
-    for a, b, width in spoke_geometry(p)[1]:
+    for path, width, knots in spoke_geometry(p)[1]:
         for offset in p.groove_offsets:
             for side in ((1, -1) if offset else (1,)):
                 centre = side * offset * width / 2
 
-                def section(fade, at, centre=centre):
+                def section(fade, at, t, centre=centre):
                     low = []
                     for s in (centre - p.groove_w / 2, centre + p.groove_w / 2):
                         x, y = at(s)
                         low.append((x, y, face_height(p, x, y, s, fade) + .5 - (p.groove_depth + .5) * fade))
                     return low + [(x, y, z + 30) for x, y, z in low[::-1]]
-                cutters.append(segment_loft(p, a, b, section))
+                cutters.append(segment_loft(p, path, section))
+    return cutters
+
+
+def back_pocket_cutters(p):
+    """Channels milled up from the back of each spoke segment, leaving walls and a top skin.
+
+    The pocket roof follows the machined top (facets included) minus `back_pocket_skin`; at the
+    segment ends it fades to 0.5 mm below the back face, so no cut reaches the hub or ring.
+    """
+    if p.back_pocket_skin <= 0:
+        return []
+    cutters = []
+    for path, width, knots in spoke_geometry(p)[1]:
+        ts, ws = zip(*knots)
+        if min(ws) / 2 - p.back_pocket_wall < 2:
+            continue
+
+        def section(fade, at, t, ts=ts, ws=ws):
+            half = float(np.interp(t, ts, ws)) / 2 - p.back_pocket_wall
+            pts = []
+            for s in (-half, half):
+                x, y = at(s)
+                r = math.hypot(x, y)
+                floor = z_back(p, r) - .5
+                roof = face_height(p, x, y, s, 1.0) - p.back_pocket_skin
+                pts.append((x, y, floor + (roof - floor) * fade))
+            return pts + [(x, y, z_back(p, math.hypot(x, y)) - 20) for x, y, _ in pts[::-1]]
+        cutters.append(segment_loft(p, path, section))
     return cutters
 
 
@@ -385,6 +439,7 @@ def build(p):
         stages[-1].update(expected_flat_mm3=round(expected, 1),
                           status='ok' if .9 < ratio < 1.2 * widen and len(body.Solids()) == 1 else 'suspect')
     apply('spoke_grooves', groove_cutters(p), rotate=True)
+    apply('back_pockets', back_pocket_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
     apply('lug_holes_and_seats', lug_tools(p))
     return stock, body, stages
@@ -402,7 +457,7 @@ def render(shape, ax, eye, title, extent):
     normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-9)
     normal *= np.sign(normal @ eye)[:, None]
-    key = np.array([-.35, .45, .82]) / np.linalg.norm([-.35, .45, .82])
+    key = np.array([-.35, .45, .82 * np.sign(eye[2] or 1)]) / np.linalg.norm([-.35, .45, .82])  # light from the camera side
     half = (key + eye) / np.linalg.norm(key + eye)
     shade = .18 + .5 * np.clip(normal @ key, 0, 1) + .35 * np.clip(normal @ half, 0, 1) ** 24
     shade = np.clip(shade, 0, 1)
