@@ -1,0 +1,107 @@
+{
+  "_photo": "~/Desktop/轮毂/Weixin Image_20260728215359_27217_4.jpg",
+  "_view_x": -0.62,
+  "lip_r": 292,
+  "lip_face_r_in": 272,
+  "barrel_outer_r": 270,
+  "barrel_inner_r": 260,
+  "width": 240,
+  "hub_r": 84,
+  "hub_z": -70,
+  "ring_r": 266,
+  "ring_z": -8,
+  "concavity_exp": 1.3,
+  "web_thick_hub": 50,
+  "web_thick_ring": 28,
+  "family": "skeleton",
+  "spokes": 6,
+  "window_r_in": 96,
+  "window_r_out": 258,
+  "skeleton": {
+    "nodes": {
+      "hub": [
+        70,
+        0
+      ],
+      "fork": [
+        145,
+        0
+      ],
+      "armL": [
+        200,
+        12
+      ],
+      "armR": [
+        200,
+        -12
+      ],
+      "tipL1": [
+        268,
+        27
+      ],
+      "tipL2": [
+        268,
+        6
+      ],
+      "tipR1": [
+        268,
+        -27
+      ],
+      "tipR2": [
+        268,
+        -6
+      ]
+    },
+    "edges": [
+      [
+        "hub",
+        "fork",
+        40,
+        30
+      ],
+      [
+        "fork",
+        "armL",
+        22,
+        19
+      ],
+      [
+        "fork",
+        "armR",
+        22,
+        19
+      ],
+      [
+        "armL",
+        "tipL1",
+        16,
+        14
+      ],
+      [
+        "armL",
+        "tipL2",
+        16,
+        14
+      ],
+      [
+        "armR",
+        "tipR1",
+        16,
+        14
+      ],
+      [
+        "armR",
+        "tipR2",
+        16,
+        14
+      ]
+    ]
+  },
+  "window_fillet": 4,
+  "facet_deg": 15,
+  "groove_offsets": [],
+  "back_pocket_skin": 0,
+  "lip_pockets": 0,
+  "seat_d": 34,
+  "seat_depth": 20
+}

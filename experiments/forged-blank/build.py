@@ -41,7 +41,10 @@ class ForgedWheel:
     web_thick_hub: float = 54.0
     web_thick_ring: float = 30.0
     # Spokes. family 'y_split': stem then two arms; 'single': one spoke hub to rim.
-    family: str = 'y_split'
+    family: str = 'y_split'         # also 'single' and 'skeleton' (graph from `skeleton`)
+    # skeleton family: {"nodes": {name: [r_mm, angle_deg]}, "edges": [[from, to, w_from, w_to], ...]}
+    # for one spoke group; angles may pass ±pitch/2 so neighbouring groups can join into a mesh.
+    skeleton: dict = None
     spokes: int = 6
     window_r_in: float = 94.0
     window_r_out: float = 216.0
@@ -140,7 +143,47 @@ def _densify(poly, step):
     return out
 
 
+def _skeleton_spoke(p):
+    """Footprint = tapered quad per edge + round joint at every node with 2+ edges."""
+    nodes = {k: polar(r, a) for k, (r, a) in p.skeleton['nodes'].items()}
+    degree = {}
+    polys, segments = [], []
+    for a, b, wa, wb in p.skeleton['edges']:
+        (ax, ay), (bx, by) = nodes[a], nodes[b]
+        length = math.hypot(bx - ax, by - ay)
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        nx, ny = -uy, ux
+        ax, ay, bx, by = ax - ux, ay - uy, bx + ux, by + uy       # 1 mm overlap into the joints
+        polys.append([(ax + nx * wa / 2, ay + ny * wa / 2), (bx + nx * wb / 2, by + ny * wb / 2),
+                      (bx - nx * wb / 2, by - ny * wb / 2), (ax - nx * wa / 2, ay - ny * wa / 2)])
+        clipped = _clip_to_band(p, nodes[a], nodes[b], wa, wb)
+        if clipped:
+            segments.append(clipped)
+        for key, w in ((a, wa), (b, wb)):
+            degree.setdefault(key, []).append(w)
+    for key, widths in degree.items():
+        if len(widths) > 1:
+            x, y = nodes[key]
+            r = max(widths) / 2
+            polys.append([(x + r * math.cos(t), y + r * math.sin(t)) for t in np.linspace(0, 2 * math.pi, 32, endpoint=False)])
+    return polys, segments
+
+
+def _clip_to_band(p, a, b, wa, wb):
+    """Centre segment a->b restricted to the window band, so face/back cutters stay off hub and ring."""
+    ts = np.linspace(0, 1, 401)
+    inside = [t for t in ts if p.window_r_in <= math.hypot(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) <= p.window_r_out]
+    if len(inside) < 2 or inside[-1] - inside[0] < .05:
+        return None
+    t0, t1 = inside[0], inside[-1]
+    point = lambda t: (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+    width = lambda t: wa + (wb - wa) * t
+    return [point(t0), point(t1)], max(width(t0), width(t1)), ((0.0, width(t0)), (1.0, width(t1)))
+
+
 def _straight_spoke(p):
+    if p.family == 'skeleton':
+        return _skeleton_spoke(p)
     hub_w, hub_in = p.stem_w_hub / 2, p.window_r_in - 30
     if p.family == 'single':
         end_r = p.window_r_out + 10
