@@ -143,3 +143,28 @@ def test_group_rule_prefers_the_largest_consistent_multiple():
     five = {3: .2564, 4: .2577, 5: .1846, 6: .2779, 7: .2782, 8: .283, 9: .283, 10: .282, 11: .2871, 12: .2879}  # WORK 5-spoke, 6 lugs
     assert choose_group_count(five) == 5
     assert choose_group_count({3: .30, 4: .28, 5: .10, 6: .29, 10: .31, 12: .3}) == 5   # a true 5 is not pushed to 10
+
+
+def test_trace_outlines_recovers_the_windows(hf6):
+    """Outline tracing on the synthetic HF6 photo: the same windows, as an outline-family recipe."""
+    from wheelcam.forged_photo import trace_outlines
+    from wheelcam.forged_blank import window_outlines as outlines_of
+    truth, base, rim, hub, _, photo = hf6
+    recipe, report = trace_outlines(photo, base, rim, hub, truth.spokes)
+    assert recipe["family"] == "outline" and report["windows_per_group"] == 2
+    assert report["mirror_agreement"] > .9
+    p = recipe_from_dict(recipe)
+
+    def area(outlines):
+        return sum(abs(.5 * np.sum(np.asarray(o)[:, 0] * np.roll(np.asarray(o)[:, 1], -1)
+                                   - np.roll(np.asarray(o)[:, 0], -1) * np.asarray(o)[:, 1])) for o in outlines)
+    traced, true = area(outlines_of(p)), area(window_outlines(truth, samples=160))
+    assert abs(traced - true) / true < .08, (traced, true)       # through-window area within 8 %
+    assert len(report["overlay_windows_px"]) == 2 * truth.spokes
+
+
+def test_outline_recipe_validation():
+    with pytest.raises(ValueError, match="outlines"):
+        recipe_from_dict({"family": "outline"})
+    square = [[150 + 30 * math.cos(t), 10 * math.sin(t)] for t in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
+    assert recipe_from_dict({"family": "outline", "outlines": [square]}).outlines[0][0] == (180.0, 0.0)

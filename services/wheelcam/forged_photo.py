@@ -369,3 +369,162 @@ def auto_windows(image, base: dict, rim_points, hub_point, groups: int):
         notes.append(f"忽略了 {len(found) - 2} 个小孔（面积不到第二大窗口的 1/4，配方无法表达）。")
         found = found[:2]
     return [polygon for _, polygon in found], notes
+
+
+# ---------------------------------------------------------------------------------------------
+# Outline tracing: the windows themselves, not parameters of a spoke model.
+#
+# Fitting stem/arm parameters cannot reproduce a sculpted fork or a flowing arm, however well it
+# scores. So the window outlines are taken from the photo: the sectors' median is split into
+# window / material, windows whose view through ends on the dark barrel are extended outward along
+# their own edges (the outer part of a deep-concave window shows the barrel, not the background),
+# the pattern is made mirror-symmetric about the spoke axis when it is symmetric, smoothed, and
+# traced into closed outlines in face mm. The result is an `outline` family recipe.
+# ---------------------------------------------------------------------------------------------
+
+TRACE_DTH_DEG, TRACE_XY_MM = .25, .5
+
+
+def _polar_median(image, p, face, groups, rs):
+    from scipy.ndimage import map_coordinates
+    pitch = 2 * math.pi / groups
+    ths = np.radians(np.arange(0, math.degrees(pitch), TRACE_DTH_DEG))
+    rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    stack = []
+    for k in range(groups):
+        xy = face.to_image(rr.ravel(), (tt + k * pitch).ravel())
+        stack.append(np.stack([map_coordinates(image[..., c], [xy[:, 1], xy[:, 0]], order=1, mode="nearest").reshape(rr.shape)
+                               for c in range(3)], -1))
+    stack = np.array(stack)
+    return np.median(stack, 0), np.std(stack.mean(-1), 0), ths
+
+
+def _extend_outward(mask, rs, r_to, min_reach):
+    """Continue windows that end on the barrel view outward along their own side edges."""
+    from scipy.ndimage import label as components
+    out = mask.copy()
+    n = mask.shape[1]
+    regions, count = components(np.hstack([mask, mask]))
+    dr = rs[1] - rs[0]
+    for index in range(1, count + 1):
+        rows, cols = np.nonzero(regions == index)
+        if cols.min() >= n or rs[rows.max()] < min_reach:
+            continue
+        top = rows.max()
+        fit_rows = [row for row in range(top - int(25 / dr), top - int(6 / dr)) if row >= 0 and np.any(rows == row)]
+        if len(fit_rows) < 5:
+            continue
+        lo = np.array([cols[rows == row].min() for row in fit_rows], float)
+        hi = np.array([cols[rows == row].max() for row in fit_rows], float)
+        a_lo, a_hi = np.polyfit(rs[fit_rows], lo, 1), np.polyfit(rs[fit_rows], hi, 1)
+        for row in range(top + 1, len(rs)):
+            if rs[row] > r_to:
+                break
+            c0, c1 = np.polyval(a_lo, rs[row]), np.polyval(a_hi, rs[row])
+            if c1 - c0 < 2:
+                break
+            for c in range(int(round(c0)), int(round(c1)) + 1):
+                out[row, c % n] = True
+    return out
+
+
+def _mirror_axis(mask, pitch_cols):
+    """Column of the best mirror axis in a periodic sector mask, and its agreement (0..1)."""
+    best = (0, -1.0)
+    for axis in range(pitch_cols):
+        mirrored = np.roll(mask[:, ::-1], 2 * axis + 1, axis=1)
+        agree = np.count_nonzero(mirrored & mask) / max(np.count_nonzero(mirrored | mask), 1)
+        if agree > best[1]:
+            best = (axis, agree)
+    return best
+
+
+def _smooth_loop(points, sigma):
+    from scipy.ndimage import gaussian_filter1d
+    pts = np.asarray(points, float)
+    step = np.linalg.norm(np.diff(np.vstack([pts, pts[:1]]), axis=0), axis=1)
+    s = np.concatenate([[0], np.cumsum(step)])
+    even = np.linspace(0, s[-1], max(int(s[-1] / .5), 24), endpoint=False)
+    ring = np.vstack([pts, pts[:1]])
+    xy = np.column_stack([np.interp(even, s, ring[:, 0]), np.interp(even, s, ring[:, 1])])
+    xy = gaussian_filter1d(xy, sigma / .5, axis=0, mode="wrap")
+    keep = np.linspace(0, len(xy), 120, endpoint=False).astype(int)
+    return xy[keep]
+
+
+def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth_mm=2.0):
+    """Outline-family recipe traced from the photo. Returns (recipe dict, report dict)."""
+    from scipy.ndimage import binary_closing, binary_opening, gaussian_filter, map_coordinates, label as components
+    from .window_fit import _cell_boundary_loops, _loop_area
+
+    p = recipe_from_dict({**base, "spokes": groups})
+    face = FaceMap(p, rim_points, hub_point)
+    pitch = 2 * math.pi / groups
+    r_min = p.pcd / 2 + p.seat_d / 2 + 1.0              # keep lug seats and the hub out of the trace
+    r_lip = p.lip_face_r_in - 2 if p.lip_face_r_in > p.ring_r else p.ring_r - 2
+    rs = np.arange(r_min, p.lip_r * .985, 1.0)
+    median, spread, ths = _polar_median(image, p, face, groups, rs)
+    labels = _two_means(np.concatenate([median, spread[..., None] * 2], -1).reshape(-1, 4)).reshape(median.shape[:2])
+    material = np.bincount(labels[:4].ravel(), minlength=2).argmax()   # the band just outside the lug seats
+    n = labels.shape[1]
+    pad = 12
+    raw = labels != material
+    wrapped = np.hstack([raw[:, -pad:], raw, raw[:, :pad]])
+    mask = binary_closing(binary_opening(wrapped, iterations=1), iterations=2)[:, pad:-pad]
+    mask[rs > p.lip_r * .97] = False
+    notes = []
+    extended = _extend_outward(mask, rs, r_lip, .7 * p.lip_r)
+    if extended.sum() > mask.sum() * 1.02:
+        notes.append(f"窗口外段在照片里看到的是轮辋内壁，已沿窗口两侧边外延到 r≈{r_lip:.0f} mm（轮缘内侧）。")
+    mask = extended
+    axis_col, agree = _mirror_axis(mask, n)
+    other = (axis_col + n // 2) % n
+    # The spoke axis carries material through the window band; the window axis does not.
+    band = (rs > r_min + 10) & (rs < .8 * p.lip_r)
+    if mask[band, other].mean() < mask[band, axis_col].mean():
+        axis_col = other
+    level = mask.astype(float)
+    if agree > .8:
+        level = (level + np.roll(level[:, ::-1], 2 * axis_col + 1, axis=1)) / 2   # thresholded after smoothing
+    else:
+        notes.append(f"窗口左右不对称（镜像一致度 {agree:.2f}），未做对称化。")
+    axis = ths[0] + math.radians(axis_col * TRACE_DTH_DEG)
+    # Resample onto a face xy grid (every group from the one median sector), smooth, trace.
+    half = p.lip_r
+    xs = np.arange(-half, half, TRACE_XY_MM)
+    gx, gy = np.meshgrid(xs, xs)
+    gr, gt = np.hypot(gx, gy), (np.arctan2(gy, gx) + axis) % pitch
+    field = map_coordinates(level, [(gr - rs[0]) / 1.0, gt / math.radians(TRACE_DTH_DEG)], order=1, mode="nearest")
+    field[(gr < rs[0]) | (gr > rs[-1])] = 0
+    field = gaussian_filter(field, smooth_mm / TRACE_XY_MM) > .5
+    regions, count = components(field)
+    outlines, areas = [], []
+    for index in range(1, count + 1):
+        region = regions == index
+        area = region.sum() * TRACE_XY_MM ** 2
+        ys_, xs_ = np.nonzero(region)
+        centre = math.atan2(gy[ys_, xs_].mean(), gx[ys_, xs_].mean())
+        if area < 30 or not (-pitch / 4 <= centre < 3 * pitch / 4):
+            continue
+        loop = max(_cell_boundary_loops(region), key=lambda pts: abs(_loop_area(pts)))
+        pts = np.array([(xs[0] + (c - .5) * TRACE_XY_MM, xs[0] + (r - .5) * TRACE_XY_MM) for r, c in loop])
+        pts = _smooth_loop(pts, smooth_mm)
+        outlines.append([[round(float(math.hypot(x, y)), 2), round(math.degrees(math.atan2(y, x)), 3)] for x, y in pts])
+        areas.append(area)
+    if not outlines:
+        raise ValueError("没有识别到窗口：请检查外圈与中心点。")
+    through = [r for w in outlines for r, _ in w if r < p.ring_r - 2]
+    recipe = asdict(recipe_from_dict({**asdict(p), "family": "outline", "outlines": outlines,
+                                      "window_r_in": round(min(r for w in outlines for r, _ in w), 1),
+                                      "window_r_out": round(max(through), 1) if through else p.window_r_out}))
+    overlay = []
+    for k in range(groups):
+        for w in outlines:
+            r = np.array([q[0] for q in w])
+            t = np.radians([q[1] for q in w]) + axis + k * pitch
+            overlay.append(np.round(face.to_image(np.minimum(r, p.ring_r), t), 1).tolist())
+    report = {"family": "outline", "groups": groups, "windows_per_group": len(outlines),
+              "window_areas_mm2": [round(a) for a in areas], "mirror_agreement": round(agree, 3),
+              "overlay_windows_px": overlay, "notes": notes, "method": "forged-photo-trace-v1",
+              "limits": "窗口平面轮廓取自照片；深度、厚度、侧面斜面与背面来自配方假设。"}
+    return recipe, report

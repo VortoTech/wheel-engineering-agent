@@ -39,7 +39,10 @@ class ForgedWheel:
     web_thick_hub: float = 54.0
     web_thick_ring: float = 30.0
     # Spokes. family 'y_split': stem then two arms; 'single': one spoke hub to rim.
-    family: str = 'y_split'         # also 'single' and 'skeleton' (graph from `skeleton`)
+    family: str = 'y_split'         # also 'single', 'skeleton' (graph from `skeleton`) and 'outline'
+    # outline family: one group's window outlines, each a closed list of [r_mm, angle_deg] relative to
+    # spoke 0's axis (traced from a photo). Parts beyond ring_r - 2 become blind window pockets.
+    outlines: tuple = ()
     # skeleton family: {"nodes": {name: [r_mm, angle_deg]}, "edges": [[from, to, w_from, w_to], ...]}
     # for one spoke group; angles may pass ±pitch/2 so neighbouring groups can join into a mesh.
     skeleton: dict = None
@@ -187,6 +190,8 @@ def _clip_to_band(p, a, b, wa, wb):
 
 
 def _straight_spoke(p):
+    if p.family == 'outline':
+        return [], []                              # windows are given directly; no centre segments
     if p.family == 'skeleton':
         return _skeleton_spoke(p)
     hub_w, hub_in = p.stem_w_hub / 2, p.window_r_in - 30
@@ -236,8 +241,31 @@ def _straight_spoke(p):
     return [stem] + arms, segments
 
 
+def _outline_faces(p):
+    """Every traced window of the outline family, all groups, as planar faces at z = 0."""
+    faces = []
+    for i in range(p.spokes):
+        for outline in p.outlines:
+            pts = [cq.Vector(*polar(r, a + i * 360 / p.spokes), 0) for r, a in outline]
+            edge = cq.Edge.makeSpline(pts, periodic=True)
+            faces.append(cq.Face.makeFromWires(cq.Wire.assembleEdges([edge])))
+    return faces
+
+
+def _disc(r):
+    return cq.Face.makeFromWires(cq.Wire.makeCircle(r, cq.Vector(), cq.Vector(0, 0, 1)))
+
+
 def window_outlines(p, samples=160):
     """Closed window outlines (x, y) lists, corner-rounded, resampled evenly."""
+    if p.family == 'outline':
+        disc = _disc(p.ring_r - 2)
+        outlines = []
+        for face in _outline_faces(p):
+            for part in face.intersect(disc).Faces():
+                wire = part.outerWire()
+                outlines.append([wire.positionAt(i / samples).toTuple()[:2] for i in range(samples)])
+        return outlines
     polys, _ = spoke_geometry(p)
     pitch = 360 / p.spokes
     sk = cq.Sketch().circle(p.window_r_out).circle(p.window_r_in, mode='s')
@@ -380,6 +408,15 @@ def back_pocket_cutters(p):
 
 def window_pocket_tools(p):
     """Blind pockets continuing every window out to `window_pocket_r`, floor at -window_pocket_depth."""
+    if p.family == 'outline':
+        limit = p.window_pocket_r or p.lip_face_r_in - 2
+        band = _disc(limit).cut(_disc(p.ring_r - 6))
+        tools = []
+        for face in _outline_faces(p):
+            for part in face.intersect(band).Faces():
+                part = part.translate(cq.Vector(0, 0, -p.window_pocket_depth))
+                tools.append(cq.Solid.extrudeLinear(part, cq.Vector(0, 0, p.window_pocket_depth + 10)))
+        return tools
     if p.window_pocket_r <= p.window_r_out:
         return []
     polys, _ = spoke_geometry(p)
@@ -501,9 +538,13 @@ def recipe_from_dict(data: dict) -> ForgedWheel:
         data['stem_slots'] = tuple(tuple(float(v) for v in slot) for slot in data['stem_slots'])
         if any(len(slot) != 4 or slot[1] <= slot[0] or slot[3] <= 0 for slot in data['stem_slots']):
             raise ValueError("stem_slots 每项应为 [r_from, r_to, lateral_offset, width]，且 r_to > r_from、width > 0。")
+    if 'outlines' in data:
+        data['outlines'] = tuple(tuple((float(r), float(a)) for r, a in outline) for outline in data['outlines'])
     p = replace(ForgedWheel(), **data)
-    if p.family not in ('y_split', 'single', 'skeleton'):
+    if p.family not in ('y_split', 'single', 'skeleton', 'outline'):
         raise ValueError(f"未知轮辐结构：{p.family}")
+    if p.family == 'outline' and not (p.outlines and all(len(o) >= 8 for o in p.outlines)):
+        raise ValueError("outline 结构需要 outlines（每个窗口至少 8 个 [r, 角度] 点）。")
     if p.family == 'skeleton' and not (p.skeleton and p.skeleton.get('nodes') and p.skeleton.get('edges')):
         raise ValueError("skeleton 结构需要 nodes 与 edges。")
     if not 3 <= p.spokes <= 12:
