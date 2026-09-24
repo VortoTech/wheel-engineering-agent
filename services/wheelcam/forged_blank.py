@@ -57,6 +57,10 @@ class ForgedWheel:
     arm_bow: float = 6.0
     spoke_sweep_deg: float = 0.0    # spoke rotates progressively toward the rim (leaning spokes)
     window_fillet: float = 5.0
+    # Spoke side flanks: a slope cut along every through-window edge, flank_w wide at the face and
+    # flank_depth deep, leaving a narrower spoke top (0 = vertical window walls).
+    flank_w: float = 0.0
+    flank_depth: float = 0.0
     # Window pockets: each window continues outward as a blind pocket over the lip-to-barrel slope,
     # so the spokes run out to the lip (deep-concave style). 0 = off; the radius is the pocket's outer edge.
     window_pocket_r: float = 0.0
@@ -84,6 +88,9 @@ class ForgedWheel:
     bolt_d: float = 22.0
     seat_d: float = 40.0
     seat_depth: float = 22.0
+    # Styling pocket around each lug on the hub face (0 = off): a shallow counterbore wider than the seat.
+    lug_pocket_d: float = 0.0
+    lug_pocket_depth: float = 8.0
 
 
 def z_top(p, r):
@@ -282,13 +289,55 @@ def window_outlines(p, samples=160):
 
 
 def windows(p, outlines):
-    """One periodic spline per window, so each window has a single smooth wall."""
+    """One periodic spline per window, so each window has a single smooth wall.
+
+    Flanked windows are returned as a list and cut one at a time: their widened tops overlap
+    where a spoke is narrower than two flanks, and one cut with an overlapping compound made OCC
+    grow past 90 GB (2026-09-24). Sequential cuts stay under 1 GB.
+    """
+    if p.flank_w > 0 and p.flank_depth > 0:
+        return [_flanked_window(p, pts) for pts in outlines]
     tools = []
     for pts in outlines:
         edge = cq.Edge.makeSpline([cq.Vector(x, y, -p.width) for x, y in pts], periodic=True)
         face = cq.Face.makeFromWires(cq.Wire.assembleEdges([edge]))
         tools.append(cq.Solid.extrudeLinear(face, cq.Vector(0, 0, p.width + 20)))
     return cq.Compound.makeCompound(tools)
+
+
+def _flanked_window(p, pts):
+    """Window prism whose top widens by p.flank_w over p.flank_depth: ruled loft through four rings.
+
+    Each outline point moves along its outward normal (into the material), so the rings keep point
+    correspondence and the flank rules straight across. Outlines are smooth (fillets / traced and
+    smoothed), so the offset does not fold except at concave bends tighter than p.flank_w, where the
+    offset is limited by the local bend radius.
+    """
+    xy = np.asarray(pts, float)
+    ring = lambda k: np.roll(xy, k, axis=0)
+    tangent = ring(-1) - ring(1)
+    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
+    normal = np.column_stack([tangent[:, 1], -tangent[:, 0]])
+    area = .5 * np.sum(xy[:, 0] * ring(-1)[:, 1] - ring(-1)[:, 0] * xy[:, 1])
+    if area < 0:                                   # clockwise loop: flip to point out of the window
+        normal = -normal
+    # Signed bend: a concave bend (material bulging into the window) folds an offset wider than its radius.
+    d1, d2 = ring(-1) - xy, xy - ring(1)
+    cross = d2[:, 0] * d1[:, 1] - d2[:, 1] * d1[:, 0]
+    seg = np.linalg.norm(d1, axis=1)
+    angle = np.arcsin(np.clip(cross / np.maximum(seg * np.linalg.norm(d2, axis=1), 1e-9), -1, 1)) * np.sign(area)
+    radius = np.where(angle < -1e-6, seg / np.maximum(-angle, 1e-9), np.inf)
+    reach = np.minimum(p.flank_w, .8 * radius)
+    from scipy.ndimage import gaussian_filter1d
+    reach = gaussian_filter1d(reach, 2, mode='wrap')
+    wide = xy + normal * reach[:, None]
+    z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
+    rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]),
+             np.column_stack([xy, z(xy) - p.flank_depth]),
+             np.column_stack([wide, z(wide) + 1.0]),
+             np.column_stack([wide, np.full(len(xy), 40.0)])]
+    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
+    return cq.Solid.makeLoft(wires, ruled=True)
 
 
 def round_corners(face, radius, min_turn_deg=25):
@@ -465,6 +514,9 @@ def lug_tools(p):
         tools.append(cq.Workplane('XY', origin=(x, y, -p.width)).circle(p.bolt_d / 2).extrude(p.width + 10).val())
         seat_z = p.hub_z - p.seat_depth
         tools.append(cq.Workplane('XY', origin=(x, y, seat_z)).circle(p.seat_d / 2).extrude(40).val())
+        if p.lug_pocket_d > p.seat_d:
+            tools.append(cq.Workplane('XY', origin=(x, y, p.hub_z - p.lug_pocket_depth))
+                         .circle(p.lug_pocket_d / 2).extrude(40).val())
     return tools
 
 
@@ -489,7 +541,8 @@ def build(p):
 
     apply('face_facets', facet_cutters(p), rotate=True)
     outlines = window_outlines(p)
-    apply('through_windows', [windows(p, outlines)])
+    cutters = windows(p, outlines)
+    apply('through_windows', cutters if isinstance(cutters, list) else [cutters])
     apply('stem_slots', slot_tools(p), rotate=True)
     apply('window_pockets', window_pocket_tools(p))
     apply('spoke_grooves', groove_cutters(p), rotate=True)

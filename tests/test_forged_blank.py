@@ -131,3 +131,19 @@ def test_window_pockets_and_stem_slots_cut_the_part():
     assert "window_pockets" not in {s["op"] for s in build(recipe_from_dict(plain))[2]}
     with pytest.raises(ValueError, match="stem_slots"):
         recipe_from_dict({"stem_slots": [[120, 90, 10, 8]]})
+
+
+def test_flanked_windows_and_lug_pockets():
+    """Flanked windows are cut one at a time (an overlapping compound blew OCC memory past 90 GB)."""
+    from wheelcam.forged_blank import build, windows, window_outlines
+    plain = recipe_from_dict(dict(FAST, spokes=4))
+    styled = recipe_from_dict(dict(FAST, spokes=4, flank_w=6, flank_depth=8, lug_pocket_d=54))
+    assert isinstance(windows(styled, window_outlines(styled)), list)
+    _, a, stages_a = build(plain)
+    _, b, stages_b = build(styled)
+    assert b.isValid() and len(b.Solids()) == 1
+    removed = lambda stages, op: next(s["removed_mm3"] for s in stages if s["op"] == op)
+    # Flank section 1/2 x 6 x 8 = 24 mm2 along ~4 x 700 mm of window edge ~ 67 000 mm3.
+    extra = removed(stages_b, "through_windows") - removed(stages_a, "through_windows")
+    assert 40_000 < extra < 120_000, extra
+    assert removed(stages_b, "lug_holes_and_seats") > removed(stages_a, "lug_holes_and_seats")
