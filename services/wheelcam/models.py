@@ -208,6 +208,17 @@ class ForgedBuildRequest(BuildRequest):
     recipe: dict = Field(default_factory=dict)
 
 
+class ForgedPhotoFitRequest(BaseModel):
+    """Clicks in original-image pixels: rim edge points, hub centre, one group's window polygons."""
+    rim_points: list[tuple[float, float]] = Field(min_length=5, max_length=200)
+    hub_point: tuple[float, float]
+    windows: list[list[tuple[float, float]]] = Field(min_length=1, max_length=6)
+    groups: int = Field(ge=3, le=12)
+    bolts: int | None = Field(default=None, ge=3, le=10)
+    base_recipe: dict = Field(default_factory=dict)
+    image_id: str | None = None
+
+
 class AnalysisRequest(BuildRequest):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     reference_outer_mm: float | None = Field(None, ge=100, le=1200)

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ForgedBuildRequest, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ForgedBuildRequest, ForgedPhotoFitRequest, ProjectCreate, TEMPLATE_VERSION, WheelSpec
 from .agent_cad import AgentCadPlan, AgentPlanApply, ConfirmedEvidenceConflict, evaluate_plan
 from .agent_orchestrator import AgentProposalRequest, OpenAICompatibleAgentProvider, provider_status
 from .storage import Store, now, uid
@@ -191,6 +191,16 @@ def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=N
         from dataclasses import asdict
         from .forged_blank import ForgedWheel, presets
         return {"defaults": asdict(ForgedWheel()), "presets": presets()}
+
+    @app.post("/api/forged/photo-fit")
+    def forged_photo_fit(body: ForgedPhotoFitRequest):
+        from .forged_photo import fit_recipe
+        try:
+            recipe, report = fit_recipe(body.base_recipe, body.rim_points, body.hub_point, body.windows, body.groups, body.bolts)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        report["image_id"] = body.image_id
+        return {"recipe": recipe, "report": report}
 
     @app.post("/api/projects/{project_id}/forged-builds", status_code=202)
     def generate_forged(project_id: str, body: ForgedBuildRequest):
