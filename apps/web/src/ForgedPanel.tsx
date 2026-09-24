@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, FileUp, Info } from 'lucide-react';
+import { ArrowDownToLine, Camera, FileUp, Info } from 'lucide-react';
 import { api } from './types';
 import type { ForgedPreset, ForgedRecipe } from './types';
 
@@ -55,8 +55,9 @@ function Slider({ field, value, onChange, disabled }: { field: Field; value: num
   </div>;
 }
 
-export function ForgedPanel({ recipe, onRecipe, disabled, onError }: {
+export function ForgedPanel({ recipe, onRecipe, disabled, onError, onPhotoFit }: {
   recipe: ForgedRecipe | null; onRecipe: (recipe: ForgedRecipe, message?: string) => void; disabled: boolean; onError: (message: string) => void;
+  onPhotoFit?: () => void;
 }) {
   const [presets, setPresets] = useState<ForgedPreset[]>([]);
   const [defaults, setDefaults] = useState<ForgedRecipe | null>(null);
@@ -100,6 +101,7 @@ export function ForgedPanel({ recipe, onRecipe, disabled, onError }: {
         <option value="" disabled>选择预设…</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
       </select></div></div>
+    {onPhotoFit && <button className="secondary-button forged-photo-button" disabled={disabled} onClick={onPhotoFit}><Camera size={15}/>从照片拟合辐条造型</button>}
     <div className="parameter"><div className="parameter-top"><label htmlFor="forged-family">轮辐结构</label>
       <select id="forged-family" value={recipe.family} disabled={disabled} onChange={(event) => set('family', event.target.value)}>
         <option value="y_split">{familyLabels.y_split}</option>
