@@ -39,6 +39,7 @@ def test_white_studio_background_preserves_wheel_openings(tmp_path):
 def test_reconstruction_requires_config_and_primary_image(tmp_path, monkeypatch):
     monkeypatch.delenv("WHEELCAM_SF3D_ROOT", raising=False)
     monkeypatch.delenv("WHEELCAM_SF3D_PYTHON", raising=False)
+    monkeypatch.setattr("wheelcam.sf3d.DEFAULT_ROOT", tmp_path / "no-sf3d")   # independent of this machine
     with TestClient(create_app(tmp_path, start_worker=False)) as client:
         project = client.post("/api/projects", json={"name": "视觉测试"}).json()
         state = client.get("/api/reconstruction/status").json()
@@ -108,3 +109,20 @@ def test_reconstruction_snapshot_conflict_and_single_active_job(tmp_path, monkey
         snapshot = client.get(f'/api/projects/{project["id"]}').json()["reconstructions"][0]["snapshot"]
         assert snapshot["image_sha256"]
         assert "不生成 STEP" in snapshot["limitations"]
+
+
+def test_sf3d_uses_repo_local_install_when_unconfigured(tmp_path, monkeypatch):
+    from wheelcam import sf3d
+    root = tmp_path / "stable-fast-3d"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / "run.py").write_text("")
+    (root / ".venv" / "bin" / "python").write_text("")
+    monkeypatch.delenv("WHEELCAM_SF3D_ROOT", raising=False)
+    monkeypatch.delenv("WHEELCAM_SF3D_PYTHON", raising=False)
+    monkeypatch.setattr(sf3d, "DEFAULT_ROOT", root)
+    config = sf3d.settings()
+    assert config["root"] == root.resolve() and config["python"] == (root / ".venv" / "bin" / "python").absolute()
+    assert sf3d.status()["available"] is True
+    other = tmp_path / "elsewhere"                 # explicit variables still win over the default
+    monkeypatch.setenv("WHEELCAM_SF3D_ROOT", str(other))
+    assert sf3d.settings()["root"] == other.resolve()

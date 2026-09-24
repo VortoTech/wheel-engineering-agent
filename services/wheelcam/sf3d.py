@@ -13,11 +13,17 @@ from PIL import Image
 
 
 PROVIDER = "stable-fast-3d"
+# Used when WHEELCAM_SF3D_ROOT / _PYTHON are unset: a checkout with its own .venv inside the repo.
+DEFAULT_ROOT = Path(__file__).resolve().parents[2] / ".local" / "stable-fast-3d"
 
 
 def settings():
     root_value = os.getenv("WHEELCAM_SF3D_ROOT", "").strip()
     python_value = os.getenv("WHEELCAM_SF3D_PYTHON", "").strip()
+    if not root_value and (DEFAULT_ROOT / "run.py").is_file():
+        root_value = str(DEFAULT_ROOT)
+    if not python_value and root_value and (Path(root_value).expanduser() / ".venv" / "bin" / "python").is_file():
+        python_value = str(Path(root_value).expanduser() / ".venv" / "bin" / "python")
     root = Path(root_value).expanduser().resolve() if root_value else None
     # Keep the venv launcher path intact. Resolving its symlink can bypass the
     # virtual environment and invoke the base interpreter without SF3D deps.
@@ -36,7 +42,7 @@ def status():
     config = settings()
     reason = None
     if config["root"] is None or config["python"] is None:
-        reason = "尚未配置 WHEELCAM_SF3D_ROOT 和 WHEELCAM_SF3D_PYTHON。"
+        reason = f"尚未配置 WHEELCAM_SF3D_ROOT 和 WHEELCAM_SF3D_PYTHON，默认位置 {DEFAULT_ROOT} 也未找到安装。"
     elif not (config["root"] / "run.py").is_file():
         reason = "Stable Fast 3D 目录中缺少 run.py。"
     elif not config["python"].is_file():

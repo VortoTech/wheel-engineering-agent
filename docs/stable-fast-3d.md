@@ -14,7 +14,7 @@ python3.11 -m venv .venv
 .venv/bin/huggingface-cli login
 ```
 
-根据官方仓库当前说明完成其余平台依赖，然后在启动 WheelCAM 前配置：
+根据官方仓库当前说明完成其余平台依赖。若安装在仓库内的 `.local/stable-fast-3d`（含 `run.py` 与 `.venv/bin/python`），未设置下列变量时会自动使用该位置；显式设置的变量始终优先。安装在其他位置时，在启动 WheelCAM 前配置：
 
 ```bash
 export WHEELCAM_SF3D_ROOT=/path/to/stable-fast-3d
