@@ -39,11 +39,23 @@ def clicks(name):
     rim = [project(truth.lip_r * math.cos(t), truth.lip_r * math.sin(t), 0.0) for t in np.linspace(0, 2 * math.pi, 9, endpoint=False)]
     hub = (CENTRE + truth.hub_z * SHIFT).tolist()
     pitch = 2 * math.pi / truth.spokes
-    group = [o for o in window_outlines(truth, samples=96)
-             if -.1 < math.atan2(np.mean(o, axis=0)[1], np.mean(o, axis=0)[0]) < pitch / 2 + .1]
+    every = window_outlines(truth, samples=96)
+    group = [o for o in every if -.1 < math.atan2(np.mean(o, axis=0)[1], np.mean(o, axis=0)[0]) < pitch / 2 + .1]
     windows = [[project(x, y) for x, y in o[::3]] for o in group]
     base = {**asdict(ForgedWheel()), **{k: getattr(truth, k) for k in ENVELOPE}}
-    return truth, base, rim, hub, windows
+    photo = synthetic_photo(truth, project, every)
+    return truth, base, rim, hub, windows, photo
+
+
+def synthetic_photo(p, project, outlines, size=(840, 640)):
+    """A product-photo stand-in: white ground, dark face disc, white windows, through the camera."""
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", size, "white")
+    draw = ImageDraw.Draw(image)
+    draw.polygon([tuple(project(p.lip_r * math.cos(t), p.lip_r * math.sin(t), 0.0)) for t in np.linspace(0, 2 * math.pi, 180)], fill=(70, 70, 75))
+    for outline in outlines:
+        draw.polygon([tuple(project(x, y)) for x, y in outline], fill=(245, 245, 245))
+    return np.asarray(image, float) / 255
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +80,7 @@ def test_face_map_round_trips_points():
 
 
 def test_single_spoke_round_trip(work):
-    truth, base, rim, hub, windows = work
+    truth, base, rim, hub, windows, _ = work
     recipe, report = fit_recipe(base, rim, hub, windows, truth.spokes, truth.bolts)
     assert report["family"] == "single" and recipe["spokes"] == 6
     assert abs(recipe["window_r_out"] - truth.window_r_out) < 1.0
@@ -78,7 +90,7 @@ def test_single_spoke_round_trip(work):
 
 
 def test_y_split_round_trip(hf6):
-    truth, base, rim, hub, windows = hf6
+    truth, base, rim, hub, windows, _ = hf6
     recipe, report = fit_recipe(base, rim, hub, windows, truth.spokes, truth.bolts)
     assert report["family"] == "y_split"
     # Clicks are every 3rd outline point, and refinement trades a little radius against arm width.
@@ -88,14 +100,14 @@ def test_y_split_round_trip(hf6):
 
 def test_wrong_group_count_is_visible_in_iou(hf6):
     """Negative control: the 5-group mistake of the old HF6-4 label must score clearly worse."""
-    truth, base, rim, hub, windows = hf6
+    truth, base, rim, hub, windows, _ = hf6
     _, right = fit_recipe(base, rim, hub, windows, 6)
     _, wrong = fit_recipe(base, rim, hub, windows, 5)
     assert wrong["window_iou"] < right["window_iou"] - .1
 
 
 def test_photo_fit_endpoint(tmp_path, work):
-    truth, base, rim, hub, windows = work
+    truth, base, rim, hub, windows, _ = work
     with TestClient(create_app(tmp_path, start_worker=False)) as client:
         ok = client.post("/api/forged/photo-fit", json={"rim_points": rim, "hub_point": hub, "windows": windows,
                                                         "groups": 6, "base_recipe": base})
@@ -106,3 +118,23 @@ def test_photo_fit_endpoint(tmp_path, work):
         three = client.post("/api/forged/photo-fit", json={"rim_points": rim, "hub_point": hub, "windows": windows * 3,
                                                            "groups": 6, "base_recipe": base})
         assert three.status_code == 422 and "网状" in three.json()["detail"]
+
+
+@pytest.mark.parametrize("fixture, family", [("work", "single"), ("hf6", "y_split")])
+def test_auto_detects_groups_and_windows_on_synthetic_photo(request, fixture, family):
+    from wheelcam.forged_photo import auto_group_count, auto_windows
+    truth, base, rim, hub, _, photo = request.getfixturevalue(fixture)
+    groups, evidence = auto_group_count(photo, base, rim, hub)
+    assert groups == truth.spokes, evidence                 # not a divisor (3) nor a multiple (12)
+    windows, notes = auto_windows(photo, base, rim, hub, groups)
+    recipe, report = fit_recipe(base, rim, hub, windows, groups)
+    assert report["family"] == family and report["window_iou"] >= .9
+
+
+def test_group_rule_prefers_the_largest_consistent_multiple():
+    from wheelcam.forged_photo import choose_group_count
+    # Measured sector spreads on the real photos: the divisor 3 agrees best, 6 is close, 12 is not.
+    hf6 = {3: .1359, 4: .2402, 5: .2968, 6: .1573, 7: .3035, 8: .30, 9: .2935, 10: .3042, 11: .3059, 12: .2563}
+    work = {3: .1768, 4: .2827, 5: .2907, 6: .2006, 7: .2957, 8: .3005, 9: .3029, 10: .3071, 11: .3065, 12: .2991}
+    assert choose_group_count(hf6) == 6 and choose_group_count(work) == 6
+    assert choose_group_count({3: .30, 4: .28, 5: .10, 6: .29, 10: .31, 12: .3}) == 5   # a true 5 is not pushed to 10

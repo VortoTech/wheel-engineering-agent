@@ -219,6 +219,15 @@ class ForgedPhotoFitRequest(BaseModel):
     image_id: str | None = None
 
 
+class ForgedPhotoAutoRequest(BaseModel):
+    """Rim and hub clicks on a stored image; group count and windows are detected."""
+    image_id: str = Field(min_length=1, max_length=80)
+    rim_points: list[tuple[float, float]] = Field(min_length=5, max_length=200)
+    hub_point: tuple[float, float]
+    groups: int | None = Field(default=None, ge=3, le=12)
+    base_recipe: dict = Field(default_factory=dict)
+
+
 class AnalysisRequest(BuildRequest):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     reference_outer_mm: float | None = Field(None, ge=100, le=1200)

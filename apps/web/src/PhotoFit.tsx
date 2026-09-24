@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Check, CircleDot, Crosshair, Eraser, PenLine, Undo2, Wand2 } from 'lucide-react';
+import { Check, CircleDot, Crosshair, Eraser, PenLine, ScanSearch, Undo2, Wand2 } from 'lucide-react';
 import { api } from './types';
 import type { ForgedRecipe, Project } from './types';
 
@@ -8,7 +8,7 @@ type Mode = 'rim' | 'hub' | 'window';
 type FitReport = { family: string; window_iou: number; window_iou_before_refine: number; warnings: string[]; overlay_spokes_px: Pt[][] };
 
 const modeHelp: Record<Mode, string> = {
-  rim: '沿轮缘最外沿均匀点 5 个以上的点（越均匀越准）。',
+  rim: '沿轮缘最外沿均匀点 5 个以上的点（越均匀越准）。点完外圈和中心后，可点“自动识别”自动找组数和窗口。',
   hub: '点中心盖的中心（凹面越深，这一点越重要）。',
   window: '描出相邻两根辐条之间一组的窗口：单根直辐 1 个窗口；Y 形分叉 2 个（分叉内的 + 组间的）。每个窗口描完点“完成窗口”。',
 };
@@ -61,6 +61,20 @@ export function PhotoFit({ project, recipe, disabled, onFitted, onError }: {
         + (result.report.warnings.length ? `；${result.report.warnings.join(' ')}` : '') + '。请对照绿色轮廓检查，再生成模型。');
     } catch (exc) { onError(`照片拟合失败：${(exc as Error).message}`); } finally { setFitting(false); }
   };
+  const auto = async () => {
+    if (rim.length < 5 || !hub || !recipe) return;
+    setFitting(true);
+    try {
+      const result = await api<{ groups: number; windows: Pt[][]; notes: string[]; recipe: ForgedRecipe | null; report: FitReport | null; fit_error?: string }>(
+        '/forged/photo-auto', { method: 'POST', body: JSON.stringify({ image_id: imageId, rim_points: rim, hub_point: hub, base_recipe: recipe }) });
+      setGroups(result.groups); setWindows(result.windows); setCurrent([]); setMode('window'); setReport(result.report);
+      if (result.recipe && result.report) {
+        const iou = (result.report.window_iou * 100).toFixed(1);
+        onFitted(result.recipe, `自动识别：${result.groups} 组、每组 ${result.windows.length} 个窗口，${result.report.family === 'y_split' ? 'Y 形分叉' : '单根直辐'}，窗口吻合度 ${iou}%`
+          + (result.report.warnings.length ? `；${result.report.warnings.join(' ')}` : '') + '。请核对蓝色窗口与绿色辐条；不对可撤销后手动描。');
+      } else onError(`已自动识别 ${result.groups} 组、${result.windows.length} 个窗口，但无法拟合：${result.fit_error ?? ''} 可撤销多余窗口后再点“拟合配方”。`);
+    } catch (exc) { onError(`自动识别失败：${(exc as Error).message}（可改为手动描窗口）`); } finally { setFitting(false); }
+  };
   const poly = (pts: Pt[]) => pts.map((p) => p.join(',')).join(' ');
   const dot = size ? Math.max(size[0], size[1]) / 180 : 4;
 
@@ -74,6 +88,7 @@ export function PhotoFit({ project, recipe, disabled, onFitted, onError }: {
       {mode === 'window' && <button className="secondary-button" disabled={current.length < 3} onClick={finishWindow}><Check size={14}/>完成窗口</button>}
       <button className="secondary-button" onClick={undo}><Undo2 size={14}/>撤销</button>
       <button className="secondary-button" onClick={clear}><Eraser size={14}/>清空</button>
+      <button className="secondary-button" disabled={rim.length < 5 || !hub || fitting || disabled} onClick={() => void auto()} title="根据外圈与中心，自动识别辐条组数和一组窗口"><ScanSearch size={14}/>自动识别</button>
       <label className="photo-fit-groups">辐条组数 <input type="number" min={3} max={12} value={groups} onChange={(e) => setGroups(Math.max(3, Math.min(12, Number(e.target.value) || 6)))}/></label>
       <button className="build-button photo-fit-go" disabled={!ready || fitting || disabled} onClick={() => void fit()}><Wand2 size={16}/>{fitting ? '拟合中…' : '拟合配方'}</button>
     </div>

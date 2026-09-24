@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ForgedBuildRequest, ForgedPhotoFitRequest, ProjectCreate, TEMPLATE_VERSION, WheelSpec
+from .models import RootCorrectionRequest, AnalysisRequest, BuildRequest, DraftUpdate, ForgedBuildRequest, ForgedPhotoAutoRequest, ForgedPhotoFitRequest, ProjectCreate, TEMPLATE_VERSION, WheelSpec
 from .agent_cad import AgentCadPlan, AgentPlanApply, ConfirmedEvidenceConflict, evaluate_plan
 from .agent_orchestrator import AgentProposalRequest, OpenAICompatibleAgentProvider, provider_status
 from .storage import Store, now, uid
@@ -201,6 +201,34 @@ def create_app(data_dir: Path | None = None, start_worker=True, agent_provider=N
             raise HTTPException(422, str(exc)) from exc
         report["image_id"] = body.image_id
         return {"recipe": recipe, "report": report}
+
+    @app.post("/api/forged/photo-auto")
+    def forged_photo_auto(body: ForgedPhotoAutoRequest):
+        import numpy as np
+        from PIL import Image
+        from .forged_photo import auto_group_count, auto_windows, fit_recipe
+        path = store.root / "images" / f"{body.image_id}.jpg"
+        if not path.is_file() or "/" in body.image_id or ".." in body.image_id:
+            raise HTTPException(404, "图片不存在。")
+        image = np.asarray(Image.open(path).convert("RGB"), float) / 255
+        try:
+            if body.groups:
+                groups, evidence = body.groups, None
+            else:
+                groups, evidence = auto_group_count(image, body.base_recipe, body.rim_points, body.hub_point)
+            windows, notes = auto_windows(image, body.base_recipe, body.rim_points, body.hub_point, groups)
+            if not windows:
+                raise ValueError("没有识别出窗口；请手动描出一组窗口。")
+            result = {"groups": groups, "group_evidence": evidence, "windows": windows, "notes": notes}
+            try:
+                recipe, report = fit_recipe(body.base_recipe, body.rim_points, body.hub_point, windows, groups)
+                report["warnings"] = notes + report["warnings"]
+                result.update(recipe=recipe, report=report)
+            except ValueError as exc:                       # windows found but not fittable: hand them to the user
+                result.update(recipe=None, report=None, fit_error=str(exc))
+            return result
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.post("/api/projects/{project_id}/forged-builds", status_code=202)
     def generate_forged(project_id: str, body: ForgedBuildRequest):

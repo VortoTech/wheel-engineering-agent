@@ -261,3 +261,101 @@ def _refine(recipe, grid, target, p, max_evaluations=250):
                       options={"maxfev": max_evaluations, "xatol": .05, "fatol": 1e-4})
     best = {**recipe, **{k: round(v, 2) for k, v in zip(keys, (result.x * step).tolist())}}
     return best if cost(result.x) <= cost(x0 / step) else recipe
+
+
+# ---------------------------------------------------------------------------------------------
+# Automatic proposals from the image, given the rim and hub clicks.
+#
+# The face is unwarped into polar coordinates with the FaceMap and cut into N sectors. Spoke
+# material looks the same in every sector; the view through the windows does not. So:
+#  * group count: the N whose sectors agree best. Divisors of the true count agree too, so step up
+#    from the best N to a multiple only while it stays close (multiples misalign badly);
+#  * windows: the median sector split into material / window (2-means on colour and sector spread;
+#    material is the class along the hub band and the outer ring), cleaned with wrap-around
+#    morphology (the angle is periodic), traced into polygons and mapped back to image pixels.
+# Tested on real product photos (WORK, HF6-4) and synthetic images; not a general detector.
+# ---------------------------------------------------------------------------------------------
+
+AUTO_DR_MM, AUTO_DTH_DEG = 1.0, .5
+
+
+def _sector_stack(image, p, face, groups):
+    from scipy.ndimage import map_coordinates
+    pitch = 2 * math.pi / groups
+    rs = np.arange(p.hub_r + 4, p.ring_r - 1, AUTO_DR_MM)
+    ths = np.radians(np.arange(0, math.degrees(pitch), AUTO_DTH_DEG))
+    rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    stack = []
+    for k in range(groups):
+        xy = face.to_image(rr.ravel(), (tt + k * pitch).ravel())
+        stack.append(np.stack([map_coordinates(image[..., c], [xy[:, 1], xy[:, 0]], order=1, mode="nearest").reshape(rr.shape)
+                               for c in range(3)], -1))
+    return np.array(stack), rs, ths
+
+
+def auto_group_count(image, base: dict, rim_points, hub_point, candidates=range(3, 13)):
+    """Rotational repeat count of the spoke pattern. Returns (count, {n: mean sector spread})."""
+    spread = {}
+    for n in candidates:
+        p = recipe_from_dict({**base, "spokes": n})
+        stack, _, _ = _sector_stack(image, p, FaceMap(p, rim_points, hub_point), n)
+        spread[n] = float(np.std(stack.mean(-1), 0).mean())
+    return choose_group_count(spread), {n: round(v, 4) for n, v in spread.items()}
+
+
+def choose_group_count(spread: dict) -> int:
+    """Best-agreeing N, stepped up to a multiple while it stays within 1.3x (divisors also agree)."""
+    chosen, stepped = min(spread, key=spread.get), True
+    while stepped:
+        stepped = False
+        for m in range(2 * chosen, max(spread) + 1, chosen):
+            if m in spread and spread[m] <= 1.3 * spread[chosen]:
+                chosen, stepped = m, True
+                break
+    return chosen
+
+
+def _two_means(x, iters=20):
+    centres = np.array([np.percentile(x, 10, 0), np.percentile(x, 90, 0)])
+    for _ in range(iters):
+        labels = np.argmin(((x[:, None, :] - centres[None]) ** 2).sum(-1), 1)
+        centres = np.array([x[labels == k].mean(0) if np.any(labels == k) else centres[k] for k in (0, 1)])
+    return labels
+
+
+def auto_windows(image, base: dict, rim_points, hub_point, groups: int):
+    """One group's window polygons in image pixels, plus notes on anything set aside."""
+    from scipy.ndimage import binary_closing, binary_opening, label as components
+    from .window_fit import _cell_boundary_loops, _loop_area
+
+    p = recipe_from_dict({**base, "spokes": groups})
+    face = FaceMap(p, rim_points, hub_point)
+    stack, rs, ths = _sector_stack(image, p, face, groups)
+    median, spread = np.median(stack, 0), np.std(stack.mean(-1), 0)
+    labels = _two_means(np.concatenate([median, spread[..., None] * 2], -1).reshape(-1, 4)).reshape(median.shape[:2])
+    border = np.concatenate([labels[:3].ravel(), labels[-3:].ravel()])        # hub band + outer ring
+    material = np.bincount(border, minlength=2).argmax()
+    pad = 8
+    raw = labels != material
+    wrapped = np.hstack([raw[:, -pad:], raw, raw[:, :pad]])
+    mask = binary_closing(binary_opening(wrapped, iterations=2), iterations=2)[:, pad:-pad]
+    n = mask.shape[1]
+    regions, count = components(np.hstack([mask, mask]))
+    found = []
+    for index in range(1, count + 1):
+        region = regions == index
+        cols = np.nonzero(region.any(0))[0]
+        # Each window once, whole: starts in the first copy and touches neither outer edge.
+        if cols.min() == 0 or cols.max() == 2 * n - 1 or cols.min() >= n or region.sum() < 60:
+            continue
+        loop = max(_cell_boundary_loops(region), key=lambda pts: abs(_loop_area(pts)))
+        polar = [(rs[0] - AUTO_DR_MM / 2 + row * AUTO_DR_MM, ths[0] + math.radians(col * AUTO_DTH_DEG)) for row, col in loop]
+        polar = polar[::max(1, len(polar) // 60)]
+        xy = face.to_image(np.array([r for r, _ in polar]), np.array([t for _, t in polar]))
+        found.append((float(region.sum()), np.round(xy, 1).tolist()))
+    found.sort(key=lambda item: item[0], reverse=True)
+    notes = []
+    if len(found) > 2 and all(area < .25 * found[1][0] for area, _ in found[2:]):
+        notes.append(f"忽略了 {len(found) - 2} 个小孔（面积不到第二大窗口的 1/4，配方无法表达）。")
+        found = found[:2]
+    return [polygon for _, polygon in found], notes
