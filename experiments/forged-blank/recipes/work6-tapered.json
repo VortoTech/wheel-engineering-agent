@@ -5,9 +5,9 @@
   "lip_face_r_in": 186,
   "barrel_outer_r": 204,
   "barrel_inner_r": 196,
-  "width": 165,
+  "width": 190,
   "hub_r": 75,
-  "hub_z": -34,
+  "hub_z": -17,
   "ring_r": 180,
   "ring_z": -10,
   "concavity_exp": 1.0,
@@ -24,5 +24,6 @@
   "groove_offsets": [],
   "lip_pockets": 0,
   "seat_d": 36,
-  "back_pocket_skin": 8
+  "back_pocket_skin": 8,
+  "_specs_source": "WORK Crag T-Grabic II. Listed 6-lug size 16x6.5, ET+38, 6x139.7 (workwheelsuk.com listing). Overall width ~ 6.5J + two flanges (estimate). Spoke styling eyeballed from the photo."
 }
