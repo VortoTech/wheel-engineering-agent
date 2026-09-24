@@ -1,6 +1,7 @@
 """Forged-blank wheel template: build a wheel in machining order from one parameter set.
 
-revolved forging blank -> face facets -> through windows (2D sketch) -> spoke grooves -> back weight pockets -> lip-face pockets -> lug holes and seats.
+revolved forging blank -> face facets -> through windows (2D sketch) -> stem slots -> window pockets under the lip
+-> spoke grooves -> back weight pockets -> lip-face pockets -> lug holes and seats.
 
 Prototype origin and design notes: experiments/forged-blank/README.md. All default dimensions are
 design assumptions, not measurements; manufacturing status is always not_released.
@@ -53,6 +54,13 @@ class ForgedWheel:
     arm_bow: float = 6.0
     spoke_sweep_deg: float = 0.0    # spoke rotates progressively toward the rim (leaning spokes)
     window_fillet: float = 5.0
+    # Window pockets: each window continues outward as a blind pocket over the lip-to-barrel slope,
+    # so the spokes run out to the lip (deep-concave style). 0 = off; the radius is the pocket's outer edge.
+    window_pocket_r: float = 0.0
+    window_pocket_depth: float = 24.0
+    # Through slots in spoke 0's frame, [r_from, r_to, lateral_offset, width] each; offset > 0 = a
+    # mirrored pair (stem slots beside the lugs), 0 = one slot on the spoke axis (hole ahead of a fork).
+    stem_slots: tuple = ()
     edge_break: float = 1.5         # 45° chamfer on window rims, machined in CAM (0 = none); CAD keeps sharp edges
     facet_deg: float = 20.0         # 0 = flat spoke tops
     # Spoke grooves: lateral centre as a fraction of half width (0 = on the ridge).
@@ -182,11 +190,14 @@ def _straight_spoke(p):
     if p.family == 'skeleton':
         return _skeleton_spoke(p)
     hub_w, hub_in = p.stem_w_hub / 2, p.window_r_in - 30
+    reach = max(p.window_r_out, p.window_pocket_r) + 10
     if p.family == 'single':
         end_r = p.window_r_out + 10
         half = p.stem_w_split / 2
         side = [(hub_in, hub_w + 6), (p.window_r_in, hub_w),
                 (p.window_r_in + 25, hub_w + (half - hub_w) * .25), (end_r, half)]
+        if reach > end_r:
+            side.append((reach, half))
         span = p.window_r_out - p.window_r_in
         radii = [x for x, _ in side[1:]]
         knots = tuple(((r - p.window_r_in) / span, 2 * float(np.interp(r, radii, [y for _, y in side[1:]])))
@@ -207,9 +218,13 @@ def _straight_spoke(p):
         nx, ny = -dy / length, dx / length
 
         def arm_centre(t, dx=dx, dy=dy, nx=nx, ny=ny, sign=sign):
-            bow = p.arm_bow * math.sin(math.pi * t) * sign
+            bow = p.arm_bow * math.sin(math.pi * min(t, 1)) * sign     # straight past the window edge
             return split[0] - 12 * (1 - t) + dx * t + nx * bow, split[1] + dy * t + ny * bow
-        centre = [arm_centre(t) for t in np.linspace(0, 1, 7)]
+        # Extend past the defining end point (window_r_out + 10) to reach the pocket edge.
+        t_end = 1.0
+        while math.hypot(*arm_centre(t_end)) < reach:
+            t_end += .02
+        centre = [arm_centre(t) for t in np.linspace(0, 1, 7)] + ([arm_centre(t_end)] if t_end > 1 else [])
         half = p.arm_w / 2
         left = [(x + nx * half, y + ny * half) for x, y in centre]
         right = [(x - nx * half, y - ny * half) for x, y in centre]
@@ -363,6 +378,35 @@ def back_pocket_cutters(p):
     return cutters
 
 
+def window_pocket_tools(p):
+    """Blind pockets continuing every window out to `window_pocket_r`, floor at -window_pocket_depth."""
+    if p.window_pocket_r <= p.window_r_out:
+        return []
+    polys, _ = spoke_geometry(p)
+    pitch = 360 / p.spokes
+    sk = cq.Sketch().circle(p.window_pocket_r).circle(p.window_r_out - 4, mode='s')
+    for i in range(p.spokes):
+        c, s = math.cos(math.radians(i * pitch)), math.sin(math.radians(i * pitch))
+        for poly in polys:
+            pts = [(x * c - y * s, x * s + y * c) for x, y in poly]
+            sk = sk.polygon(pts + [pts[0]], mode='s')
+    tools = []
+    for face in sk._faces.Faces():
+        face = round_corners(face, p.window_fillet).translate(cq.Vector(0, 0, -p.window_pocket_depth))
+        tools.append(cq.Solid.extrudeLinear(face, cq.Vector(0, 0, p.window_pocket_depth + 10)))
+    return tools
+
+
+def slot_tools(p):
+    """Through slots of spoke 0 (rotated per spoke by the caller)."""
+    tools = []
+    for r0, r1, offset, width in p.stem_slots:
+        for y in ((offset, -offset) if offset else (0.0,)):
+            tools.append(cq.Workplane('XY', origin=(0, 0, -p.width)).center((r0 + r1) / 2, y)
+                         .slot2D(r1 - r0, width).extrude(p.width + 20).val())
+    return tools
+
+
 def lip_pockets(p):
     if not p.lip_pockets:
         return []
@@ -409,6 +453,8 @@ def build(p):
     apply('face_facets', facet_cutters(p), rotate=True)
     outlines = window_outlines(p)
     apply('through_windows', [windows(p, outlines)])
+    apply('stem_slots', slot_tools(p), rotate=True)
+    apply('window_pockets', window_pocket_tools(p))
     apply('spoke_grooves', groove_cutters(p), rotate=True)
     apply('back_pockets', back_pocket_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
@@ -451,6 +497,10 @@ def recipe_from_dict(data: dict) -> ForgedWheel:
     for key in ('lip_pocket_r', 'groove_offsets'):
         if key in data:
             data[key] = tuple(data[key])
+    if 'stem_slots' in data:
+        data['stem_slots'] = tuple(tuple(float(v) for v in slot) for slot in data['stem_slots'])
+        if any(len(slot) != 4 or slot[1] <= slot[0] or slot[3] <= 0 for slot in data['stem_slots']):
+            raise ValueError("stem_slots 每项应为 [r_from, r_to, lateral_offset, width]，且 r_to > r_from、width > 0。")
     p = replace(ForgedWheel(), **data)
     if p.family not in ('y_split', 'single', 'skeleton'):
         raise ValueError(f"未知轮辐结构：{p.family}")

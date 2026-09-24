@@ -4,5 +4,27 @@
   "back_pocket_skin": 9,
   "width": 266,
   "hub_z": -49,
-  "_specs_source": "Vossen HF6-4 (Y-pattern, deep concave). Listed production size 20x9.5, ET+30, 6x139.7, CB 106.1, Deep (threepiece.us / blackopsautoworks.com listings, vossenwheels.com/wheel/hf6-4). Overall width ~ 9.5J + two flanges (estimate). Spoke styling still eyeballed from the photo."
+  "_specs_source": "Vossen HF6-4 (Y-pattern, deep concave). Listed production size 20x9.5, ET+30, 6x139.7, CB 106.1, Deep (threepiece.us / blackopsautoworks.com listings, vossenwheels.com/wheel/hf6-4). Overall width ~ 9.5J + two flanges (estimate). Spoke planform, lip radius (spokes reach ~255 mm, no lip-face pockets) and stem slots measured on the official straight-on front image (vossenwheels.com/wheel/hf6-4, Terra Bronze front, 2026-09-24; window IoU 0.90). Spoke cross-section (narrow top, steep chamfered flanks) is not modelled yet.",
+  "window_r_in": 100.67,
+  "window_r_out": 229.19,
+  "stem_w_hub": 68.05,
+  "stem_w_split": 73.53,
+  "split_r": 130.0,
+  "arm_w": 30.43,
+  "arm_angle_deg": 17.73,
+  "arm_bow": 0.0,
+  "ring_r": 234.0,
+  "ring_z": -8.0,
+  "lip_face_r_in": 258.0,
+  "lip_pockets": 0,
+  "window_pocket_r": 252.0,
+  "window_pocket_depth": 24.0,
+  "stem_slots": [
+    [
+      92,
+      122,
+      20.5,
+      10
+    ]
+  ]
 }

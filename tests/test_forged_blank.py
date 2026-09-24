@@ -112,3 +112,22 @@ def test_forged_preparation_checks_caliper_stock_and_et(tmp_path):
     forward = dict(caliper, z_min_mm=5, z_max_mm=60)
     bad = export_model(FAST, tmp_path / "bad", {"preparation": {"caliper": forward}})
     assert bad["preparation"]["caliper"]["status"] == "interference"
+
+
+def test_window_pockets_and_stem_slots_cut_the_part():
+    """Spokes run out to the lip over window pockets; stem slots are through holes."""
+    from wheelcam.forged_blank import build, spoke_geometry
+    plain = dict(FAST, ring_r=234, ring_z=-8, lip_face_r_in=258, window_r_out=229)
+    styled = dict(plain, window_pocket_r=252, stem_slots=[[88, 118, 16, 8], [150, 160, 0, 8]])
+    p = recipe_from_dict(styled)
+    # The spoke footprint reaches past the pocket edge, so neighbouring pockets stay separate.
+    assert max(max(abs(x) for x, _ in poly) for poly in spoke_geometry(p)[0]) >= 252
+    _, part, stages = build(p)
+    assert part.isValid() and len(part.Solids()) == 1
+    removed = {s["op"]: s["removed_mm3"] for s in stages}
+    # 3 slots per spoke x 5 spokes, each ~ (30 x 8 minus the round ends) x the spoke thickness.
+    assert removed["stem_slots"] > 5 * 3 * 150 * 20
+    assert removed["window_pockets"] > 0
+    assert "window_pockets" not in {s["op"] for s in build(recipe_from_dict(plain))[2]}
+    with pytest.raises(ValueError, match="stem_slots"):
+        recipe_from_dict({"stem_slots": [[120, 90, 10, 8]]})
