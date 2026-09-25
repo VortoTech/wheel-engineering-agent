@@ -1,3 +1,4 @@
+import math
 import json
 import subprocess
 import sys
@@ -147,3 +148,26 @@ def test_flanked_windows_and_lug_pockets():
     extra = removed(stages_b, "through_windows") - removed(stages_a, "through_windows")
     assert 40_000 < extra < 120_000, extra
     assert removed(stages_b, "lug_holes_and_seats") > removed(stages_a, "lug_holes_and_seats")
+
+
+def test_face_surface_rounds_spoke_edges():
+    """The face machining surface is cut last; spoke edges drop by the crown depth, spoke centres do not."""
+    from wheelcam.forged_blank import build, face_profile, window_outlines
+    p = recipe_from_dict(dict(FAST, face_crown_w=10, face_crown_depth=8, face_crown_q=2, face_grid_mm=3))
+    stock, part, stages = build(p)
+    assert part.isValid() and len(part.Solids()) == 1
+    assert stages[-1]["op"] == "face_surface" and stages[-1]["removed_mm3"] > 0
+    assert stock.BoundingBox().zmax > part.BoundingBox().zmax + 5          # the blank carries face stock
+    # Probe the top at a spoke centre and 1.5 mm from its edge, at mid window radius.
+    import cadquery as cq
+    r = (p.window_r_in + p.window_r_out) / 2
+    edge = min(window_outlines(p), key=lambda o: abs(math.hypot(*o[0]) - r))
+    def top(x, y):
+        hits = part.intersect(cq.Solid.makeBox(.4, .4, 400, cq.Vector(x - .2, y - .2, -300)))
+        return hits.BoundingBox().zmax
+    centre = top(r, 0.0)
+    assert abs(centre - face_profile(p, r)) < 1.0, (centre, float(face_profile(p, r)))
+    # Walk from the spoke centre line toward the first window at radius r until just inside material.
+    angle = min(abs(math.atan2(y, x)) for x, y in edge if abs(math.hypot(x, y) - r) < 3)
+    ex, ey = r * math.cos(angle - math.radians(1.5 * 180 / math.pi / r)), r * math.sin(angle - math.radians(1.5 * 180 / math.pi / r))
+    assert top(ex, ey) < centre - 3, (top(ex, ey), centre)

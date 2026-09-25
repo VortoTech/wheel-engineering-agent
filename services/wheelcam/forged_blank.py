@@ -61,6 +61,14 @@ class ForgedWheel:
     # flank_depth deep, leaving a narrower spoke top (0 = vertical window walls).
     flank_w: float = 0.0
     flank_depth: float = 0.0
+    # Face machining surface (0 width = off): the whole face is cut last by one smooth B-spline surface,
+    # dish profile minus a rounded shoulder that drops face_crown_depth at every window edge over
+    # face_crown_w (superellipse exponent face_crown_q: 1 = straight chamfer, 2 = quarter round, >2 = flatter top).
+    # Replaces facets / grooves / flanks, gives rounded spoke crowns and smooth fork, hub and lip blends.
+    face_crown_w: float = 0.0
+    face_crown_depth: float = 12.0
+    face_crown_q: float = 2.5
+    face_grid_mm: float = 2.0
     # Window pockets: each window continues outward as a blind pocket over the lip-to-barrel slope,
     # so the spokes run out to the lip (deep-concave style). 0 = off; the radius is the pocket's outer edge.
     window_pocket_r: float = 0.0
@@ -109,15 +117,23 @@ def polar(r, deg):
     return r * math.cos(a), r * math.sin(a)
 
 
+FACE_LIFT = 12.0     # blank front stock above the face surface, so the surface cut never grazes the blank
+
+
 def blank(p):
-    """Revolved forging blank: hub, concave face web, lip face ring and barrel."""
+    """Revolved forging blank: hub, concave face web, lip face ring and barrel.
+
+    With a face machining surface the whole front is raised by FACE_LIFT (forging stock that the
+    surfacing pass removes); otherwise the blank front is the finished dish.
+    """
+    lift = FACE_LIFT if p.face_crown_w > 0 else 0.0
     rs = np.linspace(p.hub_r, p.ring_r, 9)
-    front = [(r, z_top(p, r)) for r in rs]
+    front = [(r, z_top(p, r) + lift) for r in rs]
     back = [(r, z_back(p, r)) for r in rs[::-1]]
     lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
-    wp = (cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z).lineTo(p.hub_r, p.hub_z)
+    wp = (cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z + lift).lineTo(p.hub_r, p.hub_z + lift)
           .spline(front[1:], includeCurrent=True)
-          .lineTo(p.lip_face_r_in, 0).lineTo(p.lip_r, 0).lineTo(p.lip_r, lip_back)
+          .lineTo(p.lip_face_r_in, lift).lineTo(p.lip_r, lift).lineTo(p.lip_r, lip_back)
           .lineTo(p.barrel_outer_r + 2, lip_back - 12)
           .lineTo(p.barrel_outer_r, lip_back - 26).lineTo(p.barrel_outer_r, -p.width + 25)
           .lineTo(p.lip_r - 2, -p.width + 12).lineTo(p.lip_r - 2, -p.width)
@@ -493,6 +509,77 @@ def slot_tools(p):
     return tools
 
 
+def face_profile(p, r):
+    """Finished dish height at radius r: hub plateau, concave web, slope up to the lip face, lip face."""
+    r = np.asarray(r, float)
+    web = np.vectorize(lambda v: z_top(p, v))(np.minimum(r, p.ring_r))
+    slope = np.interp(r, [p.ring_r, p.lip_face_r_in], [p.ring_z, 0.0])
+    return np.where(r <= p.ring_r, web, np.where(r <= p.lip_face_r_in, slope, 0.0))
+
+
+def window_mask(p, half, res):
+    """Raster (res mm) of every window seen from the front: through part, pockets and stem slots."""
+    from PIL import Image, ImageDraw
+    n = int(round(2 * half / res))
+    img = Image.new('L', (n, n), 0)
+    draw = ImageDraw.Draw(img)
+    to_px = lambda pts: [((x + half) / res, (y + half) / res) for x, y in pts]
+    if p.family == 'outline':
+        polys = [[polar(r, a + i * 360 / p.spokes) for r, a in o] for i in range(p.spokes) for o in p.outlines]
+    else:
+        polys = [list(o) for o in window_outlines(p, samples=240)]
+    for r0, r1, offset, width in p.stem_slots:
+        t = np.linspace(-math.pi / 2, math.pi / 2, 16)
+        for y in ((offset, -offset) if offset else (0.0,)):
+            ends = [(r1 - width / 2 + width / 2 * math.cos(a), y + width / 2 * math.sin(a)) for a in t]
+            ends += [(r0 + width / 2 - width / 2 * math.cos(a), y - width / 2 * math.sin(a)) for a in t]
+            for i in range(p.spokes):
+                c, s_ = math.cos(math.radians(i * 360 / p.spokes)), math.sin(math.radians(i * 360 / p.spokes))
+                polys.append([(x * c - v * s_, x * s_ + v * c) for x, v in ends])
+    for poly in polys:
+        draw.polygon(to_px(poly), fill=255)
+    return np.asarray(img) > 0
+
+
+def face_surface_tool(p):
+    """Solid above the face machining surface (one seamless B-spline over the whole face).
+
+    Height = face_profile(r) - shoulder(d), d = distance to the nearest window edge. The drop field
+    is smoothed by one grid step before sampling (a steep edge sampled at the grid spacing showed as
+    ripples along the spokes), and the grid points are used directly as the poles of a cubic
+    B-spline: no fitting (least-squares fitting of the 80 k points took > 10 minutes), smoothing ~ 1 step.
+    One patch, not per-sector patches: near-coincident overlapping patches split the part in OCC.
+    """
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.Geom import Geom_BSplineSurface
+    from OCP.TColgp import TColgp_Array2OfPnt
+    from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
+    from OCP.gp import gp_Pnt
+    from scipy.ndimage import distance_transform_edt, gaussian_filter, map_coordinates
+
+    res, step = .5, p.face_grid_mm
+    half = p.lip_r + 8
+    dist = distance_transform_edt(~window_mask(p, half, res)) * res
+    s = np.clip(1 - dist / p.face_crown_w, 0, 1)
+    drop = gaussian_filter(p.face_crown_depth * (1 - (1 - s ** p.face_crown_q) ** (1 / p.face_crown_q)), step / res)
+    xs = np.arange(-half + 2, half - 2 + step / 2, step)
+    gx, gy = np.meshgrid(xs, xs, indexing='ij')
+    z = face_profile(p, np.hypot(gx, gy)) - map_coordinates(drop, [(gy + half) / res, (gx + half) / res], order=1, mode='nearest')
+    n, deg = len(xs), 3
+    poles = TColgp_Array2OfPnt(1, n, 1, n)
+    for i in range(n):
+        for j in range(n):
+            poles.SetValue(i + 1, j + 1, gp_Pnt(float(gx[i, j]), float(gy[i, j]), float(z[i, j])))
+    k = n - deg + 1
+    knots, mults = TColStd_Array1OfReal(1, k), TColStd_Array1OfInteger(1, k)
+    for i in range(k):
+        knots.SetValue(i + 1, i / (k - 1))
+        mults.SetValue(i + 1, deg + 1 if i in (0, k - 1) else 1)
+    surface = Geom_BSplineSurface(poles, knots, knots, mults, mults, deg, deg)
+    face = cq.Face(BRepBuilderAPI_MakeFace(surface, 1e-6).Face())
+    return cq.Solid.extrudeLinear(face, cq.Vector(0, 0, FACE_LIFT + 60))
+
+
 def lip_pockets(p):
     if not p.lip_pockets:
         return []
@@ -539,6 +626,11 @@ def build(p):
                        'valid': body.isValid(), 'solids': len(body.Solids()),
                        'seconds': round(time.time() - start, 1)})
 
+    surfaced = p.face_crown_w > 0
+    if surfaced:
+        # The face surface replaces facets / grooves / flanks; back pockets assume the unsurfaced top
+        # and would break through the lowered spoke edges, so they wait for a surface-aware version.
+        p = replace(p, facet_deg=0.0, groove_offsets=(), flank_w=0.0, back_pocket_skin=0.0)
     apply('face_facets', facet_cutters(p), rotate=True)
     outlines = window_outlines(p)
     cutters = windows(p, outlines)
@@ -549,6 +641,10 @@ def build(p):
     apply('back_pockets', back_pocket_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
     apply('lug_holes_and_seats', lug_tools(p))
+    if surfaced:
+        # Last: every other tool meets the flat or revolved blank. Cylinders (lug seats) and pocket
+        # walls cut after the B-spline face returned null shapes in OCC (2026-09-24).
+        apply('face_surface', [face_surface_tool(p)])
     return stock, body, stages
 
 
