@@ -472,17 +472,33 @@ def back_pocket_cutters(p):
     return cutters
 
 
+def _window_envelope(p):
+    """Where an outline-family window may cut: through inside the ring, only down to the pocket floor beyond."""
+    floor = -p.window_pocket_depth
+    ring = p.ring_r - 2
+    profile = (cq.Workplane('XZ').moveTo(0, -p.width - 30).lineTo(ring, -p.width - 30).lineTo(ring, floor)
+               .lineTo(p.lip_r + 10, floor).lineTo(p.lip_r + 10, 80).lineTo(0, 80).close())
+    return profile.revolve(360, (0, 0, 0), (0, 1, 0)).val()
+
+
+def outline_window_tools(p, samples=200):
+    """One tool per traced window: the whole outline (through part and pocket part) cut by a single
+    prism or flanked loft, trimmed to the window envelope. Separate through and pocket tools had
+    nearly coincident side walls (two resampled splines) and left sliver faces where they met.
+    """
+    outlines = []
+    for face in _outline_faces(p):
+        wire = face.outerWire()
+        outlines.append([wire.positionAt(i / samples).toTuple()[:2] for i in range(samples)])
+    envelope = _window_envelope(p)
+    tools = windows(p, outlines)
+    return [t.intersect(envelope) for t in (tools if isinstance(tools, list) else [tools])]
+
+
 def window_pocket_tools(p):
     """Blind pockets continuing every window out to `window_pocket_r`, floor at -window_pocket_depth."""
     if p.family == 'outline':
-        limit = p.window_pocket_r or p.lip_face_r_in - 2
-        band = _disc(limit).cut(_disc(p.ring_r - 6))
-        tools = []
-        for face in _outline_faces(p):
-            for part in face.intersect(band).Faces():
-                part = part.translate(cq.Vector(0, 0, -p.window_pocket_depth))
-                tools.append(cq.Solid.extrudeLinear(part, cq.Vector(0, 0, p.window_pocket_depth + 10)))
-        return tools
+        return []                                  # part of outline_window_tools
     if p.window_pocket_r <= p.window_r_out:
         return []
     polys, _ = spoke_geometry(p)
@@ -639,9 +655,11 @@ def build(p):
         # and would break through the lowered spoke edges, so they wait for a surface-aware version.
         p = replace(p, facet_deg=0.0, groove_offsets=(), flank_w=0.0, back_pocket_skin=0.0)
     apply('face_facets', facet_cutters(p), rotate=True)
-    outlines = window_outlines(p)
-    cutters = windows(p, outlines)
-    apply('through_windows', cutters if isinstance(cutters, list) else [cutters])
+    if p.family == 'outline':
+        apply('through_windows', outline_window_tools(p))
+    else:
+        cutters = windows(p, window_outlines(p))
+        apply('through_windows', cutters if isinstance(cutters, list) else [cutters])
     apply('stem_slots', slot_tools(p), rotate=True)
     apply('window_pockets', window_pocket_tools(p))
     apply('spoke_grooves', groove_cutters(p), rotate=True)
