@@ -528,3 +528,134 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
               "overlay_windows_px": overlay, "notes": notes, "method": "forged-photo-trace-v1",
               "limits": "窗口平面轮廓取自照片；深度、厚度、侧面斜面与背面来自配方假设。"}
     return recipe, report
+
+
+# ---------------------------------------------------------------------------------------------
+# Depth from an oblique photo, given the planform (stereo-like, weak perspective).
+#
+# The rim ellipse (lip front, z = 0) gives the scale a / lip_r and the tilt acos(b / a); a point at
+# depth z then appears shifted by z * (a / lip_r) * sin(tilt) along the ellipse minor axis, towards
+# the side the hub click is on. With that parallax fixed by the camera, the dish depth is no longer
+# a free scale: the oblique photo, unwarped onto the face at the right depth, shows the same windows
+# as the recipe's planform. What the photo sees are the window rims, which sit face_crown_depth below
+# the spoke tops when a face surface is used, so the fitted rim profile is lifted by that depth.
+# ---------------------------------------------------------------------------------------------
+
+
+def _oblique_camera(p, rim_points, hub_point):
+    e = fit_ellipse(rim_points)
+    a, b = max(e["a"], e["b"]), min(e["a"], e["b"])
+    tilt = math.acos(min(b / a, 1.0))
+    ang = math.radians(e["angle_deg"]) + (0 if e["a"] < e["b"] else math.pi / 2)
+    minor = np.array([math.cos(ang), math.sin(ang)])
+    if minor @ (np.asarray(hub_point, float) - np.array([e["cx"], e["cy"]])) < 0:
+        minor = -minor
+    return e, tilt, -minor * (a / p.lip_r) * math.sin(tilt)
+
+
+def _planform_polar(p, rs, ths):
+    from .forged_blank import window_mask
+    half, res = p.lip_r + 8, .5
+    mask = window_mask(p, half, res)
+    rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    col = np.clip(((rr * np.cos(tt) + half) / res).astype(int), 0, mask.shape[1] - 1)
+    row = np.clip(((rr * np.sin(tt) + half) / res).astype(int), 0, mask.shape[0] - 1)
+    return mask[row, col]
+
+
+def fit_depth(image, recipe: dict, rim_points, hub_point, bright=.8):
+    """Dish depth (hub_z, ring_z, concavity_exp) of a recipe from an oblique photo of the same wheel.
+
+    Keeps the mounting face (ET) by adjusting web_thick_hub. Returns (recipe dict, report dict).
+    Only sectors whose windows are seen through to a bright background count as evidence.
+    """
+    from scipy.ndimage import map_coordinates
+    p0 = recipe_from_dict(recipe)
+    e, tilt, shift = _oblique_camera(p0, rim_points, hub_point)
+    if math.degrees(tilt) < 12:
+        raise ValueError(f"照片倾角只有 {math.degrees(tilt):.0f}°，太接近正视，测不出深度；请用 20–45° 的斜视图。")
+    crown = p0.face_crown_depth if p0.face_crown_w > 0 else 0.0
+    pitch = 2 * math.pi / p0.spokes
+    rs = np.arange(p0.pcd / 2 + p0.seat_d / 2 + 2, p0.ring_r - 4, 1.0)
+    ths = np.radians(np.arange(0, 360, TRACE_DTH_DEG))
+    planform = _planform_polar(p0, rs, ths)
+    per = int(round(math.degrees(pitch) / TRACE_DTH_DEG))
+    lum = np.mean(image[..., :3], axis=-1)
+
+    def sectors(hub_z, ring_z, exp):
+        rim_p = recipe_from_dict({**recipe, "hub_z": hub_z - crown, "ring_z": ring_z - crown, "concavity_exp": exp})
+        face = FaceMap(rim_p, rim_points, hub_point)
+        face.shift = shift
+        out = []
+        for k in range(p0.spokes):
+            rr, tt = np.meshgrid(rs, ths[:per] + k * pitch, indexing="ij")
+            xy = face.to_image(rr.ravel(), tt.ravel())
+            out.append(map_coordinates(lum, [xy[:, 1], xy[:, 0]], order=1, mode="nearest").reshape(rr.shape) > bright)
+        return out
+
+    wide = np.hstack([planform, planform])
+
+    def agree(win, s):
+        ref = wide[:, s % len(ths):s % len(ths) + per]
+        return (np.count_nonzero(ref & win) - 2 * np.count_nonzero(win & ~ref)) / max(np.count_nonzero(win), 1)
+
+    def phases(wins, around=None, reach=None):
+        """Best planform shift per sector: global search, or +-reach steps around the previous one."""
+        out = {}
+        for k in used:
+            cands = range(0, len(ths), 2) if around is None else range(around[k] - reach, around[k] + reach + 1)
+            out[k] = max(cands, key=lambda s_: agree(wins[k], s_))
+        return out
+
+    first = sectors(p0.hub_z, p0.ring_z, p0.concavity_exp)
+    used = [k for k, win in enumerate(first) if win.mean() >= .08]
+    if not used:
+        raise ValueError("斜视图里没有能透过窗口看到背景的扇区，无法测深度。")
+    base = phases(first)
+
+    def score(hub_z, ring_z, exp, reach=12):
+        # The sector phase moves with depth (parallax is along one image direction), so it is
+        # re-aligned locally (+-3 deg) at every evaluation; a phase fixed at a wrong starting depth
+        # biased the fit by ~8 mm on synthetic tests.
+        wins = sectors(hub_z, ring_z, exp)
+        local = phases(wins, base, reach)
+        vals = [agree(wins[k], local[k]) for k in used]
+        return float(np.mean(sorted(vals)[-3:])), local
+
+    grid = []
+    for hub_z in np.arange(-110, -9, 6.0):
+        for ring_z, exp in ((min(p0.ring_z, 0.0), p0.concavity_exp), (-6.0, 1.0), (-15.0, 1.4)):
+            if hub_z < ring_z:
+                grid.append((score(hub_z, ring_z, exp)[0], hub_z, ring_z, exp))
+    grid.sort(reverse=True)
+    best = grid[0]
+    for _ in range(2):                                  # refine around the best, re-centre the phases
+        base = score(*best[1:], reach=24)[1]
+        h0 = best[1]
+        fine = []
+        for hub_z in np.arange(h0 - 6, h0 + 6.1, 1.5):
+            for ring_z in (-20.0, -14.0, -8.0, -3.0, 0.0):
+                for exp in (.7, .9, 1.1, 1.35, 1.6, 2.0):
+                    if ring_z - crown > 0 or hub_z >= ring_z:
+                        continue
+                    fine.append((score(hub_z, ring_z, exp)[0], hub_z, ring_z, exp))
+        fine.sort(reverse=True)
+        best = fine[0]
+    coarse_by_hub = {}
+    for v, h, *_ in grid:
+        coarse_by_hub[h] = max(v, coarse_by_hub.get(h, -9))
+    grid = [(v, h) for h, v in coarse_by_hub.items()]
+    s_best, hub_z, ring_z, exp = fine[0]
+    hub_z, ring_z = min(hub_z + crown, -5.0), min(ring_z + crown, 0.0)
+    et = p0.hub_z - p0.web_thick_hub + p0.width / 2
+    fitted = {"hub_z": round(hub_z, 1), "ring_z": round(ring_z, 1), "concavity_exp": exp,
+              "web_thick_hub": round(hub_z + p0.width / 2 - et, 1)}
+    coarse = sorted(grid, reverse=True)
+    report = {"tilt_deg": round(math.degrees(tilt), 1), "parallax_px_per_mm": round(float(np.linalg.norm(shift)), 3),
+              "sectors_used": used, "score": round(s_best, 3),
+              "hub_z_scores": [(round(h, 1), round(v, 3)) for v, h in sorted(grid, key=lambda g: g[1])],
+              "hub_z_margin": round(coarse[0][0] - coarse[min(3, len(coarse) - 1)][0], 3),
+              "crown_depth_added": crown, "et_kept_mm": round(et, 1), "fitted": fitted,
+              "method": "forged-photo-depth-v1 (weak perspective, window rims)",
+              "limits": "测的是窗口边缘的深度；辐条顶面 = 边缘 + face_crown_depth（后者未测）。凹面形状参数把握度低于中心深度。"}
+    return {**recipe, **fitted}, report

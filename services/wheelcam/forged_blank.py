@@ -99,6 +99,7 @@ class ForgedWheel:
     # Styling pocket around each lug on the hub face (0 = off): a shallow counterbore wider than the seat.
     lug_pocket_d: float = 0.0
     lug_pocket_depth: float = 8.0
+    lug_pocket_sides: int = 0       # 0 = round; 6 = hexagon (across corners = lug_pocket_d), corner toward the hub centre
 
 
 def z_top(p, r):
@@ -602,8 +603,14 @@ def lug_tools(p):
         seat_z = p.hub_z - p.seat_depth
         tools.append(cq.Workplane('XY', origin=(x, y, seat_z)).circle(p.seat_d / 2).extrude(40).val())
         if p.lug_pocket_d > p.seat_d:
-            tools.append(cq.Workplane('XY', origin=(x, y, p.hub_z - p.lug_pocket_depth))
-                         .circle(p.lug_pocket_d / 2).extrude(40).val())
+            wp = cq.Workplane('XY', origin=(x, y, p.hub_z - p.lug_pocket_depth))
+            if p.lug_pocket_sides >= 3:
+                angle = math.degrees(math.atan2(y, x))
+                corners = [polar(p.lug_pocket_d / 2, angle + 180 + k * 360 / p.lug_pocket_sides) for k in range(p.lug_pocket_sides)]
+                sketch = cq.Sketch().polygon(corners + [corners[0]]).vertices().fillet(3)
+                tools.append(wp.placeSketch(sketch).extrude(40).val())
+            else:
+                tools.append(wp.circle(p.lug_pocket_d / 2).extrude(40).val())
     return tools
 
 

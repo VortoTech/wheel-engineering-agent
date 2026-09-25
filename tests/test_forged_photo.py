@@ -168,3 +168,39 @@ def test_outline_recipe_validation():
         recipe_from_dict({"family": "outline"})
     square = [[150 + 30 * math.cos(t), 10 * math.sin(t)] for t in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
     assert recipe_from_dict({"family": "outline", "outlines": [square]}).outlines[0][0] == (180.0, 0.0)
+
+
+def oblique_camera(p, tilt_deg=30, rot_deg=8, phase_deg=11, size=266.0):
+    """Weak perspective whose depth parallax follows from the tilt: (a / lip_r) sin(tilt) px/mm along the minor axis."""
+    b = size * math.cos(math.radians(tilt_deg))
+    phi, psi = math.radians(rot_deg), math.radians(phase_deg)
+    rot = np.array([[math.cos(phi), -math.sin(phi)], [math.sin(phi), math.cos(phi)]])
+    shift = -(rot @ np.array([0.0, 1.0])) * size / p.lip_r * math.sin(math.radians(tilt_deg))
+
+    def project(x, y, z=None):
+        r, t = math.hypot(x, y), math.atan2(y, x) + psi
+        local = np.array([size * r / p.lip_r * math.cos(t), b * r / p.lip_r * math.sin(t)])
+        return (CENTRE + rot @ local + (z_top(p, r) if z is None else z) * shift).tolist()
+    return project, shift
+
+
+def test_fit_depth_recovers_hub_depth_from_an_oblique_photo():
+    from wheelcam.forged_photo import fit_depth
+    truth = recipe_from_dict(json.loads((RECIPES / "hf6-y-split.json").read_text()))
+    project, shift = oblique_camera(truth)
+    photo = synthetic_photo(truth, project, window_outlines(truth, samples=160))
+    rim = [project(truth.lip_r * math.cos(t), truth.lip_r * math.sin(t), 0.0) for t in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
+    hub = (CENTRE + truth.hub_z * shift).tolist()
+    wrong = {**asdict(truth), "hub_z": truth.hub_z + 25.0}      # start 25 mm too shallow
+    recipe, report = fit_depth(photo, wrong, rim, hub)
+    assert abs(report["tilt_deg"] - 30) < 1.5
+    # What the photo constrains is the dish over the window band; hub_z itself is an extrapolation.
+    fitted = recipe_from_dict(recipe)
+    err = [z_top(fitted, r) - z_top(truth, r) for r in np.arange(truth.window_r_in, truth.window_r_out, 5)]
+    assert np.sqrt(np.mean(np.square(err))) < 1.5, (report["fitted"], err)
+    assert abs(recipe["hub_z"] - truth.hub_z) <= 3
+    et = lambda d: d["hub_z"] - d["web_thick_hub"] + d["width"] / 2
+    assert abs(et(recipe) - et(wrong)) < .1                       # the mounting face (ET) is kept
+    circle = [(CENTRE + 266 * np.array([math.cos(t), math.sin(t)])).tolist() for t in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
+    with pytest.raises(ValueError, match="倾角"):                  # a straight-on view carries no depth
+        fit_depth(photo, wrong, circle, hub)
