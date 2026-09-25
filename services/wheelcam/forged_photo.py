@@ -439,7 +439,7 @@ def _mirror_axis(mask, pitch_cols):
     return best
 
 
-def _smooth_loop(points, sigma):
+def _smooth_loop(points, sigma, keep=120):
     from scipy.ndimage import gaussian_filter1d
     pts = np.asarray(points, float)
     step = np.linalg.norm(np.diff(np.vstack([pts, pts[:1]]), axis=0), axis=1)
@@ -448,11 +448,69 @@ def _smooth_loop(points, sigma):
     ring = np.vstack([pts, pts[:1]])
     xy = np.column_stack([np.interp(even, s, ring[:, 0]), np.interp(even, s, ring[:, 1])])
     xy = gaussian_filter1d(xy, sigma / .5, axis=0, mode="wrap")
-    keep = np.linspace(0, len(xy), 120, endpoint=False).astype(int)
-    return xy[keep]
+    if keep is None:
+        return xy
+    return xy[np.linspace(0, len(xy), keep, endpoint=False).astype(int)]
 
 
-def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth_mm=2.0):
+TRACE_CORNER_DEG = 25.0     # a turn sharper than this is a machined corner, not part of a curve
+TRACE_STRAIGHT_MM = .8      # Douglas-Peucker tolerance: edges within this of a line are made straight
+
+
+def _douglas_peucker(pts, tol):
+    keep = np.zeros(len(pts), bool)
+    keep[[0, -1]] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, b = pts[i], pts[j]
+        ab = b - a
+        n = np.hypot(*ab)
+        seg = pts[i + 1:j] - a
+        d = np.abs(ab[0] * seg[:, 1] - ab[1] * seg[:, 0]) / n if n > 1e-9 else np.hypot(seg[:, 0], seg[:, 1])
+        k = int(np.argmax(d))
+        if d[k] > tol:
+            keep[i + 1 + k] = True
+            stack += [(i, i + 1 + k), (i + 1 + k, j)]
+    return pts[keep]
+
+
+def _polygon_loop(points, corner_r=3.0, tol=TRACE_STRAIGHT_MM):
+    """Traced window loop as machined geometry: straight edges, corners of radius corner_r, and
+    gentle curves kept as curves. Gaussian smoothing alone rounds every corner by the smoothing
+    width and leaves traced edges wavy (HF6-4 spokes looked soft next to the photo)."""
+    xy = _smooth_loop(points, .75, keep=None)                    # pixel stairs only
+    start = int(np.argmax(xy[:, 0]))                             # start on the outermost point (a curve apex, not a corner)
+    xy = np.roll(xy, -start, axis=0)
+    poly = _douglas_peucker(np.vstack([xy, xy[:1]]), tol)[:-1]
+    m = len(poly)
+    out = []
+    for i in range(m):
+        prev, cur, nxt = poly[i - 1], poly[i], poly[(i + 1) % m]
+        u, v = cur - prev, nxt - cur
+        lu, lv = np.hypot(*u), np.hypot(*v)
+        turn = math.degrees(math.atan2(u[0] * v[1] - u[1] * v[0], u @ v))
+        if abs(turn) < TRACE_CORNER_DEG or lu < 1e-6 or lv < 1e-6:
+            out.append(cur)
+            continue
+        half = math.radians(abs(turn)) / 2
+        r = min(corner_r, .45 * min(lu, lv) / max(math.tan(half), 1e-6))
+        back = r * math.tan(half)
+        p0, p1 = cur - u / lu * back, cur + v / lv * back
+        for s in np.linspace(0, 1, 7):                           # quadratic Bezier: tangent to both edges
+            out.append((1 - s) ** 2 * p0 + 2 * (1 - s) * s * cur + s ** 2 * p1)
+    out = np.array(out)
+    dense = []                                                   # straight runs: a point every 4 mm
+    for i in range(len(out)):
+        a, b = out[i], out[(i + 1) % len(out)]
+        k = max(1, int(np.hypot(*(b - a)) / 4))
+        dense += [a + (b - a) * j / k for j in range(k)]
+    return np.array(dense)
+
+
+def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth_mm=2.0, corner_r=3.0):
     """Outline-family recipe traced from the photo. Returns (recipe dict, report dict)."""
     from scipy.ndimage import binary_closing, binary_opening, gaussian_filter, map_coordinates, label as components
     from .window_fit import _cell_boundary_loops, _loop_area
@@ -496,7 +554,7 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     gr, gt = np.hypot(gx, gy), (np.arctan2(gy, gx) + axis) % pitch
     field = map_coordinates(level, [(gr - rs[0]) / 1.0, gt / math.radians(TRACE_DTH_DEG)], order=1, mode="nearest")
     field[(gr < rs[0]) | (gr > rs[-1])] = 0
-    field = gaussian_filter(field, smooth_mm / TRACE_XY_MM) > .5
+    field = gaussian_filter(field, (min(smooth_mm, 1.0) if corner_r > 0 else smooth_mm) / TRACE_XY_MM) > .5
     regions, count = components(field)
     outlines, areas = [], []
     for index in range(1, count + 1):
@@ -508,7 +566,7 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
             continue
         loop = max(_cell_boundary_loops(region), key=lambda pts: abs(_loop_area(pts)))
         pts = np.array([(xs[0] + (c - .5) * TRACE_XY_MM, xs[0] + (r - .5) * TRACE_XY_MM) for r, c in loop])
-        pts = _smooth_loop(pts, smooth_mm)
+        pts = _polygon_loop(pts, corner_r) if corner_r > 0 else _smooth_loop(pts, smooth_mm)
         outlines.append([[round(float(math.hypot(x, y)), 2), round(math.degrees(math.atan2(y, x)), 3)] for x, y in pts])
         areas.append(area)
     if not outlines:

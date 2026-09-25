@@ -171,3 +171,30 @@ def test_face_surface_rounds_spoke_edges():
     angle = min(abs(math.atan2(y, x)) for x, y in edge if abs(math.hypot(x, y) - r) < 3)
     ex, ey = r * math.cos(angle - math.radians(1.5 * 180 / math.pi / r)), r * math.sin(angle - math.radians(1.5 * 180 / math.pi / r))
     assert top(ex, ey) < centre - 3, (top(ex, ey), centre)
+
+
+def test_flank_offset_does_not_fold_at_a_sharp_inner_corner():
+    """A traced window with a sharp inner corner: a 16 mm flank offset must not fold (invalid loft)."""
+    import numpy as np
+    from wheelcam.forged_blank import _crossing_segments, _flanked_window
+    corners = np.array([(120, -30), (200, -30), (200, 30), (160, 30), (160, 0), (120, 0)], float)   # L shape
+    loop = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(corners, np.roll(corners, -1, axis=0))
+                           for t in [np.arange(0, 1, 2.5 / np.linalg.norm(b - a))]])
+    p = recipe_from_dict(dict(FAST, flank_w=16, flank_depth=18))
+    tool = _flanked_window(p, pts=[tuple(v) for v in loop])
+    assert tool.isValid()
+    assert list(_crossing_segments(np.array([(0, 0), (10, 10), (10, 0), (0, 10)], float))) == [0, 2]   # bow tie
+
+
+def test_window_envelope_never_cuts_through_the_lip_flange():
+    """A deep window pocket with lowered spoke ends: the floor stays above the web back and the lip flange."""
+    import cadquery as cq
+    from wheelcam.forged_blank import POCKET_SKIN, _window_envelope, z_back
+    p = recipe_from_dict(dict(FAST, ring_z=-20, window_pocket_depth=60, ring_r=234, lip_face_r_in=258))   # HF6-4 radii
+    env = _window_envelope(p)
+    def lowest(r):
+        probe = cq.Solid.makeCylinder(.2, 400, cq.Vector(r * .7071, r * .7071, 100), cq.Vector(0, 0, -1))   # off the revolve seam
+        return env.intersect(probe).BoundingBox().zmin
+    assert lowest(p.ring_r + 2) == pytest.approx(z_back(p, p.ring_r) + POCKET_SKIN, abs=.01)
+    lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
+    assert lowest((p.barrel_outer_r + p.lip_face_r_in) / 2) >= lip_back + POCKET_SKIN - .01

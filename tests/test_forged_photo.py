@@ -223,3 +223,16 @@ def test_fit_oblique_camera_recovers_tilt_and_scale_from_the_outline():
     assert abs(report["tilt_deg"] - 34) < .7, report
     assert abs(report["px_per_mm"] - 250 / p.lip_r) < .01 and report["outline_iou"] > .98, report
     assert np.hypot(report["centre_px"][0] - 330, report["centre_px"][1] - 300) < 2, report
+
+
+def test_polygon_loop_keeps_straight_edges_and_small_corners():
+    from wheelcam.forged_photo import _polygon_loop
+    rng = np.random.default_rng(1)
+    side = np.linspace(0, 40, 81)[:-1]
+    square = np.concatenate([np.column_stack([side, 0 * side]), np.column_stack([40 + 0 * side, side]),
+                             np.column_stack([40 - side, 40 + 0 * side]), np.column_stack([0 * side, 40 - side])])
+    loop = _polygon_loop(np.round(square + rng.normal(0, .15, square.shape), 1), corner_r=3.0)
+    mid = loop[(loop[:, 0] > 8) & (loop[:, 0] < 32) & (loop[:, 1] < 20)]
+    assert np.abs(mid[:, 1]).max() < .35                        # the bottom edge is straight
+    corner = np.hypot(loop[:, 0], loop[:, 1]).min()
+    assert .5 < corner < 2.0, corner                            # rounded by ~3 mm, not by the smoothing width

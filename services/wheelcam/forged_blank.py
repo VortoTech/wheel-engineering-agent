@@ -119,6 +119,7 @@ def polar(r, deg):
 
 
 FACE_LIFT = 12.0     # blank front stock above the face surface, so the surface cut never grazes the blank
+POCKET_SKIN = 6.0    # least material under a window pocket floor, mm
 FLANK_SHARE = .45    # widest flank as a share of the local spoke width (two flanks leave a 10 % land)
 
 
@@ -360,8 +361,7 @@ def _flanked_window(p, pts, spoke_w=None):
     if spoke_w is not None:
         reach = np.minimum(reach, FLANK_SHARE * np.asarray(spoke_w))
     from scipy.ndimage import gaussian_filter1d
-    reach = gaussian_filter1d(reach, 2, mode='wrap')
-    wide = xy + normal * reach[:, None]
+    wide = _unfold(xy, normal, gaussian_filter1d(reach, 2, mode='wrap'))
     z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
     rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]),
              np.column_stack([xy, z(xy) - p.flank_depth]),
@@ -369,6 +369,46 @@ def _flanked_window(p, pts, spoke_w=None):
              np.column_stack([wide, np.full(len(xy), 40.0)])]
     wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
     return cq.Solid.makeLoft(wires, ruled=True)
+
+
+def _crossing_segments(loop):
+    """Indices of segments of a closed polyline that cross a non-adjacent segment."""
+    a, b = loop, np.roll(loop, -1, axis=0)
+    d = b - a
+    rel = a[None, :, :] - a[:, None, :]                        # a_j - a_i
+    cross = lambda u, v: u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]
+    den = cross(d[:, None, :], d[None, :, :])
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t = cross(rel, d[None, :, :]) / den
+        u = cross(rel, d[:, None, :]) / den
+    n = len(loop)
+    idx = np.arange(n)
+    near = np.abs((idx[:, None] - idx[None, :] + n // 2) % n - n // 2) <= 1
+    hit = (t > 0) & (t < 1) & (u > 0) & (u < 1) & ~near
+    return np.flatnonzero(hit.any(axis=1))
+
+
+def _unfold(xy, normal, reach, rounds=60):
+    """Widened flank loop without folds: points where the offset loop runs backwards or crosses
+    itself are relaxed toward their neighbours until the loop is simple.
+
+    A traced outline with small corner fillets turns faster than its samples resolve, so a
+    per-point bend radius misses the fold at a concave corner (HF6-4 polygon trace, 2026-09-25:
+    invalid loft). Shrinking the offset there left a notch in the spoke; relaxing the offset points
+    instead rounds the flank's top edge over the corner, as a milled flank is, and keeps its width
+    elsewhere. Point correspondence with `xy` is kept, so the flank still rules straight across.
+    """
+    wide = xy + normal * np.asarray(reach, float)[:, None]
+    n = len(xy)
+    for _ in range(rounds):
+        seg0, seg1 = np.roll(xy, -1, axis=0) - xy, np.roll(wide, -1, axis=0) - wide
+        bad = np.union1d(np.flatnonzero(np.sum(seg0 * seg1, axis=1) <= 0), _crossing_segments(wide))
+        if not len(bad):
+            return wide
+        hit = np.unique(np.concatenate([(bad + k) % n for k in range(-3, 5)]))
+        for _ in range(4):
+            wide[hit] = .5 * wide[hit] + .25 * (wide[(hit - 1) % n] + wide[(hit + 1) % n])
+    raise ValueError('flank offset still folds; lower flank_w')
 
 
 def round_corners(face, radius, min_turn_deg=25):
@@ -488,11 +528,22 @@ def back_pocket_cutters(p):
 
 def _window_envelope(p):
     """Where an outline-family window may cut: through inside the ring, only down to the pocket floor beyond."""
-    floor = -p.window_pocket_depth
+    # Pocket floor keeps POCKET_SKIN above the web's back at the ring: with the spoke ends lowered
+    # (ring_z < 0) a 60 mm pocket cut through to the barrel (HF6-4 v3, 2026-09-25).
+    floor = max(-p.window_pocket_depth, z_back(p, p.ring_r) + POCKET_SKIN)
     ring = p.ring_r - 2
-    profile = (cq.Workplane('XZ').moveTo(0, -p.width - 30).lineTo(ring, -p.width - 30).lineTo(ring, floor)
-               .lineTo(p.lip_r + 10, floor).lineTo(p.lip_r + 10, 80).lineTo(0, 80).close())
-    return profile.revolve(360, (0, 0, 0), (0, 1, 0)).val()
+    # Never past the lip face: a flank widens the outline outward, and with the spoke ends below
+    # the lip (ring_z < 0) it cut the lip flange away (HF6-4, 2026-09-25).
+    outer = p.lip_face_r_in - 1
+    # Past the barrel's inner wall the pocket runs under the lip flange, which is only ~14 mm thick
+    # outside the barrel: a floor deeper than the flange opened a ring of daylight behind the lip
+    # (HF6-4 v4, 2026-09-25). There the floor steps up to the flange's back plus POCKET_SKIN.
+    shelf_r = min(max(p.barrel_inner_r, ring), outer)
+    shelf = max(floor, -min(14.0, p.lip_r - p.barrel_outer_r) + POCKET_SKIN)
+    pts = [(0, -p.width - 30), (ring, -p.width - 30), (ring, floor), (shelf_r, floor), (shelf_r, shelf),
+           (outer, shelf), (outer, 80), (0, 80)]
+    pts = [q for i, q in enumerate(pts) if i == 0 or np.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 1e-6]
+    return cq.Workplane('XZ').polyline(pts).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
 
 
 def outline_window_tools(p, samples=200):
