@@ -119,6 +119,7 @@ def polar(r, deg):
 
 
 FACE_LIFT = 12.0     # blank front stock above the face surface, so the surface cut never grazes the blank
+FLANK_SHARE = .45    # widest flank as a share of the local spoke width (two flanks leave a 10 % land)
 
 
 def blank(p):
@@ -313,7 +314,14 @@ def windows(p, outlines):
     grow past 90 GB (2026-09-24). Sequential cuts stay under 1 GB.
     """
     if p.flank_w > 0 and p.flank_depth > 0:
-        return [_flanked_window(p, pts) for pts in outlines]
+        from scipy.spatial import cKDTree
+        loops = [np.asarray(pts, float) for pts in outlines]
+        tools = []
+        for i, xy in enumerate(loops):
+            others = [o for j, o in enumerate(loops) if j != i]
+            width = cKDTree(np.concatenate(others)).query(xy)[0] if others else np.full(len(xy), np.inf)
+            tools.append(_flanked_window(p, pts=outlines[i], spoke_w=width))
+        return tools
     tools = []
     for pts in outlines:
         edge = cq.Edge.makeSpline([cq.Vector(x, y, -p.width) for x, y in pts], periodic=True)
@@ -322,13 +330,17 @@ def windows(p, outlines):
     return cq.Compound.makeCompound(tools)
 
 
-def _flanked_window(p, pts):
+def _flanked_window(p, pts, spoke_w=None):
     """Window prism whose top widens by p.flank_w over p.flank_depth: ruled loft through four rings.
 
     Each outline point moves along its outward normal (into the material), so the rings keep point
     correspondence and the flank rules straight across. Outlines are smooth (fillets / traced and
     smoothed), so the offset does not fold except at concave bends tighter than p.flank_w, where the
     offset is limited by the local bend radius.
+
+    `spoke_w` is the material width to the nearest other window at each point. The offset is held
+    to FLANK_SHARE of it, so on a spoke narrower than two flanks the flanks from both sides meet in
+    a ridge with a narrow land instead of overlapping (overlapping flanks made an invalid B-Rep).
     """
     xy = np.asarray(pts, float)
     ring = lambda k: np.roll(xy, k, axis=0)
@@ -345,6 +357,8 @@ def _flanked_window(p, pts):
     angle = np.arcsin(np.clip(cross / np.maximum(seg * np.linalg.norm(d2, axis=1), 1e-9), -1, 1)) * np.sign(area)
     radius = np.where(angle < -1e-6, seg / np.maximum(-angle, 1e-9), np.inf)
     reach = np.minimum(p.flank_w, .8 * radius)
+    if spoke_w is not None:
+        reach = np.minimum(reach, FLANK_SHARE * np.asarray(spoke_w))
     from scipy.ndimage import gaussian_filter1d
     reach = gaussian_filter1d(reach, 2, mode='wrap')
     wide = xy + normal * reach[:, None]
