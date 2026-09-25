@@ -574,7 +574,8 @@ def fit_depth(image, recipe: dict, rim_points, hub_point, bright=.8):
     e, tilt, shift = _oblique_camera(p0, rim_points, hub_point)
     if math.degrees(tilt) < 12:
         raise ValueError(f"照片倾角只有 {math.degrees(tilt):.0f}°，太接近正视，测不出深度；请用 20–45° 的斜视图。")
-    crown = p0.face_crown_depth if p0.face_crown_w > 0 else 0.0
+    # Window rims sit below the spoke top by the face-surface shoulder or the flank chamfer depth.
+    crown = p0.face_crown_depth if p0.face_crown_w > 0 else (p0.flank_depth if p0.flank_w > 0 else 0.0)
     pitch = 2 * math.pi / p0.spokes
     rs = np.arange(p0.pcd / 2 + p0.seat_d / 2 + 2, p0.ring_r - 4, 1.0)
     ths = np.radians(np.arange(0, 360, TRACE_DTH_DEG))
@@ -657,5 +658,5 @@ def fit_depth(image, recipe: dict, rim_points, hub_point, bright=.8):
               "hub_z_margin": round(coarse[0][0] - coarse[min(3, len(coarse) - 1)][0], 3),
               "crown_depth_added": crown, "et_kept_mm": round(et, 1), "fitted": fitted,
               "method": "forged-photo-depth-v1 (weak perspective, window rims)",
-              "limits": "测的是窗口边缘的深度；辐条顶面 = 边缘 + face_crown_depth（后者未测）。凹面形状参数把握度低于中心深度。"}
+              "limits": "测的是窗口边缘的深度；辐条顶面 = 边缘 + 斜面深度（face_crown_depth 或 flank_depth，未测）。凹面形状参数把握度低于中心深度。"}
     return {**recipe, **fitted}, report
