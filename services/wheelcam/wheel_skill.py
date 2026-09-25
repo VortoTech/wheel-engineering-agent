@@ -170,7 +170,10 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
 
     et = spec.get("et_mm")
     if oblique_image is not None:
+        from .forged_photo import fit_oblique_camera
         o_rim, o_hub = oblique_rim_hub or _oblique_rim_hub(oblique_image)
+        o_rim, o_hub, camera = fit_oblique_camera(oblique_image, recipe_from_dict(recipe), o_rim, o_hub)
+        prov["oblique_camera"] = _record(camera, "photo", camera["outline_iou"], "整轮外轮廓（前唇边 + 轮筒 + 后轮缘）拟合的相机；依赖直径与宽度")
         recipe, depth = fit_depth(oblique_image, recipe, o_rim, o_hub)
         margin = depth["hub_z_margin"]
         prov["dish_depth"] = _record({k: depth["fitted"][k] for k in ("hub_z", "ring_z", "concavity_exp")}, "photo",

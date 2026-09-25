@@ -542,6 +542,71 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
 # ---------------------------------------------------------------------------------------------
 
 
+def _wheel_silhouette(q, xx, yy, lip_r, width, sharp=1.0):
+    """Soft mask of a wheel seen at a tilt: front lip ellipse swept to the rear flange (both lip_r).
+
+    q = (cx, cy, a, tilt, phi): lip centre, semi-major axis in px, tilt, direction of increasing
+    depth in the image. Weak perspective: the rear flange is the same ellipse moved by
+    width * a / lip_r * sin(tilt) along phi.
+    """
+    cx, cy, a, t, phi = q
+    minor = np.array([math.cos(phi), math.sin(phi)])
+    major = np.array([-minor[1], minor[0]])
+    b = a * math.cos(t)
+    off = minor * a / lip_r * width * math.sin(t)
+    best = np.full(xx.shape, np.inf)
+    for s in np.linspace(0, 1, 25):
+        dx, dy = xx - cx - s * off[0], yy - cy - s * off[1]
+        best = np.minimum(best, np.hypot((dx * major[0] + dy * major[1]) / a, (dx * minor[0] + dy * minor[1]) / b))
+    return 1 / (1 + np.exp(np.clip((best - 1) * a / sharp, -50, 50)))
+
+
+def fit_oblique_camera(image, p, guess_rim, guess_hub, background=.9):
+    """Camera of an oblique product photo from the whole wheel outline (lip, barrel, rear flange).
+
+    Half-silhouette ellipse fits put the tilt at 33.5 deg on the official HF6-4 3/4 photo where the
+    outline and the see-through windows both say about 35 deg with a 5 % smaller scale and a moved
+    centre: one half of an ellipse leaves centre and minor axis poorly determined. The outline of
+    the whole wheel depends only on lip_r and width, not on the dish, so it fixes the camera before
+    the dish depth is fitted. Returns (rim points of the front lip ellipse, hub point, report).
+    """
+    from scipy import ndimage
+    fg = ndimage.binary_fill_holes(image[..., :3].min(axis=2) < background)
+    rows = np.nonzero(fg.any(axis=1))[0]
+    keep = np.zeros_like(fg)
+    keep[: int(rows.max() - .03 * (rows.max() - rows.min()))] = True     # floor shadow / reflection
+    e = fit_ellipse(guess_rim)
+    a0 = max(e["a"], e["b"])
+    ang = math.radians(e["angle_deg"]) + (0 if e["a"] < e["b"] else math.pi / 2)
+    minor0 = np.array([math.cos(ang), math.sin(ang)])
+    if minor0 @ (np.asarray(guess_hub, float) - [e["cx"], e["cy"]]) < 0:
+        minor0 = -minor0
+    phi0 = math.atan2(minor0[1], minor0[0])
+
+    def fit(step, starts):
+        g = fg[::step, ::step].astype(float) * keep[::step, ::step]
+        k = keep[::step, ::step]
+        yy, xx = np.mgrid[:g.shape[0], :g.shape[1]].astype(float)
+
+        def loss(q):
+            q = np.asarray(q, float)
+            m = _wheel_silhouette([q[0] / step, q[1] / step, q[2] / step, q[3], q[4]], xx, yy, p.lip_r, p.width) * k
+            return 1 - (m * g).sum() / max((m + g - m * g).sum(), 1e-9)
+        return min((minimize(loss, s, method="Nelder-Mead", options=dict(xatol=.05, fatol=1e-6, maxiter=500)) for s in starts),
+                   key=lambda r: r.fun)
+    coarse = fit(2, [[e["cx"], e["cy"], a0, math.radians(d), phi0] for d in (22, 30, 38)])
+    best = fit(1, [coarse.x])
+    cx, cy, a, t, phi = (float(v) for v in best.x)
+    minor = np.array([math.cos(phi), math.sin(phi)])
+    major = np.array([-minor[1], minor[0]])
+    b = a * math.cos(t)
+    rim = [(np.array([cx, cy]) + a * math.cos(s) * major + b * math.sin(s) * minor).tolist()
+           for s in np.linspace(0, 2 * math.pi, 24, endpoint=False)]
+    hub = (np.array([cx, cy]) + .05 * b * minor).tolist()
+    return rim, hub, {"outline_iou": round(1 - float(best.fun), 4), "tilt_deg": round(math.degrees(t), 2),
+                      "px_per_mm": round(a / p.lip_r, 4), "centre_px": [round(cx, 1), round(cy, 1)]}
+
+
 def _oblique_camera(p, rim_points, hub_point):
     e = fit_ellipse(rim_points)
     a, b = max(e["a"], e["b"]), min(e["a"], e["b"])

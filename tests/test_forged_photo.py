@@ -204,3 +204,22 @@ def test_fit_depth_recovers_hub_depth_from_an_oblique_photo():
     circle = [(CENTRE + 266 * np.array([math.cos(t), math.sin(t)])).tolist() for t in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
     with pytest.raises(ValueError, match="倾角"):                  # a straight-on view carries no depth
         fit_depth(photo, wrong, circle, hub)
+
+
+def test_fit_oblique_camera_recovers_tilt_and_scale_from_the_outline():
+    from wheelcam.forged_photo import _wheel_silhouette, fit_oblique_camera
+    p = recipe_from_dict(json.loads((RECIPES / "hf6-y-split.json").read_text()))
+    truth = [330.0, 300.0, 250.0, math.radians(34), math.radians(172)]
+    yy, xx = np.mgrid[:640, :700].astype(float)
+    wheel = _wheel_silhouette(truth, xx, yy, p.lip_r, p.width) > .5
+    image = np.where(wheel[..., None], .3, 1.0) * np.ones(3)
+    image[610:] = 1.0                                             # room below for the shadow margin
+    # A half-ellipse guess of the kind that misled the depth fit: tilt 27 deg, scale 4 % high, centre off.
+    guess = [[340 + 260 * math.cos(s) * -math.sin(math.radians(172)) + 231 * math.sin(s) * math.cos(math.radians(172)),
+              292 + 260 * math.cos(s) * math.cos(math.radians(172)) + 231 * math.sin(s) * math.sin(math.radians(172))]
+             for s in np.linspace(0, 2 * math.pi, 16, endpoint=False)]
+    hub = [330 - 20, 300]
+    rim, hub_fit, report = fit_oblique_camera(image, p, guess, hub)
+    assert abs(report["tilt_deg"] - 34) < .7, report
+    assert abs(report["px_per_mm"] - 250 / p.lip_r) < .01 and report["outline_iou"] > .98, report
+    assert np.hypot(report["centre_px"][0] - 330, report["centre_px"][1] - 300) < 2, report
