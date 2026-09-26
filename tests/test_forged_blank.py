@@ -273,3 +273,21 @@ def test_outline_grooves_follow_the_spoke_centrelines():
     tools = fb.outline_groove_tools(recipe_from_dict({**outline, "outline_groove_r": [140, 215]}))
     assert tools and all(t.isValid() for t in tools)
     assert fb.outline_groove_tools(recipe_from_dict(outline)) == []                 # off by default
+
+
+def test_hub_crease_gives_a_sharp_platform_edge():
+    """Straight chamfer to the crease, gentler dish beyond: the slope jumps there and the blank keeps the edge."""
+    import cadquery as cq
+    from wheelcam.forged_blank import blank, z_top
+    p = recipe_from_dict(dict(FAST, hub_r=60, hub_z=-58, hub_crease_r=78, hub_crease_z=-47,
+                              ring_z=-20, concavity_exp=1.0))
+    assert z_top(p, 60) == -58 and z_top(p, 78) == pytest.approx(-47)
+    inner = (z_top(p, 78) - z_top(p, 70)) / 8
+    outer = (z_top(p, 86) - z_top(p, 78)) / 8
+    assert inner > 2.5 * outer > 0
+    b = blank(p)
+    assert b.isValid()
+    # the crease is an edge of the revolved front: a circle at r = 78 lying at z = -47
+    circles = [e for e in b.Edges() if e.geomType() == "CIRCLE" and abs(e.radius() - 78) < .01]
+    assert any(abs(e.Center().z + 47) < .01 for e in circles)
+    assert z_top(recipe_from_dict(FAST), 100) == z_top(recipe_from_dict(dict(FAST, hub_crease_z=-10)), 100)   # off by default

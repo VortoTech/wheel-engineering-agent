@@ -36,6 +36,11 @@ class ForgedWheel:
     ring_r: float = 218.0
     ring_z: float = -14.0
     concavity_exp: float = 1.35
+    # Hub crease (0 = off): the face runs straight from (hub_r, hub_z) to (hub_crease_r, hub_crease_z),
+    # then dishes to the ring from there. The sharp crease across every spoke root is the edge of a
+    # spoke-top platform (HF6-4: a steep chamfer down to the cap ring, a flat stem beyond).
+    hub_crease_r: float = 0.0
+    hub_crease_z: float = 0.0
     web_thick_hub: float = 54.0
     web_thick_ring: float = 30.0
     # Spokes. family 'y_split': stem then two arms; 'single': one spoke hub to rim.
@@ -118,8 +123,13 @@ class ForgedWheel:
 
 def z_top(p, r):
     r = min(max(r, p.hub_r), p.ring_r)
-    t = (r - p.hub_r) / (p.ring_r - p.hub_r)
-    return p.hub_z + (p.ring_z - p.hub_z) * t ** p.concavity_exp
+    r0, z0 = p.hub_r, p.hub_z
+    if p.hub_crease_r > p.hub_r:
+        if r <= p.hub_crease_r:
+            return p.hub_z + (p.hub_crease_z - p.hub_z) * (r - p.hub_r) / (p.hub_crease_r - p.hub_r)
+        r0, z0 = p.hub_crease_r, p.hub_crease_z
+    t = (r - r0) / (p.ring_r - r0)
+    return z0 + (p.ring_z - z0) * t ** p.concavity_exp
 
 
 def z_back(p, r):
@@ -151,12 +161,16 @@ def blank(p):
     surfacing pass removes); otherwise the blank front is the finished dish.
     """
     lift = FACE_LIFT if p.face_crown_w > 0 else 0.0
-    rs = np.linspace(p.hub_r, p.ring_r, 9)
+    creased = p.hub_crease_r > p.hub_r
+    start = p.hub_crease_r if creased else p.hub_r
+    rs = np.linspace(start, p.ring_r, 9)
     front = [(r, z_top(p, r) + lift) for r in rs]
-    back = [(r, z_back(p, r)) for r in rs[::-1]]
+    back = [(r, z_back(p, r)) for r in np.linspace(p.hub_r, p.ring_r, 9)[::-1]]
     lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
-    wp = (cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z + lift).lineTo(p.hub_r, p.hub_z + lift)
-          .spline(front[1:], includeCurrent=True)
+    wp = cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z + lift).lineTo(p.hub_r, p.hub_z + lift)
+    if creased:                                  # a straight run to the crease keeps it sharp (a spline would round it)
+        wp = wp.lineTo(p.hub_crease_r, p.hub_crease_z + lift)
+    wp = (wp.spline(front[1:], includeCurrent=True)
           .lineTo(p.lip_face_r_in, lift).lineTo(p.lip_r, lift).lineTo(p.lip_r, lip_back)
           .lineTo(p.barrel_outer_r + 2, lip_back - 12)
           .lineTo(p.barrel_outer_r, lip_back - 26).lineTo(p.barrel_outer_r, -p.width + 25)
@@ -797,44 +811,45 @@ def lip_pockets(p):
 
 def hub_valley_tools(p):
     """One valley between spoke 0 and spoke 1 (rotated round by build): flat floor at hub_z - depth,
-    drafted walls up to the face, vertical above. Ruled loft through sampled rings (as the window
-    flanks): a drafted prism of the filleted outline failed in OCC (degenerate offset arcs)."""
+    drafted walls up to the face, vertical above.
+
+    Floor and top outlines are built alike from lines, concentric arcs and corner fillets, and joined
+    by a ruled loft, so the walls are planes, cones and simple ruled patches. Spline-ring walls
+    (sampled offsets) made lug-seat cuts fail once the face had a hub crease (2026-09-26), and a
+    drafted prism of the filleted outline failed outright (degenerate offset arcs).
+    """
     if p.hub_valley_depth <= 0:
         return []
     run = p.hub_valley_depth * math.tan(math.radians(p.hub_valley_draft_deg))
-    half, mid = p.hub_arm_w / 2, 180 / p.spokes
+    mid = 180 / p.spokes
     r_in, r_out = p.hub_valley_r
     r_in = r_in or p.center_bore_r + 6
     r_out = r_out or min(p.pcd / 2 + max(p.lug_pocket_d, p.seat_d) / 2 + 6, p.window_r_in - 3)
-    edge = lambda r: math.degrees(math.asin(half / r))
-    if r_in <= half or r_in * math.radians(2 * (mid - edge(r_in))) < 2 * (run + 3) + 2 or r_out < r_in + 2 * run + 6:
-        raise ValueError(f'hub valley has no floor: radii {r_in:.1f}-{r_out:.1f}, arm {p.hub_arm_w} mm, '
-                         f'draft run {run:.1f} mm')
-    pt = lambda r, deg: cq.Vector(r * math.cos(math.radians(deg)), r * math.sin(math.radians(deg)), 0)
-    a_in, a_out = edge(r_in), edge(r_out)
-    wire = cq.Wire.assembleEdges([
-        cq.Edge.makeLine(pt(r_in, a_in), pt(r_out, a_out)),
-        cq.Edge.makeThreePointArc(pt(r_out, a_out), pt(r_out, mid), pt(r_out, 2 * mid - a_out)),
-        cq.Edge.makeLine(pt(r_out, 2 * mid - a_out), pt(r_in, 2 * mid - a_in)),
-        cq.Edge.makeThreePointArc(pt(r_in, 2 * mid - a_in), pt(r_in, mid), pt(r_in, a_in))])
-    # Corner fillets wider than the draft run, so the floor ring (pulled in by run) does not fold.
-    top = round_corners(cq.Face.makeFromWires(wire), run + 3).outerWire()
-    n = 160
-    xy = np.array([top.positionAt(i / n).toTuple()[:2] for i in range(n)])
-    tangent = np.roll(xy, -1, axis=0) - np.roll(xy, 1, axis=0)
-    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
-    normal = np.column_stack([tangent[:, 1], -tangent[:, 0]])
-    if .5 * np.sum(xy[:, 0] * np.roll(xy, -1, axis=0)[:, 1] - np.roll(xy, -1, axis=0)[:, 0] * xy[:, 1]) < 0:
-        normal = -normal                                   # outward from the valley
-    floor = xy - normal * run
-    # Flat rings only: a top ring following the rising dish gave a valid-looking loft that OCC
-    # booleans got wrong (it cut above the face and nothing below). The draft ends at the highest
-    # face point on the outline, so the top edge sits up to rise * tan(draft) inside it lower down.
-    top_z = max(z_top(p, math.hypot(*v)) for v in xy)
-    rings = [np.column_stack([floor, np.full(n, p.hub_z - p.hub_valley_depth)]),
-             np.column_stack([xy, np.full(n, top_z)]),
-             np.column_stack([xy, np.full(n, top_z + 20)])]
-    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
+    fillet = 3.0
+
+    def outline(inset, z):
+        """Top outline pulled in by `inset` (arm edges, both arcs); fillets shrink with it."""
+        half, ri, ro = p.hub_arm_w / 2 + inset, r_in + inset, r_out - inset
+        edge = lambda r: math.degrees(math.asin(half / r))
+        if ri <= half or ri * math.radians(2 * (mid - edge(ri))) < 2 * fillet + 2 or ro < ri + 2 * fillet + 2:
+            raise ValueError(f'hub valley has no floor: radii {r_in:.1f}-{r_out:.1f}, arm {p.hub_arm_w} mm, '
+                             f'draft run {run:.1f} mm')
+        pt = lambda r, deg: cq.Vector(r * math.cos(math.radians(deg)), r * math.sin(math.radians(deg)), z)
+        a_in, a_out = edge(ri), edge(ro)
+        wire = cq.Wire.assembleEdges([
+            cq.Edge.makeLine(pt(ri, a_in), pt(ro, a_out)),
+            cq.Edge.makeThreePointArc(pt(ro, a_out), pt(ro, mid), pt(ro, 2 * mid - a_out)),
+            cq.Edge.makeLine(pt(ro, 2 * mid - a_out), pt(ri, 2 * mid - a_in)),
+            cq.Edge.makeThreePointArc(pt(ri, 2 * mid - a_in), pt(ri, mid), pt(ri, a_in))])
+        return cq.Face.makeFromWires(wire).fillet2D(fillet + (run - inset), cq.Face.makeFromWires(wire).Vertices()).outerWire()
+
+    # Flat top ring at the highest face point on the outline: a top ring following the rising dish
+    # gave a loft that OCC booleans got wrong (cut above the face, nothing below).
+    top_z = max(z_top(p, r) for r in np.linspace(r_in, r_out, 12))
+    wires = [outline(run, p.hub_z - p.hub_valley_depth), outline(0.0, top_z), outline(0.0, top_z + 20)]
+    kinds = [[e.geomType() for e in w.Edges()] for w in wires]
+    if any(k != kinds[0] for k in kinds):
+        raise ValueError(f'hub valley outlines differ in structure: {kinds}')
     return [cq.Solid.makeLoft(wires, ruled=True)]
 
 
