@@ -294,22 +294,32 @@ def test_hub_crease_gives_a_sharp_platform_edge():
 
 
 def test_spoke_pads_leave_the_spoke_centre_proud():
-    """The face beside each spoke's centre pad is lowered; the pad itself keeps the dish height."""
+    """Traced spokes keep a pad along their skeleton; the face beside it is lowered under the dish."""
     import math
+    import numpy as np
     import cadquery as cq
-    from wheelcam.forged_blank import blank, face_z, spoke_pad_tools
-    p = recipe_from_dict(dict(FAST, spokes=6, hub_r=60, hub_z=-58, ring_z=-20, concavity_exp=1.0,
-                              spoke_pad_w=26, spoke_pad_depth=7, spoke_pad_r=[80, 150]))
-    tools = spoke_pad_tools(p)
-    body = blank(p)
-    for i in range(6):                                            # every rotation (one used to fail)
-        body = body.cut(tools[0].rotate((0, 0, 0), (0, 0, 1), i * 60))
-        assert body.isValid()
+    import wheelcam.forged_blank as fb
+    preset = json.loads((Path(__file__).resolve().parents[1] / "experiments/forged-blank/recipes/hf6-y-split.json").read_text())
+    base = recipe_from_dict(preset)
+    loops = [np.array(o) for o in fb.window_outlines(base, samples=96)]
+    pitch = 360 / base.spokes
+    group0 = [o for o in loops if -pitch / 2 <= np.degrees(np.arctan2(*o.mean(0)[::-1])) < pitch / 2]
+    outlines = [[[float(np.hypot(x, y)), float(np.degrees(np.arctan2(y, x)))] for x, y in o] for o in group0]
+    p = recipe_from_dict({**preset, "family": "outline", "outlines": outlines, "spoke_pad_w": 24,
+                          "spoke_pad_depth": 6, "spoke_pad_r": [base.window_r_in - 10, base.ring_r - 10]})
+    tools = fb.spoke_pad_tools(p)
+    assert tools and all(t.isValid() for t in tools)
+    body = fb.blank(p)
+    for t in tools:                                                                # group 0 (build rotates them)
+        body = body.cut(t)
+    assert body.isValid() and body.BoundingBox().zmax < .5
+    line, hw = max(fb.spoke_centrelines(p), key=lambda lw: len(lw[0]))          # the longest spoke section
+    x, y = line[len(line) // 2]
 
-    def top(r, deg):
-        x, y = r * math.cos(math.radians(deg)), r * math.sin(math.radians(deg))
-        probe = cq.Solid.makeCylinder(.2, 300, cq.Vector(x, y, 50), cq.Vector(0, 0, -1))
-        return body.intersect(probe).BoundingBox().zmax
-    assert top(115, 0.5) == pytest.approx(face_z(p, 115), abs=.3)                # on the pad
-    assert 4 < face_z(p, 115) - top(115, 30) < 8                                   # beside it (floor is a chord)
-    assert spoke_pad_tools(recipe_from_dict(FAST)) == []
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.TopAbs import TopAbs_IN, TopAbs_OUT
+    from OCP.gp import gp_Pnt
+    state = lambda z: BRepClass3d_SolidClassifier(body.wrapped, gp_Pnt(float(x), float(y), z), 1e-6).State()
+    z = fb.face_z(p, math.hypot(x, y))
+    assert state(z - 1) == TopAbs_IN and state(z + 1) == TopAbs_OUT              # the pad keeps the dish height
+    assert fb.spoke_pad_tools(recipe_from_dict(FAST)) == []                        # off / not traced

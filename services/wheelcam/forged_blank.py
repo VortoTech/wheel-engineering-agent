@@ -861,46 +861,95 @@ def hub_valley_tools(p):
     return [cq.Solid.makeLoft(wires, ruled=True)]
 
 
+PAD_MIN_HALF = 8.0   # skeleton lines narrower than this (half width, mm) are side ribs: lowered, not pads
+PAD_SHARE = .6       # a pad covers at most this share of the local spoke half width
+
+
 def spoke_pad_tools(p):
-    """One cut between the pads of spoke 0 and spoke 1 (rotated round by build).
+    """Pockets that leave a pad standing along every spoke's skeleton (outline family).
 
-    Sections across the gap, perpendicular to its mid ray: each runs from spoke 0's pad edge to
-    spoke 1's, down the drafted wall to a floor spoke_pad_depth under the dish and back up; the
-    depth eases in and out along the gap (segment_loft fade), so the cut meets the arms at the fork.
+    The skeleton is the traced spokes' centrelines (stem and arms, at least PAD_MIN_HALF half wide),
+    so the pad runs from the root through the fork into both arms as one Y. Everything farther than
+    min(spoke_pad_w / 2, PAD_SHARE x half width) from it, inside spoke_pad_r, is lowered
+    spoke_pad_depth under the dish with walls drafted spoke_pad_draft_deg. One tool per pocket
+    of spoke group 0 (rotated round by build); pockets run into the windows, which are air.
     """
+    from PIL import Image, ImageDraw
+    from scipy.ndimage import distance_transform_edt, label as components
+    from .forged_photo import _polygon_loop
+    from .window_fit import _cell_boundary_loops
     r0, r1 = p.spoke_pad_r
-    if p.spoke_pad_w <= 0 or p.spoke_pad_depth <= 0 or r1 <= r0:
+    if p.family != 'outline' or p.spoke_pad_w <= 0 or p.spoke_pad_depth <= 0 or r1 <= r0:
         return []
-    mid = math.pi / p.spokes
-    half = p.spoke_pad_w / 2
-    m = np.array([math.cos(mid), math.sin(mid)])
-    n = np.array([-math.sin(mid), math.cos(mid)])
-    run = p.spoke_pad_depth * math.tan(math.radians(p.spoke_pad_draft_deg)) / math.cos(mid)
-    e1 = np.array([-math.sin(2 * mid), math.cos(2 * mid)])        # spoke 1's frame y axis
-    face = lambda q: face_z(p, float(np.hypot(*q)))
+    pads = [(line, hw) for line, hw in spoke_centrelines(p) if np.median(hw) >= PAD_MIN_HALF]
+    res, half = .5, r1 + 12
+    n = int(round(2 * half / res))
+    keep = np.zeros((n, n))                          # skeleton pixels carry their pad half width
+    img = Image.new('F', (n, n), 0.0)
+    draw = ImageDraw.Draw(img)
+    for g in range(p.spokes):
+        c, s_ = math.cos(2 * math.pi * g / p.spokes), math.sin(2 * math.pi * g / p.spokes)
+        for line, hw in pads:
+            pts = [((x * c - y * s_ + half) / res, (half - (x * s_ + y * c)) / res) for x, y in line]
+            for (pa, pb), w in zip(zip(pts[:-1], pts[1:]), hw[:-1]):
+                draw.line([pa, pb], fill=float(min(p.spoke_pad_w / 2, PAD_SHARE * w)), width=1)
+    keep = np.asarray(img)
+    dist, (iy, ix) = distance_transform_edt(keep <= 0, return_indices=True)
+    ys, xs = np.mgrid[0:n, 0:n]
+    x, y = xs * res - half, half - ys * res
+    r = np.hypot(x, y)
+    low = (dist * res > keep[iy, ix]) & (r >= r0) & (r <= r1)
+    regions, count = components(low)
+    pitch = 2 * math.pi / p.spokes
+    run = p.spoke_pad_depth * math.tan(math.radians(p.spoke_pad_draft_deg))
+    floor = _offset_dish(p, p.spoke_pad_depth)
+    tools = []
+    for k in range(1, count + 1):
+        region = regions == k
+        if region.sum() * res * res < 100:
+            continue
+        cx, cy = x[region].mean(), y[region].mean()
+        if not 0 <= math.atan2(cy, cx) % (2 * math.pi) < pitch:
+            continue
+        loop = max(_cell_boundary_loops(region), key=len)
+        pts = np.array([(c_ * res - half, half - r_ * res) for r_, c_ in loop])
+        pts = _polygon_loop(pts, corner_r=run + 1.5)
+        tools.append(_pad_pocket(p, pts, run).intersect(floor))
+    return tools
 
-    def section(fade, at, t):
-        c = np.array(at(0.0))
-        s0 = (half - c[1]) / n[1]                                  # spoke 0 pad edge: y = +half
-        s1 = (-half - c @ e1) / (n @ e1)                           # spoke 1 pad edge: y1 = -half
-        # The drafted wall carries on 3 mm above the face before turning vertical: a section vertex
-        # lying on the dish put a tool edge on the blank's face and the cuts failed.
-        over = 3.0 / p.spoke_pad_depth
-        a, b = c + (s0 - over * run) * n, c + (s1 + over * run) * n
-        fa, fb = c + (s0 + run) * n, c + (s1 - run) * n
-        depth = p.spoke_pad_depth * fade
-        za, zb = face(c + s0 * n) + 3.0 * fade, face(c + s1 * n) + 3.0 * fade
-        return [(*a, za + 30), (*a, za), (*fa, face(fa) - depth), (*fb, face(fb) - depth), (*b, zb), (*b, zb + 30)]
 
-    # Smooth loft (one surface per section side): a ruled loft's 16 strips per side made cuts fail
-    # at some rotations (invalid solids at 180 deg but not at 120 deg, 2026-09-26).
-    wires = []
-    for t in np.linspace(0, 1, 9):
-        fade = min(1.0, t / .25, (1 - t) / .25)
-        c = (r0 + t * (r1 - r0)) * m
-        quad = section(fade, lambda s_, c=c: tuple(c + s_ * n), t)
-        wires.append(cq.Wire.makePolygon([cq.Vector(*q) for q in quad], close=True))
-    return [cq.Solid.makeLoft(wires, ruled=False)]
+def _offset_dish(p, depth):
+    """Everything above the dish lowered by `depth` (r up to the lip): the floor of a pad pocket."""
+    rs = np.linspace(0, p.lip_r + 5, 60)
+    prof = [(float(r), face_z(p, max(float(r), p.hub_r)) - depth) for r in rs]
+    wp = cq.Workplane('XZ').moveTo(0, 80).lineTo(0, prof[0][1]).spline(prof[1:], includeCurrent=True)
+    return wp.lineTo(p.lip_r + 5, 80).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
+
+
+def _pad_pocket(p, pts, run, samples=220):
+    """Drafted pocket through the loop `pts` (its top edge on the face): the wall runs from `run`
+    inside the loop, below the floor, out through the face and on 3 mm above it (a wall edge on
+    the face made cuts fail), then straight up. The floor comes from the offset-dish intersection."""
+    closed = np.vstack([pts, pts[:1]])
+    seg = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+    cum = np.concatenate([[0], np.cumsum(seg)])
+    u = np.linspace(0, cum[-1], samples, endpoint=False)
+    xy = np.column_stack([np.interp(u, cum, closed[:, 0]), np.interp(u, cum, closed[:, 1])])
+    tangent = np.roll(xy, -1, axis=0) - np.roll(xy, 1, axis=0)
+    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
+    normal = np.column_stack([tangent[:, 1], -tangent[:, 0]])
+    if .5 * np.sum(xy[:, 0] * np.roll(xy, -1, axis=0)[:, 1] - np.roll(xy, -1, axis=0)[:, 0] * xy[:, 1]) < 0:
+        normal = -normal                                   # outward from the pocket
+    d = p.spoke_pad_depth
+    inner = _unfold(xy, -normal, np.full(len(xy), run * (d + 2) / d))
+    outer = xy + normal * (run * 3 / d)
+    face = lambda q: np.array([face_z(p, float(np.hypot(*v))) for v in q])
+    fz = face(xy)
+    # End rings flat, so the loft closes with planar caps (sloped end rings left it open, invalid).
+    rings = [np.column_stack([inner, np.full(len(xy), fz.min() - d - 12)]), np.column_stack([inner, fz - d - 2]),
+             np.column_stack([outer, fz + 3]), np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
+    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
+    return cq.Solid.makeLoft(wires, ruled=True)
 
 
 def lug_tools(p):
