@@ -188,6 +188,7 @@ def test_flank_offset_does_not_fold_at_a_sharp_inner_corner():
 
 def test_window_envelope_never_cuts_through_the_lip_flange():
     """A deep window pocket with lowered spoke ends: the floor stays above the web back and the lip flange."""
+    import numpy as np
     import cadquery as cq
     from wheelcam.forged_blank import POCKET_SKIN, _window_envelope, z_back
     p = recipe_from_dict(dict(FAST, ring_z=-20, window_pocket_depth=60, ring_r=234, lip_face_r_in=258))   # HF6-4 radii
@@ -197,7 +198,9 @@ def test_window_envelope_never_cuts_through_the_lip_flange():
         return env.intersect(probe).BoundingBox().zmin
     assert lowest(p.ring_r + 2) == pytest.approx(z_back(p, p.ring_r) + POCKET_SKIN, abs=.01)
     lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
-    assert lowest((p.barrel_outer_r + p.lip_face_r_in) / 2) >= lip_back + POCKET_SKIN - .01
+    for r in np.linspace(p.barrel_outer_r + .5, p.lip_face_r_in - 1.5, 6):       # the flange's back, from blank()
+        back = np.interp(r, [p.barrel_outer_r, p.barrel_outer_r + 2, p.lip_r], [lip_back - 26, lip_back - 12, lip_back])
+        assert lowest(r) >= back + POCKET_SKIN - .05, r
 
 
 def test_hub_valleys_drop_the_hub_between_the_arms():
@@ -323,3 +326,51 @@ def test_spoke_pads_leave_the_spoke_centre_proud():
     z = fb.face_z(p, math.hypot(x, y))
     assert state(z - 1) == TopAbs_IN and state(z + 1) == TopAbs_OUT              # the pad keeps the dish height
     assert fb.spoke_pad_tools(recipe_from_dict(FAST)) == []                        # off / not traced
+
+
+def test_face_chamfer_is_built_into_window_tools():
+    """face_chamfer adds a crest chamfer to straight and flanked windows; cuts stay valid and only a
+    chamfer ring more material goes."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    square = np.array([(150 + 12 * c, 12 * s_) for c, s_ in [(-1, -1), (1, -1), (1, 1), (-1, 1)]], float)
+    loop = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(square, np.roll(square, -1, axis=0))
+                           for t in [np.linspace(0, 1, 30, endpoint=False)]])
+    from wheelcam.forged_photo import _polygon_loop
+    loop = _polygon_loop(loop, corner_r=4)
+    closed = np.vstack([loop, loop[:1]])                                           # evenly resampled, as
+    cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))])   # the build does
+    u = np.linspace(0, cum[-1], 160, endpoint=False)
+    loop = np.column_stack([np.interp(u, cum, closed[:, 0]), np.interp(u, cum, closed[:, 1])])
+    removed = {}
+    for c, kind, extra in ((0.0, "prism", {}), (2.0, "prism", {})):
+        p = recipe_from_dict(dict(FAST, face_chamfer=c, **extra))
+        tool = fb._prism_window(p, loop.tolist()) if kind == "prism" else fb._flanked_window(p, pts=loop.tolist())
+        b = fb.blank(p)
+        cut = b.cut(tool)
+        assert tool.isValid() and cut.isValid() and len(cut.Solids()) == 1, (kind, c)
+        removed[kind, c] = b.Volume() - cut.Volume()
+    extra = removed["prism", 2.0] - removed["prism", 0.0]
+    assert 50 < extra < 2_000, extra                     # ~ perimeter 90 mm x chamfer section 2-6 mm2
+    p = recipe_from_dict(dict(FAST, face_chamfer=2.0, flank_w=8, flank_depth=10))
+    assert fb._flanked_window(p, pts=loop.tolist()).isValid()       # flanked cuts are checked in the HF6-4 build
+
+
+def test_sector_build_matches_the_whole_wheel_build():
+    """Outline wheels are cut as one sector and patterned: same solid as cutting the whole wheel."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    from wheelcam.mass_properties import volume
+    preset = json.loads((Path(__file__).resolve().parents[1] / "experiments/forged-blank/recipes/hf6-y-split.json").read_text())
+    base = recipe_from_dict(preset)
+    pitch = 360 / base.spokes
+    loops = [np.array(o) for o in fb.window_outlines(base, samples=96)]
+    group0 = [o for o in loops if -pitch / 2 <= np.degrees(np.arctan2(*o.mean(0)[::-1])) < pitch / 2]
+    outlines = [[[float(np.hypot(x, y)), float(np.degrees(np.arctan2(y, x)))] for x, y in o] for o in group0]
+    p = recipe_from_dict({**preset, "family": "outline", "outlines": outlines, "lip_pockets": 0,
+                          "back_pocket_skin": 0, "groove_offsets": [], "facet_deg": 0})
+    _, sector, stages = fb.build(p)
+    assert any(s["op"] == "sector_pattern" for s in stages)
+    _, whole, _ = fb.build(p, sector=False)
+    assert sector.isValid() and len(sector.Solids()) == 1
+    assert volume(sector) == pytest.approx(volume(whole), rel=1e-3)

@@ -11,6 +11,7 @@ B-Rep either multiplied STEP size 3-11x (per-sample wedges) or failed in OCC Boo
 grooved spokes (smooth ring tools, 2026-09-23/24). CAM chamfers sharp edges directly.
 """
 import math
+import os
 import time
 from dataclasses import asdict, dataclass, fields, replace
 
@@ -67,6 +68,10 @@ class ForgedWheel:
     flank_w: float = 0.0
     flank_depth: float = 0.0
     flank_share: float = .45        # widest flank as a share of the local spoke width (.45 x 2 leaves a 10 % land)
+    # Face chamfer (0 = off): every window, flank and pad-pocket top edge gets a chamfer about this
+    # size, built into the cutting tool (a transverse facet), so edges catch a highlight as a machined
+    # edge break does. Fillets on the finished solid are too fragile in OCC for this body.
+    face_chamfer: float = 0.0
     # Face machining surface (0 width = off): the whole face is cut last by one smooth B-spline surface,
     # dish profile minus a rounded shoulder that drops face_crown_depth at every window edge over
     # face_crown_w (superellipse exponent face_crown_q: 1 = straight chamfer, 2 = quarter round, >2 = flatter top).
@@ -127,6 +132,7 @@ class ForgedWheel:
     spoke_pad_depth: float = 6.0
     spoke_pad_r: tuple = (0.0, 0.0)
     spoke_pad_draft_deg: float = 35.0
+    spoke_pad_share: float = .6      # a pad covers at most this share of the local spoke half width
 
 
 def z_top(p, r):
@@ -159,6 +165,7 @@ WINDOW_SHARE = .5
 # Below this a flank is left to the CAM edge break and the window cut straight: a 2-4 mm flank
 # loft on the dish face made OCC cuts fail silently (fork triangles came out as posts, 2026-09-25).
 MIN_FLANK = 4.0
+SMALL_BEVEL_MAX = 4.0   # widest chamfer on a straight-walled small window, mm
 GROOVE_LAND = 2.0    # least spoke top left each side of a centreline groove, mm
 
 
@@ -365,14 +372,36 @@ def windows(p, outlines):
             others = [o for j, o in enumerate(loops) if j != i]
             width = cKDTree(np.concatenate(others)).query(xy)[0] if others else np.full(len(xy), np.inf)
             reach = WINDOW_SHARE * _window_size(xy)
+            # Small windows: straight walls with a chamfer in proportion (the official fork triangle and
+            # slots have a 3-4 mm dark bevel), instead of a thin flank loft that OCC cut badly.
+            bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach)) if p.face_chamfer > 0 else 0.0
             tools.append(_flanked_window(p, pts=outlines[i], spoke_w=width, max_reach=reach) if reach >= MIN_FLANK
-                         else _prism_window(p, outlines[i]))
+                         else _prism_window(p, outlines[i], chamfer=bevel))
         return tools
     return cq.Compound.makeCompound([_prism_window(p, pts) for pts in outlines])
 
 
-def _prism_window(p, pts):
-    """Straight-walled window: a periodic spline through the outline, extruded through the face."""
+def _outward_normal(xy):
+    """Unit normals of a closed loop, pointing out of the region it bounds."""
+    tangent = np.roll(xy, -1, axis=0) - np.roll(xy, 1, axis=0)
+    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
+    normal = np.column_stack([tangent[:, 1], -tangent[:, 0]])
+    area = .5 * np.sum(xy[:, 0] * np.roll(xy, -1, axis=0)[:, 1] - np.roll(xy, -1, axis=0)[:, 0] * xy[:, 1])
+    return -normal if area < 0 else normal
+
+
+def _prism_window(p, pts, chamfer=None):
+    """Straight-walled window: a periodic spline through the outline, extruded through the face
+    (with a chamfer, default face_chamfer: a ring at the top, c deep and crossing the face c + 1 out)."""
+    c = p.face_chamfer if chamfer is None else chamfer
+    if c > 0:
+        xy = np.asarray(pts, float)
+        z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
+        crest = _unfold(xy, _outward_normal(xy), np.full(len(xy), c + 1.0))
+        rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]), np.column_stack([xy, z(xy) - c]),
+                 np.column_stack([crest, z(crest) + 1.0]), np.column_stack([crest, np.full(len(xy), 40.0)])]
+        wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
+        return cq.Solid.makeLoft(wires, ruled=True)
     edge = cq.Edge.makeSpline([cq.Vector(x, y, -p.width) for x, y in pts], periodic=True)
     face = cq.Face.makeFromWires(cq.Wire.assembleEdges([edge]))
     return cq.Solid.extrudeLinear(face, cq.Vector(0, 0, p.width + 20))
@@ -414,11 +443,20 @@ def _flanked_window(p, pts, spoke_w=None, max_reach=np.inf):
     if spoke_w is not None:
         reach = np.minimum(reach, p.flank_share * np.asarray(spoke_w))
     from scipy.ndimage import gaussian_filter1d
-    wide = _unfold(xy, normal, gaussian_filter1d(reach, 2, mode='wrap'))
+    reach = gaussian_filter1d(reach, 2, mode='wrap')
+    wide = _unfold(xy, normal, reach)
     z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
+    D, c = p.flank_depth, p.face_chamfer
+    if c > 0:
+        # Chamfer at the flank crest: leave the flank c below the face, cross the face c + 1 farther out.
+        on_flank = xy + (wide - xy) * ((D - c) / (D + 1))
+        crest = _unfold(xy, normal, reach * D / (D + 1) + c + 1)
+        top = [np.column_stack([on_flank, z(on_flank) - c]), np.column_stack([crest, z(crest) + 1.0])]
+        wide = crest
+    else:
+        top = [np.column_stack([wide, z(wide) + 1.0])]
     rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]),
-             np.column_stack([xy, z(xy) - p.flank_depth]),
-             np.column_stack([wide, z(wide) + 1.0]),
+             np.column_stack([xy, z(xy) - D]), *top,
              np.column_stack([wide, np.full(len(xy), 40.0)])]
     wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
     return cq.Solid.makeLoft(wires, ruled=True)
@@ -451,16 +489,24 @@ def _unfold(xy, normal, reach, rounds=60):
     instead rounds the flank's top edge over the corner, as a milled flank is, and keeps its width
     elsewhere. Point correspondence with `xy` is kept, so the flank still rules straight across.
     """
-    wide = xy + normal * np.asarray(reach, float)[:, None]
+    from scipy.ndimage import gaussian_filter1d
+    reach = np.array(reach, float)
     n = len(xy)
-    for _ in range(rounds):
-        seg0, seg1 = np.roll(xy, -1, axis=0) - xy, np.roll(wide, -1, axis=0) - wide
-        bad = np.union1d(np.flatnonzero(np.sum(seg0 * seg1, axis=1) <= 0), _crossing_segments(wide))
-        if not len(bad):
-            return wide
-        hit = np.unique(np.concatenate([(bad + k) % n for k in range(-3, 5)]))
-        for _ in range(4):
-            wide[hit] = .5 * wide[hit] + .25 * (wide[(hit - 1) % n] + wide[(hit + 1) % n])
+    # When relaxing alone cannot open a fold (a wide flank in a tight spot, HF6-4 flank_share .4,
+    # 2026-09-26), the reach is narrowed smoothly around the fold and the relaxing starts again.
+    for _attempt in range(6):
+        wide = xy + normal * reach[:, None]
+        for _ in range(rounds):
+            seg0, seg1 = np.roll(xy, -1, axis=0) - xy, np.roll(wide, -1, axis=0) - wide
+            bad = np.union1d(np.flatnonzero(np.sum(seg0 * seg1, axis=1) <= 0), _crossing_segments(wide))
+            if not len(bad):
+                return wide
+            hit = np.unique(np.concatenate([(bad + k) % n for k in range(-3, 5)]))
+            for _ in range(4):
+                wide[hit] = .5 * wide[hit] + .25 * (wide[(hit - 1) % n] + wide[(hit + 1) % n])
+        pull = np.zeros(n)
+        pull[hit] = 1
+        reach *= 1 - .3 * np.minimum(gaussian_filter1d(pull, 4, mode='wrap') * 4, 1)
     raise ValueError('flank offset still folds; lower flank_w')
 
 
@@ -678,11 +724,18 @@ def _window_envelope(p):
     outer = p.lip_face_r_in - 1
     # Past the barrel's inner wall the pocket runs under the lip flange, which is only ~14 mm thick
     # outside the barrel: a floor deeper than the flange opened a ring of daylight behind the lip
-    # (HF6-4 v4, 2026-09-25). There the floor steps up to the flange's back plus POCKET_SKIN.
+    # (HF6-4 v4, 2026-09-25). A flat shelf there read as a lit ring inside the lip; the floor now
+    # climbs steeply from the barrel wall to just under the lip face (dark, as the official deep
+    # pockets look), held POCKET_SKIN above the flange's back wherever the flange is thin.
     shelf_r = min(max(p.barrel_inner_r, ring), outer)
-    shelf = max(floor, -min(14.0, p.lip_r - p.barrel_outer_r) + POCKET_SKIN)
-    pts = [(0, -p.width - 30), (ring, -p.width - 30), (ring, floor), (shelf_r, floor), (shelf_r, shelf),
-           (outer, shelf), (outer, 80), (0, 80)]
+    lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
+    back = lambda r: float(np.interp(r, [p.barrel_outer_r, p.barrel_outer_r + 2, p.lip_r],
+                                     [lip_back - 26, lip_back - 12, lip_back]))
+    rs = np.linspace(shelf_r, outer, 12)
+    top = -2.0
+    climb = [(float(r), max(floor + (top - floor) * (r - shelf_r) / max(outer - shelf_r, 1e-6),
+                            back(r) + POCKET_SKIN if r > p.barrel_outer_r else -1e9)) for r in rs]
+    pts = [(0, -p.width - 30), (ring, -p.width - 30), (ring, floor), (shelf_r, floor), *climb, (outer, 80), (0, 80)]
     pts = [q for i, q in enumerate(pts) if i == 0 or np.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 1e-6]
     return cq.Workplane('XZ').polyline(pts).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
 
@@ -862,7 +915,6 @@ def hub_valley_tools(p):
 
 
 PAD_MIN_HALF = 8.0   # skeleton lines narrower than this (half width, mm) are side ribs: lowered, not pads
-PAD_SHARE = .6       # a pad covers at most this share of the local spoke half width
 
 
 def spoke_pad_tools(p):
@@ -870,7 +922,7 @@ def spoke_pad_tools(p):
 
     The skeleton is the traced spokes' centrelines (stem and arms, at least PAD_MIN_HALF half wide),
     so the pad runs from the root through the fork into both arms as one Y. Everything farther than
-    min(spoke_pad_w / 2, PAD_SHARE x half width) from it, inside spoke_pad_r, is lowered
+    min(spoke_pad_w / 2, spoke_pad_share x half width) from it, inside spoke_pad_r, is lowered
     spoke_pad_depth under the dish with walls drafted spoke_pad_draft_deg. One tool per pocket
     of spoke group 0 (rotated round by build); pockets run into the windows, which are air.
     """
@@ -892,7 +944,7 @@ def spoke_pad_tools(p):
         for line, hw in pads:
             pts = [((x * c - y * s_ + half) / res, (half - (x * s_ + y * c)) / res) for x, y in line]
             for (pa, pb), w in zip(zip(pts[:-1], pts[1:]), hw[:-1]):
-                draw.line([pa, pb], fill=float(min(p.spoke_pad_w / 2, PAD_SHARE * w)), width=1)
+                draw.line([pa, pb], fill=float(min(p.spoke_pad_w / 2, p.spoke_pad_share * w)), width=1)
     keep = np.asarray(img)
     dist, (iy, ix) = distance_transform_edt(keep <= 0, return_indices=True)
     ys, xs = np.mgrid[0:n, 0:n]
@@ -940,14 +992,20 @@ def _pad_pocket(p, pts, run, samples=220):
     normal = np.column_stack([tangent[:, 1], -tangent[:, 0]])
     if .5 * np.sum(xy[:, 0] * np.roll(xy, -1, axis=0)[:, 1] - np.roll(xy, -1, axis=0)[:, 0] * xy[:, 1]) < 0:
         normal = -normal                                   # outward from the pocket
-    d = p.spoke_pad_depth
+    d, c = p.spoke_pad_depth, p.face_chamfer
     inner = _unfold(xy, -normal, np.full(len(xy), run * (d + 2) / d))
-    outer = xy + normal * (run * 3 / d)
     face = lambda q: np.array([face_z(p, float(np.hypot(*v))) for v in q])
     fz = face(xy)
+    if c > 0:                                  # chamfer: leave the wall c below the face, cross it c + 1 out
+        on_wall = xy - normal * (run * c / d)
+        outer = xy + normal * (c + 1.0)
+        top = [np.column_stack([on_wall, fz - c]), np.column_stack([outer, fz + 1])]
+    else:
+        outer = xy + normal * (run * 3 / d)
+        top = [np.column_stack([outer, fz + 3])]
     # End rings flat, so the loft closes with planar caps (sloped end rings left it open, invalid).
     rings = [np.column_stack([inner, np.full(len(xy), fz.min() - d - 12)]), np.column_stack([inner, fz - d - 2]),
-             np.column_stack([outer, fz + 3]), np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
+             *top, np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
     wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
     return cq.Solid.makeLoft(wires, ruled=True)
 
@@ -971,7 +1029,126 @@ def lug_tools(p):
     return tools
 
 
-def build(p):
+def _wedge(p, a0, a1):
+    """Prism over the sector a0..a1 (deg) reaching past the lip, through the whole width."""
+    R = p.lip_r + 20
+    pt = lambda a: cq.Vector(R * math.cos(math.radians(a)), R * math.sin(math.radians(a)), -p.width - 60)
+    o = cq.Vector(0, 0, -p.width - 60)
+    wire = cq.Wire.assembleEdges([cq.Edge.makeLine(o, pt(a0)), cq.Edge.makeThreePointArc(pt(a0), pt((a0 + a1) / 2), pt(a1)),
+                                  cq.Edge.makeLine(pt(a1), o)])
+    return cq.Solid.extrudeLinear(cq.Face.makeFromWires(wire), cq.Vector(0, 0, p.width + 160))
+
+
+def _overlaps(a, b, pad=1.0):
+    return not (a.xmax < b.xmin - pad or a.xmin > b.xmax + pad or a.ymax < b.ymin - pad or a.ymin > b.ymax + pad)
+
+
+def _robust_cut(body, tool, name):
+    """body - tool, retried when OCC returns an invalid solid: a 0.01 deg turn of the tool about the
+    wheel axis (far below machining tolerance), then a fuzzy boolean. One slot-pocket cut of HF6-4
+    came out invalid while its mirror image cut clean; both retries fixed it (2026-09-26)."""
+    def tidy(shape):
+        # Zero-volume slivers (a window meeting the lip-pocket climb, 2026-09-26) are dropped;
+        # a real loose piece (a window plug) is kept and caught by the caller.
+        solids = shape.Solids()
+        if len(solids) > 1:
+            keep = [x for x in solids if x.Volume() > 1.0]
+            if len(keep) < len(solids):
+                shape = keep[0] if len(keep) == 1 else cq.Compound.makeCompound(keep)
+        return shape
+    cut = tidy(body.cut(tool))
+    if cut.isValid():
+        return cut
+    for retry in (lambda: body.cut(tool.rotate((0, 0, 0), (0, 0, 1), .01)), lambda: body.cut(tool, tol=1e-3)):
+        cut = tidy(retry())
+        if cut.isValid():
+            return cut
+    raise RuntimeError(f'{name}: cut gives an invalid solid even after retries (OCC boolean failure)')
+
+
+def _build_sector(p):
+    """Outline-family build on one spoke sector, patterned round (2026-09-26).
+
+    The sector (spoke 0 +- half a pitch) is cut with the tools of spoke groups -1, 0 and +1 that
+    reach it, then rotated copies are glued into the wheel. Features that do not repeat with the
+    spokes (lug holes, a lip-pocket count that is not a multiple of the spoke count) are cut on the
+    whole wheel afterwards. Whole-wheel builds took 15-40 min and every extra group multiplied the
+    chances of an OCC boolean failure; a sector has a sixth of the faces.
+    """
+    stock = blank(p)
+    pitch = 360 / p.spokes
+    # Sector edges half a pitch off the spokes (through the big windows between groups). Edges on
+    # the spoke axes (to take the lug holes into the sector) cut through pads and fork windows, and
+    # the glued wheel came out invalid (2026-09-26); lugs are cut on the whole wheel.
+    wedge = _wedge(p, -pitch / 2, pitch / 2)
+    body = stock.intersect(wedge).Solids()[0]
+    reach = wedge.BoundingBox()
+    stages = []
+
+    def apply(name, tools, rotate=False, whole=False):
+        nonlocal body
+        if not tools:
+            return
+        start, before = time.time(), volume(body)
+        limit = body.BoundingBox()
+        if rotate:
+            tools = [t.rotate((0, 0, 0), (0, 0, 1), k * pitch) for k in (-1, 0, 1) for t in tools]
+        if not whole:
+            tools = [t for t in tools if _overlaps(t.BoundingBox(), reach)]
+        solids = len(body.Solids())
+        for tool in tools:
+            body = _robust_cut(body, tool, name)
+            bb = body.BoundingBox()          # a cut only removes material (see build)
+            if (bb.zmax > limit.zmax + .5 or bb.zmin < limit.zmin - .5 or bb.xmax > limit.xmax + .5
+                    or bb.ymax > limit.ymax + .5 or bb.xmin < limit.xmin - .5 or bb.ymin < limit.ymin - .5):
+                raise RuntimeError(f'{name}: a cut added material outside the part (OCC boolean failure)')
+            if len(body.Solids()) > solids:
+                raise RuntimeError(f'{name}: a cut left a loose piece (OCC boolean failure)')
+        body = body.clean()
+        stages.append({'op': name, 'removed_mm3': round(before - volume(body), 1), 'valid': body.isValid(),
+                       'solids': len(body.Solids()), 'seconds': round(time.time() - start, 1)})
+
+    apply('face_facets', facet_cutters(p), rotate=True)
+    apply('through_windows', outline_window_tools(p))
+    apply('stem_slots', slot_tools(p), rotate=True)
+    apply('window_pockets', window_pocket_tools(p))
+    apply('spoke_grooves', groove_cutters(p), rotate=True)
+    apply('spoke_grooves_outline', outline_groove_tools(p), rotate=True)
+    apply('back_pockets', back_pocket_cutters(p), rotate=True)
+    periodic_lip = p.lip_pockets and p.lip_pockets % p.spokes == 0
+    if periodic_lip:
+        apply('lip_pockets', lip_pockets(p))
+    apply('spoke_pads', spoke_pad_tools(p), rotate=True)
+    apply('hub_valleys', hub_valley_tools(p), rotate=True)
+
+    start = time.time()
+    sector = body
+    if os.environ.get('WHEELCAM_SECTOR_DUMP'):
+        cq.exporters.export(sector, os.environ['WHEELCAM_SECTOR_DUMP'])
+    body = sector.fuse(*[sector.rotate((0, 0, 0), (0, 0, 1), k * pitch) for k in range(1, p.spokes)], glue=True)
+    # clean() (merging the split faces along the seams) made the glued wheel invalid (HF6-4, 2026-09-26);
+    # the seams stay as edges across smooth faces, invisible and harmless for CAM.
+    cleaned = body.clean()
+    if cleaned.isValid() and len(cleaned.Solids()) == 1:
+        body = cleaned
+    if len(body.Solids()) != 1 or not body.isValid():
+        raise RuntimeError(f'sector pattern: {len(body.Solids())} solids, valid {body.isValid()} (OCC glue failure)')
+    stages.append({'op': 'sector_pattern', 'removed_mm3': 0.0, 'valid': True, 'solids': 1,
+                   'seconds': round(time.time() - start, 1)})
+    reach = body.BoundingBox()
+    if p.lip_pockets and not periodic_lip:
+        apply('lip_pockets', lip_pockets(p), whole=True)
+    apply('lug_holes_and_seats', lug_tools(p), whole=True)
+    return stock, body, stages
+
+
+def build(p, sector=None):
+    """Blank and cut part. `sector` (default: outline family without a face surface) builds one
+    spoke sector and patterns it; otherwise every tool cuts the whole wheel."""
+    if sector is None:
+        sector = p.family == 'outline' and p.face_crown_w <= 0
+    if sector:
+        return _build_sector(p)
     body = blank(p)
     stock = body
     limit = stock.BoundingBox()
@@ -992,6 +1169,9 @@ def build(p):
                 if (bb.zmax > limit.zmax + .5 or bb.zmin < limit.zmin - .5 or bb.xmax > limit.xmax + .5
                         or bb.ymax > limit.ymax + .5 or bb.xmin < limit.xmin - .5 or bb.ymin < limit.ymin - .5):
                     raise RuntimeError(f'{name}: a cut added material outside the blank (OCC boolean failure)')
+                # ... or left the window plug behind as a loose solid (flank lofts, synthetic dish, 2026-09-26).
+                if len(body.Solids()) > len(stock.Solids()):
+                    raise RuntimeError(f'{name}: a cut left a loose piece (OCC boolean failure)')
         body = body.clean()
         stages.append({'op': name, 'removed_mm3': round(before - volume(body), 1),
                        'valid': body.isValid(), 'solids': len(body.Solids()),
