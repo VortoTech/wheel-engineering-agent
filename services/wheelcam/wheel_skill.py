@@ -149,8 +149,66 @@ def _oblique_rim_hub(image):
     return rim, hub
 
 
+STYLE_KEYS = ("center_pad", "arm_groove", "hub_valleys")
+# "forged_y" preset (HF6-4 benchmark, 2026-09-26): the numbers the rules below reproduce on that wheel.
+FORGED_Y = dict(flank_w=16.0, flank_depth=22.0, flank_share=.4, face_chamfer=2.0, window_pocket_depth=60.0,
+                spoke_pad_depth=10.0, spoke_pad_share=.45, groove_w=4.0, groove_depth=3.0,
+                hub_valley_depth=16.0, hub_valley_draft_deg=35.0)
+
+
+def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict, list]:
+    """Style features of an outline-family recipe: which ones (from `style`, e.g. a VLM or the user,
+    else the forged_y preset, asked about) and their sizes, from rules on the traced geometry.
+
+    Rules (fitted on the HF6-4 benchmark, to be checked on other wheels):
+      hub crease   r = window_r_in - 15, rising 0.58 mm/mm from bore + 6; the dish is straight beyond it
+      spoke pads   width 2 x 0.7 x the stem half width, from the crease to ring_r - 9
+      arm grooves  from the fork + 8 to 8 inside the lip face
+      hub valleys  arms pad width + 2 wide at the hub
+    Returns (recipe updates, provenance, questions).
+    """
+    import numpy as np
+    from .forged_blank import PAD_MIN_HALF, face_z, recipe_from_dict as rfd, spoke_centrelines
+    p = rfd(recipe)
+    upd, prov, questions = dict(FORGED_Y), {}, []
+    given = {k: (style or {}).get(k) for k in STYLE_KEYS}
+    source = (style or {}).get("source", "user") if style else None
+    on = {k: (v if v is not None else True) for k, v in given.items()}
+    if any(v is None for v in given.values()):
+        questions.append("造型特征按「锻造 Y 辐」预设（辐条中心凸台、臂上沟槽、中心谷）建模：照片里是否有这些特征？可逐项关闭。")
+    for k in STYLE_KEYS:
+        prov[k] = _record(on[k], source if given[k] is not None else "default", None,
+                          "由视觉模型/用户判断" if given[k] is not None else "forged_y 预设，待确认")
+    lines = spoke_centrelines(p)
+    wide = [(line, hw) for line, hw in lines if np.median(hw) >= PAD_MIN_HALF]
+    radii = [np.hypot(*line.T) for line, _ in wide]
+    stems = [np.median(hw) for (line, hw), r in zip(wide, radii) if r.min() < p.window_r_in + 10]
+    arms = [float(r.min()) for r in radii if r.min() > p.window_r_in + 30 and r.max() > p.ring_r - 20]   # reach the rim
+    stem_half = float(max(stems)) if stems else 15.0
+    hub_r = p.center_bore_r + 6
+    crease_r = max(p.window_r_in - 15, hub_r + 10)
+    crease_z = p.hub_z + .58 * (crease_r - hub_r)
+    upd.update(hub_r=round(hub_r, 1), hub_crease_r=round(crease_r, 1), hub_crease_z=round(min(crease_z, p.ring_z - 5), 1),
+               concavity_exp=1.0)
+    prov["hub_crease"] = _record({"r": upd["hub_crease_r"], "z": upd["hub_crease_z"]}, "rule", None,
+                                 "窗口起点内 15 mm，自中心孔外 6 mm 起 0.58 坡度（HF6-4 标定）")
+    pad_w = round(2 * .7 * stem_half, 1)
+    if on["center_pad"]:
+        upd.update(spoke_pad_w=pad_w, spoke_pad_r=[round(crease_r + 2, 1), round(p.ring_r - 9, 1)])
+        prov["spoke_pad"] = _record({"w": pad_w, "r": upd["spoke_pad_r"]}, "rule", None, f"主辐条半宽 {stem_half:.1f} mm 的 0.7")
+    if on["arm_groove"] and arms:
+        upd["outline_groove_r"] = [round(min(arms) + 8, 1), round(p.lip_face_r_in - 8, 1)]
+        prov["arm_groove"] = _record(upd["outline_groove_r"], "rule", None, "分叉后 8 mm 到轮唇内 8 mm")
+    if on["hub_valleys"]:
+        upd["hub_arm_w"] = round(pad_w + 2, 1)
+        prov["hub_valleys"] = _record({"arm_w": upd["hub_arm_w"], "depth": upd["hub_valley_depth"]}, "rule", None, "凸台宽 + 2 mm")
+    else:
+        upd["hub_valley_depth"] = 0.0
+    return upd, prov, questions
+
+
 def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None, oblique_rim_hub=None,
-                chamfer=(9.5, 10.0)):
+                chamfer=(9.5, 10.0), style=None):
     """Recipe + provenance + questions. Raises nothing for missing specs: they are reported as questions."""
     from .forged_photo import auto_group_count, fit_depth, trace_outlines
     questions, prov = [], {}
@@ -198,6 +256,9 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
         prov["et"] = _record(et, "spec", 1.0, "由 ET 反推安装面位置（中心背面厚度随之调整）")
         if recipe["web_thick_hub"] < 25:
             questions.append(f'ET {et} 与测得的凹面深度矛盾：中心只剩 {recipe["web_thick_hub"]} mm 厚。请核对 ET 或斜视图。')
+    if style is not False:                         # False: plain traced wheel (no style features)
+        s_upd, s_prov, s_q = style_features(recipe, style)
+        recipe.update(s_upd); prov.update(s_prov); questions += s_q
     unknown = dict(UNOBSERVABLE)
     return recipe_from_dict(recipe), prov, questions, unknown, {"trace": {k: trace[k] for k in ("windows_per_group", "mirror_agreement", "notes")}}
 

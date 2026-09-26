@@ -1,7 +1,7 @@
 """Wheel Engineering Skill: specs -> envelope, photo -> provenance and questions, checks -> readiness."""
 import json
 import math
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import cadquery as cq
 import numpy as np
@@ -97,3 +97,18 @@ def test_lug_seat_is_kept_out_of_the_centre_bore():
     assert prov["seat_d"]["source"] == "estimate"
     upd, prov = envelope_from_specs({**SPEC, "pcd_mm": 165.1, "center_bore_mm": 78.1})   # plenty of room
     assert "seat_d" not in upd and "seat_d" not in prov
+
+
+def test_style_features_come_from_rules_and_are_asked_about(front_photo):
+    """Style features: preset + question by default; a VLM/user answer switches them without a question."""
+    from wheelcam.wheel_skill import style_features
+    truth, photo = front_photo
+    recipe, prov, questions, _, _ = reconstruct(photo, SPEC)
+    assert recipe.face_chamfer > 0 and recipe.hub_crease_r > recipe.hub_r
+    assert prov["center_pad"]["source"] == "default" and any("锻造 Y 辐" in q for q in questions)
+    base = {**asdict(recipe)}
+    upd, prov, questions = style_features(base, {"center_pad": False, "arm_groove": False, "hub_valleys": False, "source": "vlm"})
+    assert not questions and prov["center_pad"]["source"] == "vlm"
+    assert "spoke_pad_w" not in upd and "outline_groove_r" not in upd and upd["hub_valley_depth"] == 0
+    plain, _, questions, _, _ = reconstruct(photo, SPEC, style=False)
+    assert plain.spoke_pad_w == 0 and not any("锻造 Y 辐" in q for q in questions)
