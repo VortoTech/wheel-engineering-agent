@@ -20,7 +20,7 @@ def test_envelope_from_specs_tags_every_value_with_its_source():
     assert upd["pcd"] == 139.7 and upd["bolts"] == 6 and upd["center_bore_r"] == 53.05
     assert prov["lip_r"]["source"] == "spec" and prov["hub_r"]["source"] == "estimate"
     upd, prov = envelope_from_specs({})
-    assert upd == {} and prov["lip_r"]["source"] == "default" and prov["width"]["source"] == "default"
+    assert set(upd) <= {"seat_d"} and prov["lip_r"]["source"] == "default" and prov["width"]["source"] == "default"   # template seat hits its own bore
 
 
 @pytest.fixture(scope="module")
@@ -87,3 +87,13 @@ def test_readiness_never_claims_more_than_the_evidence():
     assert level == "L3" and any("L4/L5" in w for w in why)
     assert readiness({}, {**ok, "bolt_pattern": {"pass": False}}, SPEC, built=True)[0] == "L1"
     assert set(KEY_SPECS) == set(SPEC)
+
+
+def test_lug_seat_is_kept_out_of_the_centre_bore():
+    """6 x 139.7 / CB 106.1: a 40 mm seat would cut 3 mm into the bore; it is shrunk and asked about."""
+    from wheelcam.wheel_skill import BORE_WALL
+    upd, prov = envelope_from_specs(SPEC)
+    assert SPEC["pcd_mm"] / 2 - upd["seat_d"] / 2 - upd["center_bore_r"] >= BORE_WALL
+    assert prov["seat_d"]["source"] == "estimate"
+    upd, prov = envelope_from_specs({**SPEC, "pcd_mm": 165.1, "center_bore_mm": 78.1})   # plenty of room
+    assert "seat_d" not in upd and "seat_d" not in prov

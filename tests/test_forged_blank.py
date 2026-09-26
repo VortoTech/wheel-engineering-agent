@@ -198,3 +198,78 @@ def test_window_envelope_never_cuts_through_the_lip_flange():
     assert lowest(p.ring_r + 2) == pytest.approx(z_back(p, p.ring_r) + POCKET_SKIN, abs=.01)
     lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
     assert lowest((p.barrel_outer_r + p.lip_face_r_in) / 2) >= lip_back + POCKET_SKIN - .01
+
+
+def test_hub_valleys_drop_the_hub_between_the_arms():
+    """Valleys between the arms round each lug: valid cut, real volume, and a clear error when they cannot fit."""
+    from wheelcam.forged_blank import blank, hub_valley_tools
+    p = recipe_from_dict(dict(FAST, spokes=6, bolts=6, seat_d=27.5, hub_valley_depth=12, hub_arm_w=30))
+    tools = hub_valley_tools(p)
+    assert len(tools) == 1 and tools[0].isValid()
+    body = blank(p)
+    cut = body.cut(tools[0])
+    assert cut.isValid() and len(cut.Solids()) == 1
+    assert 3_000 < body.Volume() - cut.Volume() < 20_000                        # only below the hub face
+    assert hub_valley_tools(recipe_from_dict(FAST)) == []                      # off by default
+    with pytest.raises(ValueError, match="no floor"):
+        hub_valley_tools(recipe_from_dict(dict(FAST, spokes=6, hub_valley_depth=12, hub_arm_w=70)))
+
+
+def test_small_windows_get_a_flank_in_proportion():
+    """A 16 mm flank round a 15 mm triangle made a round blob; small windows get <= WINDOW_SHARE x their size."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    p = recipe_from_dict(dict(FAST, flank_w=16, flank_depth=18))
+    tri = np.array([(150 + 15 * np.cos(a), 15 * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 3, endpoint=False)])
+    loop = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(tri, np.roll(tri, -1, axis=0))
+                           for t in [np.linspace(0, 1, 40, endpoint=False)]])
+    big = np.column_stack([150 + (loop[:, 0] - 150) * 5, loop[:, 1] * 5])
+    seen = []
+    orig = fb._unfold
+    fb._unfold = lambda xy, n, reach, rounds=60: (seen.append(np.max(reach)), orig(xy, n, reach, rounds))[1]
+    try:
+        tools = fb.windows(p, [loop.tolist(), (big + [250, 0]).tolist()])
+    finally:
+        fb._unfold = orig
+    assert all(t.isValid() for t in tools)
+    assert fb.WINDOW_SHARE * fb._window_size(loop) < fb.MIN_FLANK                 # small: straight walls (CAM chamfer)
+    assert len(seen) == 1 and seen[0] == pytest.approx(16, abs=.5)             # big: the full flank
+    mid = recipe_from_dict(dict(FAST, flank_w=16, flank_depth=18))
+    square = np.array([(150 + 10 * c, 10 * s_) for c, s_ in [(-1, -1), (1, -1), (1, 1), (-1, 1)]], float)
+    ring = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(square, np.roll(square, -1, axis=0))
+                           for t in [np.linspace(0, 1, 30, endpoint=False)]])
+    seen.clear()
+    fb._unfold = lambda xy, n, reach, rounds=60: (seen.append(np.max(reach)), orig(xy, n, reach, rounds))[1]
+    try:
+        fb.windows(mid, [ring.tolist()])
+    finally:
+        fb._unfold = orig
+    assert seen[0] <= fb.WINDOW_SHARE * fb._window_size(ring) + 1e-6 < 16      # mid-size: flank in proportion
+
+
+def test_build_stops_when_a_cut_adds_material(monkeypatch):
+    """A boolean that merges its tool (seen with thin flank lofts) must fail the build, not ship."""
+    import cadquery as cq
+    import wheelcam.forged_blank as fb
+    post = cq.Solid.makeCylinder(5, 60, cq.Vector(150, 0, -20))
+    monkeypatch.setattr(fb, "lug_tools", lambda p: [post])
+    monkeypatch.setattr(cq.Shape, "cut", lambda self, *tools, **kw: self.fuse(*tools))
+    with pytest.raises(RuntimeError, match="added material"):
+        fb.build(recipe_from_dict(dict(FAST, facet_deg=0)))
+
+
+def test_outline_grooves_follow_the_spoke_centrelines():
+    """Traced (outline) spokes get a groove along each section's centreline inside the band."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    preset = json.loads((Path(__file__).resolve().parents[1] / "experiments/forged-blank/recipes/hf6-y-split.json").read_text())
+    loops = [np.array(o) for o in fb.window_outlines(recipe_from_dict(preset), samples=96)]
+    pitch = 360 / recipe_from_dict(preset).spokes
+    group0 = [o for o in loops if -pitch / 2 <= np.degrees(np.arctan2(*o.mean(0)[::-1])) < 3 * pitch / 2]
+    outlines = [[[float(np.hypot(x, y)), float(np.degrees(np.arctan2(y, x)))] for x, y in o] for o in group0]
+    outline = {**preset, "family": "outline", "outlines": outlines}
+    lines = fb.spoke_centrelines(recipe_from_dict(outline))
+    assert lines and all(len(line) == len(w) for line, w in lines)
+    tools = fb.outline_groove_tools(recipe_from_dict({**outline, "outline_groove_r": [140, 215]}))
+    assert tools and all(t.isValid() for t in tools)
+    assert fb.outline_groove_tools(recipe_from_dict(outline)) == []                 # off by default

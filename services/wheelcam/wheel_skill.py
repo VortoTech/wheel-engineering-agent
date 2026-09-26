@@ -33,6 +33,7 @@ KEY_SPECS = {                      # spec key -> what it fixes; all are needed f
     "center_bore_mm": "centre bore",
     "et_mm": "offset ET (mounting face)",
 }
+BORE_WALL = 3.0                    # least wall between a lug seat counterbore and the centre bore, mm
 UNOBSERVABLE = {                   # never measured from photos; listed with the value used
     "back_side": "背面减重腔、背部结构：照片看不到，按模板默认（当前关闭）。",
     "spoke_chamfer_depth": "辐条斜切深度：照片测不到，按默认值。",
@@ -72,6 +73,13 @@ def envelope_from_specs(spec: dict) -> tuple[dict, dict]:
     if "pcd_mm" in spec:
         upd["hub_r"] = round(spec["pcd_mm"] / 2 + 10, 1)
         prov["hub_r"] = _record(upd["hub_r"], "estimate", None, "PCD/2 + 10 mm")
+    # Lug seat counterbore vs centre bore: 6 x 139.7 with a 106.1 bore leaves 16.8 mm from lug centre
+    # to bore wall, and the template's 40 mm seat cut 3 mm into the bore (HF6-4, 2026-09-25).
+    room = upd.get("pcd", base.pcd) / 2 - upd.get("center_bore_r", base.center_bore_r) - BORE_WALL
+    if base.seat_d / 2 > room:
+        upd["seat_d"] = math.floor(room * 4) / 2
+        prov["seat_d"] = _record(upd["seat_d"], "estimate", None,
+                                 f"模板锥座让位孔 {base.seat_d} mm 会切进中心孔，缩到中心孔壁留 {BORE_WALL} mm；需按螺母规格确认")
     return upd, prov
 
 
@@ -151,6 +159,9 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
         questions.append(f"请提供 {KEY_SPECS[k]}（{k}）：照片无法可靠确定。")
     upd, prov_env = envelope_from_specs(spec)
     prov.update(prov_env)
+    if prov.get("seat_d", {}).get("source") == "estimate":
+        questions.append(f'螺母座让位孔按 {upd["seat_d"]} mm 建模（模板 40 mm 会切进中心孔）：请提供螺母规格'
+                         '（锥座/球座、座面直径、套筒外径），确认这个尺寸能装。')
     base = {**asdict(ForgedWheel()), **upd}
 
     rim_hub = front_rim_hub or _front_rim_hub(front_image)

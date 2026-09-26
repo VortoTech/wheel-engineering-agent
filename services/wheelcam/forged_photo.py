@@ -583,6 +583,7 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
             overlay.append(np.round(face.to_image(np.minimum(r, p.ring_r), t), 1).tolist())
     report = {"family": "outline", "groups": groups, "windows_per_group": len(outlines),
               "window_areas_mm2": [round(a) for a in areas], "mirror_agreement": round(agree, 3),
+              "axis_deg": round(math.degrees(axis), 3),
               "overlay_windows_px": overlay, "notes": notes, "method": "forged-photo-trace-v1",
               "limits": "窗口平面轮廓取自照片；深度、厚度、侧面斜面与背面来自配方假设。"}
     return recipe, report

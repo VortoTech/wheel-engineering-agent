@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Box, Contrast, Crosshair, Layers2, Rotate3D, ScanLine } from 'lucide-react';
 
 type Runtime = { camera: THREE.PerspectiveCamera; controls: OrbitControls; size: number };
@@ -35,21 +36,26 @@ export function Viewer({ url, building, displayOnly = false, axisMode = 'cad-z-u
     renderer.localClippingEnabled = true;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = inspectionLighting ? 1 : 1.6;
+    renderer.toneMappingExposure = inspectionLighting ? 1 : 1.1;
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
+    // Studio reflections: without an environment map, metal renders flat grey (satin/gloss need
+    // something to reflect). Inspection lighting keeps plain lights for reading surfaces.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const environment = inspectionLighting ? null : pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = environment;
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.09;
     controls.minDistance = 0.3;
     controls.maxDistance = 6000;
-    scene.add(new THREE.HemisphereLight(0xc7defa, 0x404a5e, inspectionLighting ? .7 : 3));
-    const key = new THREE.DirectionalLight(0xf5f6ff, inspectionLighting ? 3 : 4.2);
+    scene.add(new THREE.HemisphereLight(0xc7defa, 0x404a5e, inspectionLighting ? .7 : .4));
+    const key = new THREE.DirectionalLight(0xf5f6ff, inspectionLighting ? 3 : 1.6);
     key.position.set(inspectionLighting ? -4 : 2, 4, inspectionLighting ? 1 : 5); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa6cfff, inspectionLighting ? .35 : 3);
+    const fill = new THREE.DirectionalLight(0xa6cfff, inspectionLighting ? .35 : .5);
     fill.position.set(-3, -1, 2); scene.add(fill);
-    const back = new THREE.DirectionalLight(0xffffff, inspectionLighting ? .5 : 3);
+    const back = new THREE.DirectionalLight(0xffffff, inspectionLighting ? .5 : .8);
     back.position.set(1, 2, -4); scene.add(back);
     const clipping = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
     const materials: THREE.MeshStandardMaterial[] = [];
@@ -92,8 +98,8 @@ export function Viewer({ url, building, displayOnly = false, axisMode = 'cad-z-u
                 : new THREE.MeshStandardMaterial({ color: 0x9ca9bb });
               const dark = Math.max(material.color.r, material.color.g, material.color.b) < 0.3;
               if (dark) material.color.multiplyScalar(1.25);
-              material.metalness = dark ? 0.72 : 0.65;
-              material.roughness = dark ? 0.32 : 0.3;
+              material.metalness = dark ? 0.8 : 0.85;
+              material.roughness = dark ? 0.35 : 0.42;
               material.side = THREE.DoubleSide;
               material.userData.baseColor = material.color.clone();
               material.userData.baseMetalness = material.metalness;
@@ -142,6 +148,7 @@ export function Viewer({ url, building, displayOnly = false, axisMode = 'cad-z-u
       disposed = true; cancelAnimationFrame(frame); observer.disconnect(); controls.dispose();
       if (model) disposeModel(model);
       if (grid) { grid.geometry.dispose(); (grid.material as THREE.Material).dispose(); }
+      environment?.dispose(); pmrem.dispose();
       renderer.dispose(); renderer.domElement.remove(); runtime.current = null;
     };
   }, [url, axisMode, inspectionLighting]);
