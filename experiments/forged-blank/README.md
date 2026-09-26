@@ -11,7 +11,9 @@ Builds a wheel in forging/machining order from one `ForgedWheel` parameter set:
 5. **Back weight pockets** (`back_pocket_skin` > 0): a U-channel milled up under each spoke, leaving `back_pocket_wall` each side and the skin under the machined top; its width follows the real spoke width (tapered stems, widening spokes).
 6. **Lip pockets** (optional) and **lug holes and seats**.
 
-**Window-rim edge breaks are a CAM operation, not CAD geometry.** `edge_break` (mm, 45°) is written to the report's `cam_operations`; the B-Rep keeps sharp rims. Every way of modelling it failed on real wheels (2026-09-23/24): B-Rep fillet/chamfer (0/317 edges), pipe sweeps (zero volume / hung), per-sample ruled wedges (worked, but STEP 3–11× larger: 22–81 MB, with small steps), and single smooth ring tools per window (only the flat WORK wheel succeeded; on faceted/grooved spokes either that cut or the following groove cut returned null shapes). CAM chamfers sharp edges directly, which is also how a real drawing states it.
+**Face chamfers are now built into the cutting tools** (`face_chamfer`, 2026-09-26): each window, flank and pad-pocket tool carries a transverse chamfer facet at its crest, so the B-Rep has real edge breaks without any fillet/chamfer operation on the finished solid; small straight-walled windows get a bevel up to 4 mm in proportion. The history below is why it is done in the tool.
+
+**Window-rim edge breaks were a CAM operation, not CAD geometry (before 2026-09-26).** `edge_break` (mm, 45°) is written to the report's `cam_operations`; the B-Rep keeps sharp rims. Every way of modelling it failed on real wheels (2026-09-23/24): B-Rep fillet/chamfer (0/317 edges), pipe sweeps (zero volume / hung), per-sample ruled wedges (worked, but STEP 3–11× larger: 22–81 MB, with small steps), and single smooth ring tools per window (only the flat WORK wheel succeeded; on faceted/grooved spokes either that cut or the following groove cut returned null shapes). CAM chamfers sharp edges directly, which is also how a real drawing states it.
 
 Facets, grooves and back pockets are lofted along each spoke's actual centreline (bowed arms, swept spokes), not the straight chord: on the bowed HF-6 arms the chord-following pockets had cut one wall down to 11–12 mm of a ~40 mm web.
 
@@ -45,3 +47,17 @@ Volumes use `wheelcam.mass_properties.volume` (Gauss–Kronrod). Plain `Shape.Vo
 - **STEP size** (6–36 MB after moving the edge break to CAM): about 75% is B-spline edge curves that OCC approximates where windows, pockets and grooves meet the curved top/back (WORK: 625 curves, ~65k points). Coarser window sampling or fewer loft sections barely helps (5.7 → 4.0–5.2 MB); `ShapeCustom::BSplineRestriction` at 0.01 mm produced an invalid B-Rep (2026-09-24). Revisit only if a CAM system actually struggles with these files.
 - Not modelled: spoke side pockets, back weight pockets, centre-cap recess, window draft, real rim bead/drop-centre profile, multi-spoke/mesh families.
 - The WORK spokes' slight lean is not matched: `spoke_sweep_deg: 10` made them look like a turbine, so its recipe leaves it at 0.
+
+## HF6-4 benchmark (photo -> style features, 2026-09-26)
+
+`benchmarks/hf64.json` is the frozen outline-family recipe for the Vossen HF6-4 photos with the user's spec
+(20 x 9.5 J, 6 x 139.7, CB 106.1, ET 30): traced windows, hub crease (spoke-root platform), Y-shaped spoke
+pads along the traced skeleton, arm grooves, hub valleys, proportional flanks, dark lip pockets and 2 mm face
+chamfers. Outline wheels build as one spoke sector glued round (~12 min instead of 40).
+
+    CAP_KB=20000000 scripts/capped.sh .venv/bin/python experiments/forged-blank/benchmark.py \
+        --front front.jpg --oblique angle.jpg          # exit 1 when a score is worse than benchmarks/hf64.scores.json
+
+The official photos are not in the repo (branded, benchmark use only). The photographed wheel is most likely
+22" 6 x 135 (its lug circle scales to PCD 134.9 at 22"), so its hub looks smaller than the 106.1 mm bore spec;
+that difference is the spec, not the model.

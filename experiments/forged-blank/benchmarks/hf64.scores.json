@@ -1,0 +1,11 @@
+{
+ "scores": {
+  "front_window_iou": 0.893,
+  "front_edge_mm": 2.6,
+  "oblique_window_iou": 0.506,
+  "oblique_silhouette_iou": 0.837,
+  "oblique_edge_mm": 4.28
+ },
+ "build_seconds": 721,
+ "mass_kg_6061": 14.87
+}
