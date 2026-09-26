@@ -291,3 +291,25 @@ def test_hub_crease_gives_a_sharp_platform_edge():
     circles = [e for e in b.Edges() if e.geomType() == "CIRCLE" and abs(e.radius() - 78) < .01]
     assert any(abs(e.Center().z + 47) < .01 for e in circles)
     assert z_top(recipe_from_dict(FAST), 100) == z_top(recipe_from_dict(dict(FAST, hub_crease_z=-10)), 100)   # off by default
+
+
+def test_spoke_pads_leave_the_spoke_centre_proud():
+    """The face beside each spoke's centre pad is lowered; the pad itself keeps the dish height."""
+    import math
+    import cadquery as cq
+    from wheelcam.forged_blank import blank, face_z, spoke_pad_tools
+    p = recipe_from_dict(dict(FAST, spokes=6, hub_r=60, hub_z=-58, ring_z=-20, concavity_exp=1.0,
+                              spoke_pad_w=26, spoke_pad_depth=7, spoke_pad_r=[80, 150]))
+    tools = spoke_pad_tools(p)
+    body = blank(p)
+    for i in range(6):                                            # every rotation (one used to fail)
+        body = body.cut(tools[0].rotate((0, 0, 0), (0, 0, 1), i * 60))
+        assert body.isValid()
+
+    def top(r, deg):
+        x, y = r * math.cos(math.radians(deg)), r * math.sin(math.radians(deg))
+        probe = cq.Solid.makeCylinder(.2, 300, cq.Vector(x, y, 50), cq.Vector(0, 0, -1))
+        return body.intersect(probe).BoundingBox().zmax
+    assert top(115, 0.5) == pytest.approx(face_z(p, 115), abs=.3)                # on the pad
+    assert 4 < face_z(p, 115) - top(115, 30) < 8                                   # beside it (floor is a chord)
+    assert spoke_pad_tools(recipe_from_dict(FAST)) == []

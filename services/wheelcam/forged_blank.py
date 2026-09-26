@@ -119,6 +119,14 @@ class ForgedWheel:
     hub_arm_w: float = 30.0
     hub_valley_r: tuple = (0.0, 0.0)
     hub_valley_draft_deg: float = 30.0
+    # Spoke pads (0 width = off): the centre of every spoke stands proud as a flat pad spoke_pad_w wide
+    # from spoke_pad_r[0] to spoke_pad_r[1]; the face either side of it (slots, side ribs) is lowered
+    # spoke_pad_depth below the dish, with walls drafted spoke_pad_draft_deg, easing out toward the
+    # fork so the arms keep full height (HF6-4 stem).
+    spoke_pad_w: float = 0.0
+    spoke_pad_depth: float = 6.0
+    spoke_pad_r: tuple = (0.0, 0.0)
+    spoke_pad_draft_deg: float = 35.0
 
 
 def z_top(p, r):
@@ -853,6 +861,48 @@ def hub_valley_tools(p):
     return [cq.Solid.makeLoft(wires, ruled=True)]
 
 
+def spoke_pad_tools(p):
+    """One cut between the pads of spoke 0 and spoke 1 (rotated round by build).
+
+    Sections across the gap, perpendicular to its mid ray: each runs from spoke 0's pad edge to
+    spoke 1's, down the drafted wall to a floor spoke_pad_depth under the dish and back up; the
+    depth eases in and out along the gap (segment_loft fade), so the cut meets the arms at the fork.
+    """
+    r0, r1 = p.spoke_pad_r
+    if p.spoke_pad_w <= 0 or p.spoke_pad_depth <= 0 or r1 <= r0:
+        return []
+    mid = math.pi / p.spokes
+    half = p.spoke_pad_w / 2
+    m = np.array([math.cos(mid), math.sin(mid)])
+    n = np.array([-math.sin(mid), math.cos(mid)])
+    run = p.spoke_pad_depth * math.tan(math.radians(p.spoke_pad_draft_deg)) / math.cos(mid)
+    e1 = np.array([-math.sin(2 * mid), math.cos(2 * mid)])        # spoke 1's frame y axis
+    face = lambda q: face_z(p, float(np.hypot(*q)))
+
+    def section(fade, at, t):
+        c = np.array(at(0.0))
+        s0 = (half - c[1]) / n[1]                                  # spoke 0 pad edge: y = +half
+        s1 = (-half - c @ e1) / (n @ e1)                           # spoke 1 pad edge: y1 = -half
+        # The drafted wall carries on 3 mm above the face before turning vertical: a section vertex
+        # lying on the dish put a tool edge on the blank's face and the cuts failed.
+        over = 3.0 / p.spoke_pad_depth
+        a, b = c + (s0 - over * run) * n, c + (s1 + over * run) * n
+        fa, fb = c + (s0 + run) * n, c + (s1 - run) * n
+        depth = p.spoke_pad_depth * fade
+        za, zb = face(c + s0 * n) + 3.0 * fade, face(c + s1 * n) + 3.0 * fade
+        return [(*a, za + 30), (*a, za), (*fa, face(fa) - depth), (*fb, face(fb) - depth), (*b, zb), (*b, zb + 30)]
+
+    # Smooth loft (one surface per section side): a ruled loft's 16 strips per side made cuts fail
+    # at some rotations (invalid solids at 180 deg but not at 120 deg, 2026-09-26).
+    wires = []
+    for t in np.linspace(0, 1, 9):
+        fade = min(1.0, t / .25, (1 - t) / .25)
+        c = (r0 + t * (r1 - r0)) * m
+        quad = section(fade, lambda s_, c=c: tuple(c + s_ * n), t)
+        wires.append(cq.Wire.makePolygon([cq.Vector(*q) for q in quad], close=True))
+    return [cq.Solid.makeLoft(wires, ruled=False)]
+
+
 def lug_tools(p):
     tools = []
     for i in range(p.bolts):
@@ -915,6 +965,7 @@ def build(p):
     apply('spoke_grooves_outline', outline_groove_tools(p), rotate=True)
     apply('back_pockets', back_pocket_cutters(p), rotate=True)
     apply('lip_pockets', lip_pockets(p))
+    apply('spoke_pads', spoke_pad_tools(p), rotate=True)
     apply('hub_valleys', hub_valley_tools(p), rotate=True)
     apply('lug_holes_and_seats', lug_tools(p))
     if surfaced:
@@ -956,7 +1007,7 @@ def recipe_from_dict(data: dict) -> ForgedWheel:
     unknown = sorted(set(data) - known)
     if unknown:
         raise ValueError(f"锻坯配方包含未知字段：{unknown}")
-    for key in ('lip_pocket_r', 'groove_offsets', 'hub_valley_r', 'outline_groove_r'):
+    for key in ('lip_pocket_r', 'groove_offsets', 'hub_valley_r', 'outline_groove_r', 'spoke_pad_r'):
         if key in data:
             data[key] = tuple(data[key])
     if 'stem_slots' in data:
