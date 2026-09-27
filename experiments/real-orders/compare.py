@@ -45,9 +45,9 @@ def compare(run: Path, case: Path) -> dict:
     rim = [_to_polyline(q, ours) for q in edges[edges[:, 0] > 200]]
     hub = [_to_polyline(q, ours) for q in edges[edges[:, 0] < 120]]
     checks = {}
-    report = run / "engineering_report.json"
-    if report.exists():
-        checks = json.loads(report.read_text()).get("checks", {})
+    for name in ("engineering_report.json", "machining_report.json"):     # wheel_skill run or machining STEP
+        if (run / name).exists():
+            checks = json.loads((run / name).read_text()).get("checks", {})
     measured = lambda k: checks.get(k, {}).get("measured_mm", checks.get(k, {}).get("derived_mm"))
     rows = {
         "lip_od_mm": (measured("outer_diameter") or 2 * p.lip_r, truth.get("lip_od_mm")),
