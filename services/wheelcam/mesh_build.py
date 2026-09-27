@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-from .forged_blank import (PAD_MIN_HALF, POCKET_SKIN, face_z, hub_valley_tools, offset_dish_profile,
+from .forged_blank import (PAD_MIN_HALF, POCKET_SKIN, face_z, hub_valley_tools, offset_dish_profile, seat_cone_height,
                            outline_groove_tools, recipe_from_dict, spoke_centrelines, spoke_pad_tools,
                            window_envelope_profile, window_rings, z_back, z_top)
 
@@ -113,6 +113,9 @@ def lug_tools(p):
         tools.append(_cylinder(p.bolt_d / 2, -p.width - 10, 10, x, y))
         seat_z = p.hub_z - p.seat_depth
         tools.append(_cylinder(p.seat_d / 2, seat_z, seat_z + 40, x, y))
+        if p.seat_cone_deg > 0:                                      # conical seat down to the hole
+            h = seat_cone_height(p)
+            tools.append(m3.Manifold.cylinder(h, p.bolt_d / 2, p.seat_d / 2, 96).translate([x, y, seat_z - h]))
         if p.lug_pocket_d > p.seat_d:
             z0 = p.hub_z - p.lug_pocket_depth
             if p.lug_pocket_sides >= 3:

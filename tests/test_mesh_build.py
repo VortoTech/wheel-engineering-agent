@@ -99,3 +99,22 @@ def test_ridge_pads_keep_the_spine_and_slope_to_the_spoke_edges():
     spine, side = top(q), top(q + n * (min(8, .45 * h) + .6 * (h - min(8, .45 * h))))
     assert spine == pytest.approx(face_z(p, float(np.hypot(*q))), abs=.6)
     assert spine - side > 1.0, (spine, side)
+
+
+def test_conical_seat_from_the_order_hole_form():
+    """A "15X32X60" hole form: 15 mm hole, 32 mm seat narrowing at 60 deg (the real orders' seats)."""
+    import math
+    from wheelcam.forged_blank import hole_form, seat_cone_height
+    from wheelcam.mesh_build import _cylinder, build
+    assert hole_form("15X32X60") == {"bolt_d": 15.0, "seat_d": 32.0, "seat_cone_deg": 60.0}
+    assert hole_form("15*32*60") and not hole_form("32X15X60") and not hole_form("锥孔")
+    p = recipe_from_dict({**outline_recipe(), **hole_form("15X32X60")})
+    h = seat_cone_height(p)
+    assert h == pytest.approx(8.5 / math.tan(math.radians(30)))
+    body, _ = build(p)
+    a = math.radians(180 / p.spokes)
+    x, y = p.pcd / 2 * math.cos(a), p.pcd / 2 * math.sin(a)
+    seat_z = p.hub_z - p.seat_depth
+    ring = lambda r, z: (body ^ (_cylinder(r + .3, z - .2, z + .2, x, y, 64) - _cylinder(r - .3, z - .3, z + .3, x, y, 64))).volume()
+    assert ring(10.5, seat_z - h / 2) < 1e-3                     # open half way down the cone (r 11.75 there)
+    assert ring(9.5, seat_z - h - .5) > 1.0                      # below it only the 15 mm hole

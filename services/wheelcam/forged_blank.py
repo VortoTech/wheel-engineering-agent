@@ -12,6 +12,7 @@ grooved spokes (smooth ring tools, 2026-09-23/24). CAM chamfers sharp edges dire
 """
 import math
 import os
+import re
 import time
 from dataclasses import asdict, dataclass, fields, replace
 
@@ -115,6 +116,9 @@ class ForgedWheel:
     bolt_d: float = 22.0
     seat_d: float = 40.0
     seat_depth: float = 22.0
+    # Conical lug seat (0 = a flat counterbore): the seat_d pocket ends in a cone of this included
+    # angle narrowing to the bolt hole, as a "15X32X60" hole form (hole 15, seat 32, 60 deg) orders.
+    seat_cone_deg: float = 0.0
     # Styling pocket around each lug on the hub face (0 = off): a shallow counterbore wider than the seat.
     lug_pocket_d: float = 0.0
     lug_pocket_depth: float = 8.0
@@ -1182,6 +1186,26 @@ def _pad_rings(p, pts, run, samples=220):
             *top, np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
 
 
+HOLE_FORM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[X*x×]\s*(\d+(?:\.\d+)?)\s*[X*x×]\s*(\d+(?:\.\d+)?)")
+
+
+def hole_form(text):
+    """{bolt_d, seat_d, seat_cone_deg} of an order's hole form "15X32X60" (hole, seat, included
+    angle), or {} when it does not read."""
+    m = HOLE_FORM_RE.fullmatch(str(text or "").strip())
+    if not m:
+        return {}
+    hole, seat, angle = (float(v) for v in m.groups())
+    if not (hole < seat and 30 <= angle <= 120):
+        return {}
+    return {"bolt_d": hole, "seat_d": seat, "seat_cone_deg": angle}
+
+
+def seat_cone_height(p):
+    """Depth of the conical seat from seat_d down to the bolt hole."""
+    return (p.seat_d - p.bolt_d) / 2 / math.tan(math.radians(p.seat_cone_deg / 2))
+
+
 def lug_tools(p):
     """One tool per lug: bolt hole, seat counterbore and pocket fused. Cut one after another, the
     seat of one HF6-5 lug gave an invalid solid whatever its size or a small turn; fused, it cut
@@ -1192,6 +1216,9 @@ def lug_tools(p):
         parts = [cq.Workplane('XY', origin=(x, y, -p.width)).circle(p.bolt_d / 2).extrude(p.width + 10).val()]
         seat_z = p.hub_z - p.seat_depth
         parts.append(cq.Workplane('XY', origin=(x, y, seat_z)).circle(p.seat_d / 2).extrude(40).val())
+        if p.seat_cone_deg > 0:
+            h = seat_cone_height(p)
+            parts.append(cq.Solid.makeCone(p.bolt_d / 2, p.seat_d / 2, h, cq.Vector(x, y, seat_z - h)))
         if p.lug_pocket_d > p.seat_d:
             wp = cq.Workplane('XY', origin=(x, y, p.hub_z - p.lug_pocket_depth))
             if p.lug_pocket_sides >= 3:
