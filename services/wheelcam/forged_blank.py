@@ -118,7 +118,7 @@ class ForgedWheel:
     # Hub valleys (0 depth = off): the hub face between neighbouring arms is dropped, so the arms run
     # in as ridges to a ring round the bore and each lug sits in a valley (HF6-4 style). The valley's
     # top edge (what a front photo shows) follows the arm edges (arms hub_arm_w wide, straight) and
-    # hub_valley_r = (inner, outer) radius (0 = auto: bore + 6, the window tips); walls drafted
+    # hub_valley_r = (inner, outer) radius (0 = auto: the first radius from bore + 6 whose floor fits, the window tips); walls drafted
     # hub_valley_draft_deg down to a flat floor.
     hub_valley_depth: float = 0.0
     hub_arm_w: float = 30.0
@@ -375,8 +375,13 @@ def windows(p, outlines):
             # Small windows: straight walls with a chamfer in proportion (the official fork triangle and
             # slots have a 3-4 mm dark bevel), instead of a thin flank loft that OCC cut badly.
             bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach)) if p.face_chamfer > 0 else 0.0
-            tools.append(_flanked_window(p, pts=outlines[i], spoke_w=width, max_reach=reach) if reach >= MIN_FLANK
-                         else _prism_window(p, outlines[i], chamfer=bevel))
+            tool = None
+            if reach >= MIN_FLANK:
+                try:
+                    tool = _flanked_window(p, pts=outlines[i], spoke_w=width, max_reach=reach)
+                except FoldError:
+                    bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0))   # HF-3's slim windows (2026-09-26)
+            tools.append(tool if tool is not None else _prism_window(p, outlines[i], chamfer=bevel))
         return tools
     return cq.Compound.makeCompound([_prism_window(p, pts) for pts in outlines])
 
@@ -479,6 +484,10 @@ def _crossing_segments(loop):
     return np.flatnonzero(hit.any(axis=1))
 
 
+class FoldError(ValueError):
+    """A flank offset that folds over itself however far its reach is pulled in."""
+
+
 def _unfold(xy, normal, reach, rounds=60):
     """Widened flank loop without folds: points where the offset loop runs backwards or crosses
     itself are relaxed toward their neighbours until the loop is simple.
@@ -507,7 +516,7 @@ def _unfold(xy, normal, reach, rounds=60):
         pull = np.zeros(n)
         pull[hit] = 1
         reach *= 1 - .3 * np.minimum(gaussian_filter1d(pull, 4, mode='wrap') * 4, 1)
-    raise ValueError('flank offset still folds; lower flank_w')
+    raise FoldError('flank offset still folds; lower flank_w')
 
 
 def round_corners(face, radius, min_turn_deg=25):
@@ -751,7 +760,63 @@ def outline_window_tools(p, samples=200):
         outlines.append([wire.positionAt(i / samples).toTuple()[:2] for i in range(samples)])
     envelope = _window_envelope(p)
     tools = windows(p, outlines)
-    return [t.intersect(envelope) for t in (tools if isinstance(tools, list) else [tools])]
+    trimmed = []
+    for t, pts in zip(tools if isinstance(tools, list) else [tools], outlines):
+        out = _trim(t, envelope)
+        if not out.Solids() and isinstance(tools, list):
+            # The flank limited by the neighbouring windows made one HF6-5 window untrimmable; the
+            # same window flanked on its own trimmed fine (2026-09-26).
+            alone = windows(p, [pts])[0]
+            out = _trim(alone, envelope)
+        trimmed.append(out)
+    trimmed = _borrow_trimmed(trimmed, outlines)
+    bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0)) if p.face_chamfer > 0 else 0.0
+    for t, pts in zip(trimmed, outlines):
+        # Straight walls with a bevel when the flanked cut fails in the body (HF-5, 2026-09-26).
+        t.fallback = lambda pts=pts: _prism_window(p, pts, chamfer=bevel).intersect(envelope)
+    return trimmed
+
+
+def _trim(tool, envelope):
+    """tool & envelope, retried (fuzzy, turned, operands swapped, envelope seam moved) when OCC returns
+    nothing (every copy of one HF6-5 window did, 2026-09-26); still empty is left for _borrow_trimmed."""
+    z = ((0, 0, 0), (0, 0, 1))
+    for attempt in (lambda: tool.intersect(envelope), lambda: tool.intersect(envelope, tol=1e-3),
+                    lambda: tool.rotate(*z, .01).intersect(envelope), lambda: envelope.intersect(tool),
+                    lambda: envelope.rotate(*z, 7.0).intersect(tool)):     # the revolve's seam elsewhere
+        out = attempt()
+        if out.Solids():
+            return out
+    return out
+
+
+def _borrow_trimmed(trimmed, outlines):
+    """Fill a window whose trim came out empty with the same window of another spoke group, turned
+    back. One window of HF6-5 trimmed to nothing whatever was tried (flanked or straight-walled,
+    fuzzy, turned) while its copies in the other groups trimmed after a retry (2026-09-26)."""
+    def key(pts):
+        xy = np.asarray(pts, float)
+        c = xy.mean(axis=0)
+        area = .5 * abs(np.sum(xy[:, 0] * np.roll(xy[:, 1], -1) - np.roll(xy[:, 0], -1) * xy[:, 1]))
+        return math.hypot(*c), math.degrees(math.atan2(c[1], c[0])), area
+    keys = [key(pts) for pts in outlines]
+    out = list(trimmed)
+    for i, tool in enumerate(trimmed):
+        if tool.Solids():
+            continue
+        r, a, area = keys[i]
+        mine = np.asarray(outlines[i], float)
+
+        def turned_onto_mine(j):          # a rotation of window i, not its mirror image in the group
+            t = math.radians(a - keys[j][1])
+            xy = np.asarray(outlines[j], float) @ np.array([[math.cos(t), math.sin(t)], [-math.sin(t), math.cos(t)]])
+            return np.min(np.linalg.norm(mine[:, None] - xy[None], axis=2), axis=1).max() < 1.0
+        twins = [j for j, (rj, _, aj) in enumerate(keys) if j != i and trimmed[j].Solids()
+                 and abs(rj - r) < 1.0 and abs(aj - area) < .01 * area and turned_onto_mine(j)]
+        if not twins:
+            raise RuntimeError('window tool: trimming to the window envelope gives nothing (OCC boolean failure)')
+        out[i] = trimmed[twins[0]].rotate((0, 0, 0), (0, 0, 1), a - keys[twins[0]][1])
+    return out
 
 
 def window_pocket_tools(p):
@@ -870,6 +935,27 @@ def lip_pockets(p):
     return [tool.rotate((0, 0, 0), (0, 0, 1), i * pitch) for i in range(p.lip_pockets)]
 
 
+def _valley_radii(p):
+    """(r_in, r_out) of a hub valley's top outline. An unset r_in moves out from bore + 6 until the
+    floor (arms widened by the draft run) leaves room for its fillets; None when it never does."""
+    run = p.hub_valley_depth * math.tan(math.radians(p.hub_valley_draft_deg))
+    mid, fillet = 180 / p.spokes, 3.0
+    r_in, r_out = p.hub_valley_r
+    r_out = r_out or min(p.pcd / 2 + max(p.lug_pocket_d, p.seat_d) / 2 + 6, p.window_r_in - 3)
+    if r_in:
+        return r_in, r_out
+    half = p.hub_arm_w / 2 + run
+
+    def fits(r):
+        ri = r + run
+        return ri > half and ri * math.radians(2 * (mid - math.degrees(math.asin(half / ri)))) >= 2 * fillet + 2
+
+    for r in np.arange(p.center_bore_r + 6, r_out - 2 * run - 2 * fillet - 2, .5):
+        if fits(r):
+            return float(r), r_out
+    return None
+
+
 def hub_valley_tools(p):
     """One valley between spoke 0 and spoke 1 (rotated round by build): flat floor at hub_z - depth,
     drafted walls up to the face, vertical above.
@@ -883,9 +969,10 @@ def hub_valley_tools(p):
         return []
     run = p.hub_valley_depth * math.tan(math.radians(p.hub_valley_draft_deg))
     mid = 180 / p.spokes
-    r_in, r_out = p.hub_valley_r
-    r_in = r_in or p.center_bore_r + 6
-    r_out = r_out or min(p.pcd / 2 + max(p.lug_pocket_d, p.seat_d) / 2 + 6, p.window_r_in - 3)
+    radii = _valley_radii(p)
+    if radii is None:
+        raise ValueError(f'hub valley has no floor: arm {p.hub_arm_w} mm, draft run {run:.1f} mm')
+    r_in, r_out = radii
     fillet = 3.0
 
     def outline(inset, z):
@@ -966,7 +1053,9 @@ def spoke_pad_tools(p):
         loop = max(_cell_boundary_loops(region), key=len)
         pts = np.array([(c_ * res - half, half - r_ * res) for r_, c_ in loop])
         pts = _polygon_loop(pts, corner_r=run + 1.5)
-        tools.append(_pad_pocket(p, pts, run).intersect(floor))
+        tool = _pad_pocket(p, pts, run).intersect(floor)
+        if tool.Solids():                  # a pocket wholly above the offset dish cuts nothing (HF6-5)
+            tools.append(tool)
     return tools
 
 
@@ -1011,21 +1100,25 @@ def _pad_pocket(p, pts, run, samples=220):
 
 
 def lug_tools(p):
+    """One tool per lug: bolt hole, seat counterbore and pocket fused. Cut one after another, the
+    seat of one HF6-5 lug gave an invalid solid whatever its size or a small turn; fused, it cut
+    clean (2026-09-26)."""
     tools = []
     for i in range(p.bolts):
         x, y = polar(p.pcd / 2, 180 / p.spokes + i * 360 / p.bolts)
-        tools.append(cq.Workplane('XY', origin=(x, y, -p.width)).circle(p.bolt_d / 2).extrude(p.width + 10).val())
+        parts = [cq.Workplane('XY', origin=(x, y, -p.width)).circle(p.bolt_d / 2).extrude(p.width + 10).val()]
         seat_z = p.hub_z - p.seat_depth
-        tools.append(cq.Workplane('XY', origin=(x, y, seat_z)).circle(p.seat_d / 2).extrude(40).val())
+        parts.append(cq.Workplane('XY', origin=(x, y, seat_z)).circle(p.seat_d / 2).extrude(40).val())
         if p.lug_pocket_d > p.seat_d:
             wp = cq.Workplane('XY', origin=(x, y, p.hub_z - p.lug_pocket_depth))
             if p.lug_pocket_sides >= 3:
                 angle = math.degrees(math.atan2(y, x))
                 corners = [polar(p.lug_pocket_d / 2, angle + 180 + k * 360 / p.lug_pocket_sides) for k in range(p.lug_pocket_sides)]
                 sketch = cq.Sketch().polygon(corners + [corners[0]]).vertices().fillet(3)
-                tools.append(wp.placeSketch(sketch).extrude(40).val())
+                parts.append(wp.placeSketch(sketch).extrude(40).val())
             else:
-                tools.append(wp.circle(p.lug_pocket_d / 2).extrude(40).val())
+                parts.append(wp.circle(p.lug_pocket_d / 2).extrude(40).val())
+        tools.append(parts[0].fuse(*parts[1:]).clean())
     return tools
 
 
@@ -1048,13 +1141,16 @@ def _robust_cut(body, tool, name):
     wheel axis (far below machining tolerance), then a fuzzy boolean. One slot-pocket cut of HF6-4
     came out invalid while its mirror image cut clean; both retries fixed it (2026-09-26)."""
     def tidy(shape):
-        # Zero-volume slivers (a window meeting the lip-pocket climb, 2026-09-26) are dropped;
-        # a real loose piece (a window plug) is kept and caught by the caller.
+        # Zero-volume slivers (a window meeting the lip-pocket climb, 2026-09-26) and free faces or
+        # shells left beside the solid (HF6-1 stem slots) are dropped; a real loose piece (a window
+        # plug) is kept and caught by the caller.
         solids = shape.Solids()
-        if len(solids) > 1:
-            keep = [x for x in solids if x.Volume() > 1.0]
-            if len(keep) < len(solids):
-                shape = keep[0] if len(keep) == 1 else cq.Compound.makeCompound(keep)
+        keep = [x for x in solids if x.Volume() > 1.0] if len(solids) > 1 else solids
+        if not keep:
+            return shape
+        loose = len(shape.Faces()) != sum(len(x.Faces()) for x in solids)
+        if len(keep) < len(solids) or loose:
+            shape = keep[0] if len(keep) == 1 else cq.Compound.makeCompound(keep)
         return shape
     cut = tidy(body.cut(tool))
     if cut.isValid():
@@ -1063,7 +1159,29 @@ def _robust_cut(body, tool, name):
         cut = tidy(retry())
         if cut.isValid():
             return cut
+    # Last: ShapeFix on the plain cut, kept only when it changes no volume (it repaired an HF6-5 lug
+    # seat cut that the retries above could not, 2026-09-26).
+    from OCP.ShapeFix import ShapeFix_Shape
+    cut = tidy(body.cut(tool))
+    fix = ShapeFix_Shape(cut.wrapped)
+    fix.Perform()
+    fixed = cq.Shape.cast(fix.Shape())
+    if fixed.isValid() and len(fixed.Solids()) == len(cut.Solids()) and abs(fixed.Volume() - cut.Volume()) < 1.0:
+        return fixed
     raise RuntimeError(f'{name}: cut gives an invalid solid even after retries (OCC boolean failure)')
+
+
+def _clean_measured(body):
+    """(body, volume) with clean() applied when the cleaned body is valid and still integrates; after
+    the HF6-5 lug cuts it was valid but the volume integration failed (2026-09-26)."""
+    from .mass_properties import VolumeMeasurementError
+    cleaned = body.clean()
+    if cleaned.isValid() and len(cleaned.Solids()) == len(body.Solids()):
+        try:
+            return cleaned, volume(cleaned)
+        except VolumeMeasurementError:
+            pass
+    return body, volume(body)
 
 
 def _build_sector(p):
@@ -1096,16 +1214,47 @@ def _build_sector(p):
         if not whole:
             tools = [t for t in tools if _overlaps(t.BoundingBox(), reach)]
         solids = len(body.Solids())
-        for tool in tools:
-            body = _robust_cut(body, tool, name)
-            bb = body.BoundingBox()          # a cut only removes material (see build)
+        start_body, fallbacks = body, 0
+
+        def guarded(shape, tool):
+            out = _robust_cut(shape, tool, name)
+            bb = out.BoundingBox()           # a cut only removes material (see build)
             if (bb.zmax > limit.zmax + .5 or bb.zmin < limit.zmin - .5 or bb.xmax > limit.xmax + .5
                     or bb.ymax > limit.ymax + .5 or bb.xmin < limit.xmin - .5 or bb.ymin < limit.ymin - .5):
                 raise RuntimeError(f'{name}: a cut added material outside the part (OCC boolean failure)')
-            if len(body.Solids()) > solids:
+            if len(out.Solids()) > solids:
                 raise RuntimeError(f'{name}: a cut left a loose piece (OCC boolean failure)')
-        body = body.clean()
-        stages.append({'op': name, 'removed_mm3': round(before - volume(body), 1), 'valid': body.isValid(),
+            return out
+
+        def cut_all(order):
+            """Cuts in `order`; a failing tool waits for the others, then gets its fallback."""
+            nonlocal fallbacks
+            shape, waiting = start_body, []
+            for tool in order:
+                try:
+                    shape = guarded(shape, tool)
+                except RuntimeError:
+                    waiting.append(tool)
+            for tool in waiting:
+                try:
+                    shape = guarded(shape, tool)
+                except RuntimeError:
+                    if getattr(tool, 'fallback', None) is None:
+                        raise
+                    shape = guarded(shape, tool.fallback())
+                    fallbacks += 1
+            return shape
+
+        # Sequential cuts leave a body some later cut fails on, depending on the order: HF6-5's
+        # windows failed four in a row in trace order and all cut small-first (2026-09-26).
+        try:
+            body = cut_all(tools)
+        except RuntimeError:
+            fallbacks = 0
+            body = cut_all(sorted(tools, key=lambda t: t.Volume()))
+        body, after = _clean_measured(body)
+        stages.append({'op': name, 'removed_mm3': round(before - after, 1), 'valid': body.isValid(),
+                       **({'fallbacks': fallbacks} if fallbacks else {}),
                        'solids': len(body.Solids()), 'seconds': round(time.time() - start, 1)})
 
     apply('face_facets', facet_cutters(p), rotate=True)
@@ -1172,8 +1321,8 @@ def build(p, sector=None):
                 # ... or left the window plug behind as a loose solid (flank lofts, synthetic dish, 2026-09-26).
                 if len(body.Solids()) > len(stock.Solids()):
                     raise RuntimeError(f'{name}: a cut left a loose piece (OCC boolean failure)')
-        body = body.clean()
-        stages.append({'op': name, 'removed_mm3': round(before - volume(body), 1),
+        body, after = _clean_measured(body)
+        stages.append({'op': name, 'removed_mm3': round(before - after, 1),
                        'valid': body.isValid(), 'solids': len(body.Solids()),
                        'seconds': round(time.time() - start, 1)})
 

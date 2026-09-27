@@ -218,6 +218,17 @@ def test_hub_valleys_drop_the_hub_between_the_arms():
         hub_valley_tools(recipe_from_dict(dict(FAST, spokes=6, hub_valley_depth=12, hub_arm_w=70)))
 
 
+def test_hub_valleys_move_out_until_the_floor_fits():
+    """Wide arms leave no floor at bore + 6 (HF6-5, 2026-09-26): the auto inner radius moves out instead."""
+    from wheelcam.forged_blank import _valley_radii, hub_valley_tools
+    narrow = recipe_from_dict(dict(FAST, spokes=6, bolts=6, seat_d=27.5, hub_valley_depth=12, hub_arm_w=30))
+    wide = recipe_from_dict(dict(FAST, spokes=6, bolts=6, seat_d=27.5, hub_valley_depth=12, hub_arm_w=50))
+    assert _valley_radii(narrow)[0] == narrow.center_bore_r + 6
+    assert _valley_radii(wide)[0] > wide.center_bore_r + 6
+    assert hub_valley_tools(wide)[0].isValid()
+    assert _valley_radii(recipe_from_dict(dict(FAST, spokes=6, hub_valley_depth=12, hub_arm_w=70))) is None
+
+
 def test_small_windows_get_a_flank_in_proportion():
     """A 16 mm flank round a 15 mm triangle made a round blob; small windows get <= WINDOW_SHARE x their size."""
     import numpy as np
@@ -374,3 +385,47 @@ def test_sector_build_matches_the_whole_wheel_build():
     _, whole, _ = fb.build(p, sector=False)
     assert sector.isValid() and len(sector.Solids()) == 1
     assert volume(sector) == pytest.approx(volume(whole), rel=1e-3)
+
+
+def test_an_untrimmable_window_borrows_its_copy_from_another_group_not_its_mirror():
+    """HF6-5: one window trimmed to nothing; the same window a pitch round is turned back into place."""
+    import cadquery as cq
+    import numpy as np
+    from wheelcam.forged_blank import _borrow_trimmed
+    tri = np.array([(150, 0), (200, 10), (160, 40)], float)            # asymmetric: its mirror is not a rotation
+    mirror = tri * [1, -1]
+    turn = lambda xy, deg: xy @ np.array([[np.cos(np.radians(deg)), np.sin(np.radians(deg))],
+                                          [-np.sin(np.radians(deg)), np.cos(np.radians(deg))]])
+    outlines = [tri, mirror, turn(tri, 120), turn(mirror, 120)]
+    prism = lambda xy: cq.Workplane('XY').polyline([tuple(q) for q in xy]).close().extrude(10).val()
+    trimmed = [cq.Compound.makeCompound([])] + [prism(xy) for xy in outlines[1:]]
+    out = _borrow_trimmed(trimmed, [xy.tolist() for xy in outlines])
+    bb, want = out[0].BoundingBox(), prism(tri).BoundingBox()
+    assert abs(bb.xmin - want.xmin) < .01 and abs(bb.ymax - want.ymax) < .01 and abs(bb.ymin - want.ymin) < .01
+
+
+def test_a_folding_flank_falls_back_to_a_beveled_straight_window(monkeypatch):
+    """HF-3: a flank offset that folds whatever its reach no longer stops the build."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    p = recipe_from_dict(dict(FAST, flank_w=16, flank_depth=18, face_chamfer=2))
+    loop = [(150 + 60 * np.cos(a), 60 * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 80, endpoint=False)]
+
+    def folds(*args, **kwargs):
+        raise fb.FoldError("flank offset still folds")
+    monkeypatch.setattr(fb, "_flanked_window", folds)
+    tools = fb.windows(p, [loop])
+    assert len(tools) == 1 and tools[0].isValid()
+
+
+def test_robust_cut_drops_free_faces_left_beside_the_solid(monkeypatch):
+    """HF6-1: a stem-slot cut came back as a solid plus free faces, which the volume check rejects."""
+    import cadquery as cq
+    from wheelcam.forged_blank import _robust_cut
+    from wheelcam.mass_properties import volume
+    box = cq.Solid.makeBox(10, 10, 10)
+    stray = cq.Face.makePlane(5, 5, cq.Vector(30, 0, 0))
+    messy = cq.Compound.makeCompound([box, stray])
+    monkeypatch.setattr(cq.Shape, "cut", lambda self, *tools, **kw: messy)
+    out = _robust_cut(box, cq.Solid.makeBox(1, 1, 1, cq.Vector(20, 20, 20)), "test")
+    assert len(out.Faces()) == 6 and volume(out) == pytest.approx(1000, rel=1e-6)

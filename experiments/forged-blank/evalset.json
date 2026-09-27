@@ -1,0 +1,25 @@
+{
+ "_about": "Multi-wheel eval set (2026-09-26): Vossen designs chosen for different structures. Photos are official product shots, not in the repo; put <photos>/<id>/front.jpg and oblique.jpg beside each other. Specs are common fitments of each design, not measured from the photographed wheel; bolts are counted in the photos.",
+ "wheels": [
+  {"id": "hf6-4", "structure": "6 Y-split spokes (Phase 1 benchmark)", "source": "https://vossenwheels.com/wheel/hf6-4/",
+   "spec": {"diameter_in": 22, "width_in": 9.5, "pcd_mm": 139.7, "bolts": 6, "center_bore_mm": 106.1, "et_mm": 25}},
+  {"id": "hf6-5", "structure": "6 groups of fanned arms with an arrow window", "source": "https://vossenwheels.com/wheel/hf6-5/",
+   "spec": {"diameter_in": 24, "width_in": 10, "pcd_mm": 135, "bolts": 6, "center_bore_mm": 87.1, "et_mm": 25}},
+  {"id": "hf-1", "structure": "5 twin straight spokes", "source": "https://vossenwheels.com/wheel/hf-1/",
+   "spec": {"diameter_in": 20, "width_in": 9, "pcd_mm": 112, "bolts": 5, "center_bore_mm": 66.5, "et_mm": 35}},
+  {"id": "hf-2", "structure": "organic branching mesh", "source": "https://vossenwheels.com/wheel/hf-2/",
+   "spec": {"diameter_in": 20, "width_in": 9, "pcd_mm": 120, "bolts": 5, "center_bore_mm": 72.6, "et_mm": 35}},
+  {"id": "hf-3", "structure": "10 split spokes", "source": "https://vossenwheels.com/wheel/hf-3/",
+   "spec": {"diameter_in": 20, "width_in": 9, "pcd_mm": 112, "bolts": 5, "center_bore_mm": 66.5, "et_mm": 35}},
+  {"id": "hf-5", "structure": "5 curved Y-split spokes", "source": "https://vossenwheels.com/wheel/hf-5/",
+   "spec": {"diameter_in": 20, "width_in": 9, "pcd_mm": 114.3, "bolts": 5, "center_bore_mm": 70.5, "et_mm": 35}},
+  {"id": "hf6-1", "structure": "6 pairs of straight spokes (truck)", "source": "https://vossenwheels.com/wheel/hf6-1/",
+   "spec": {"diameter_in": 22, "width_in": 9.5, "pcd_mm": 139.7, "bolts": 6, "center_bore_mm": 106.1, "et_mm": 20}},
+  {"id": "hf6-2", "structure": "6 wide straight spokes with grooves (truck)", "source": "https://vossenwheels.com/wheel/hf6-2/",
+   "spec": {"diameter_in": 22, "width_in": 9.5, "pcd_mm": 139.7, "bolts": 6, "center_bore_mm": 106.1, "et_mm": 20}},
+  {"id": "lcx-01", "structure": "16 thin straight spokes", "source": "https://vossenwheels.com/wheel/lcx-01/",
+   "spec": {"diameter_in": 21, "width_in": 9, "pcd_mm": 112, "bolts": 5, "center_bore_mm": 66.5, "et_mm": 30}},
+  {"id": "gnx-01", "structure": "multi-spoke with a stepped lip", "source": "https://vossenwheels.com/wheel/gnx-01/",
+   "spec": {"diameter_in": 21, "width_in": 9, "pcd_mm": 112, "bolts": 5, "center_bore_mm": 66.5, "et_mm": 30}}
+ ]
+}

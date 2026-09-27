@@ -13,3 +13,4 @@ __pycache__/
 .local/
 artifacts/
 experiments/partpacker-gb10/results/
+runs/

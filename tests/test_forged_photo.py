@@ -163,6 +163,32 @@ def test_trace_outlines_recovers_the_windows(hf6):
     assert len(report["overlay_windows_px"]) == 2 * truth.spokes
 
 
+@pytest.mark.parametrize("lug_offset", [.5, 0.0])
+def test_trace_puts_the_spoke_axis_half_a_pitch_from_the_photo_lugs(hf6, lug_offset):
+    """The model's lugs sit half a pitch off the spoke axis; lugs in the photo pick which mirror axis
+    that is (HF6-5's arrow window fooled the material test and put the lugs on the spokes, 2026-09-26)."""
+    from PIL import Image, ImageDraw
+    from wheelcam.forged_photo import _lug_angle, trace_outlines
+    truth, base, rim, hub, _, photo = hf6
+    project = camera(truth)
+    pitch = 2 * math.pi / truth.spokes
+    image = Image.fromarray((photo * 255).astype(np.uint8))
+    draw = ImageDraw.Draw(image)
+    for i in range(truth.bolts):
+        t = (lug_offset + i) * pitch * truth.spokes / truth.bolts
+        cx, cy = truth.pcd / 2 * math.cos(t), truth.pcd / 2 * math.sin(t)
+        draw.polygon([tuple(project(cx + 7 * math.cos(u), cy + 7 * math.sin(u))) for u in np.linspace(0, 2 * math.pi, 24)],
+                     fill=(245, 245, 245))
+    photo = np.asarray(image, float) / 255
+    recipe, report = trace_outlines(photo, base, rim, hub, truth.spokes)
+    from wheelcam.forged_photo import FaceMap
+    lug, contrast = _lug_angle(photo, recipe_from_dict(base), FaceMap(recipe_from_dict(base), rim, hub))
+    assert contrast > .15
+    lug_pitch = 2 * math.pi / truth.bolts
+    off = (lug - math.radians(report["axis_deg"]) - pitch / 2 + lug_pitch / 2) % lug_pitch - lug_pitch / 2
+    assert abs(math.degrees(off)) < 4, math.degrees(off)
+
+
 def test_outline_recipe_validation():
     with pytest.raises(ValueError, match="outlines"):
         recipe_from_dict({"family": "outline"})

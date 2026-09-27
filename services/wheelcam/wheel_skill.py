@@ -34,6 +34,9 @@ KEY_SPECS = {                      # spec key -> what it fixes; all are needed f
     "et_mm": "offset ET (mounting face)",
 }
 BORE_WALL = 3.0                    # least wall between a lug seat counterbore and the centre bore, mm
+WEB_HUB = (35.0, 60.0)             # hub web thickness a forged centre is given, mm
+RING_Z_MAX = -5.0                  # the spoke ring stays this far under the lip face, mm
+SEAT_D = 30.0                      # lug seat counterbore, mm: a 22 mm hex socket (~28 mm OD) plus clearance
 UNOBSERVABLE = {                   # never measured from photos; listed with the value used
     "back_side": "背面减重腔、背部结构：照片看不到，按模板默认（当前关闭）。",
     "spoke_chamfer_depth": "辐条斜切深度：照片测不到，按默认值。",
@@ -75,11 +78,14 @@ def envelope_from_specs(spec: dict) -> tuple[dict, dict]:
         prov["hub_r"] = _record(upd["hub_r"], "estimate", None, "PCD/2 + 10 mm")
     # Lug seat counterbore vs centre bore: 6 x 139.7 with a 106.1 bore leaves 16.8 mm from lug centre
     # to bore wall, and the template's 40 mm seat cut 3 mm into the bore (HF6-4, 2026-09-25).
+    # The template's 40 mm also dwarfed the lugs where the bore left room (HF6-5, 2026-09-26): start
+    # from SEAT_D, a 22 mm hex socket's wall plus clearance.
     room = upd.get("pcd", base.pcd) / 2 - upd.get("center_bore_r", base.center_bore_r) - BORE_WALL
-    if base.seat_d / 2 > room:
-        upd["seat_d"] = math.floor(room * 4) / 2
-        prov["seat_d"] = _record(upd["seat_d"], "estimate", None,
-                                 f"模板锥座让位孔 {base.seat_d} mm 会切进中心孔，缩到中心孔壁留 {BORE_WALL} mm；需按螺母规格确认")
+    upd["seat_d"] = min(SEAT_D, math.floor(room * 4) / 2)
+    note = f"M14 螺母 22 mm 套筒外径加间隙 {SEAT_D} mm"
+    if upd["seat_d"] < SEAT_D:
+        note = f"{SEAT_D} mm 会切进中心孔，缩到中心孔壁留 {BORE_WALL} mm"
+    prov["seat_d"] = _record(upd["seat_d"], "estimate", None, note + "；需按螺母规格确认")
     return upd, prov
 
 
@@ -168,7 +174,8 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
     Returns (recipe updates, provenance, questions).
     """
     import numpy as np
-    from .forged_blank import PAD_MIN_HALF, face_z, recipe_from_dict as rfd, spoke_centrelines
+    from dataclasses import replace
+    from .forged_blank import PAD_MIN_HALF, _valley_radii, face_z, recipe_from_dict as rfd, spoke_centrelines
     p = rfd(recipe)
     upd, prov, questions = dict(FORGED_Y), {}, []
     given = {k: (style or {}).get(k) for k in STYLE_KEYS}
@@ -201,10 +208,36 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
         prov["arm_groove"] = _record(upd["outline_groove_r"], "rule", None, "分叉后 8 mm 到轮唇内 8 mm")
     if on["hub_valleys"]:
         upd["hub_arm_w"] = round(pad_w + 2, 1)
-        prov["hub_valleys"] = _record({"arm_w": upd["hub_arm_w"], "depth": upd["hub_valley_depth"]}, "rule", None, "凸台宽 + 2 mm")
-    else:
+        radii = _valley_radii(replace(p, hub_arm_w=upd["hub_arm_w"], hub_valley_depth=upd["hub_valley_depth"],
+                                      hub_valley_draft_deg=upd["hub_valley_draft_deg"]))
+        if radii is None:
+            on["hub_valleys"] = False
+            prov["hub_valleys"] = _record(False, "rule", None, "辐条根部放不下谷底")
+            questions.append("辐条根部太挤，放不下中心谷，已省略。")
+        else:
+            prov["hub_valleys"] = _record({"arm_w": upd["hub_arm_w"], "depth": upd["hub_valley_depth"], "r": [round(x, 1) for x in radii]},
+                                          "rule", None, "凸台宽 + 2 mm；谷底放得下圆角处起")
+    if not on["hub_valleys"]:
         upd["hub_valley_depth"] = 0.0
     return upd, prov, questions
+
+
+def _hold_hub_web(recipe: dict) -> str | None:
+    """Keep the hub web (hub face to mounting face, set by ET) within WEB_HUB by moving the hub face.
+
+    The photo's dish depth is overruled when it leaves the web outside forging practice: HF6-5's 3/4
+    shot gave 23.5 mm (lug seats nearly through) with one camera and 85 mm (a flat face) with
+    another (2026-09-26). The spoke ring stays above the hub and at least RING_Z_MAX under the lip.
+    Returns a note when it changed anything.
+    """
+    web = recipe["web_thick_hub"]
+    if WEB_HUB[0] <= web <= WEB_HUB[1]:
+        return None
+    fixed = min(max(web, WEB_HUB[0]), WEB_HUB[1])
+    recipe["hub_z"] = round(recipe["hub_z"] + fixed - web, 1)
+    recipe["web_thick_hub"] = fixed
+    recipe["ring_z"] = min(max(recipe["ring_z"], recipe["hub_z"] + 10), RING_Z_MAX)
+    return f'斜视图测得的凹面深度会让中心盘厚 {web} mm，超出锻造常用 {WEB_HUB[0]:.0f}–{WEB_HUB[1]:.0f} mm，已按 {fixed:.0f} mm 建模'
 
 
 def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None, oblique_rim_hub=None,
@@ -218,7 +251,7 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
     upd, prov_env = envelope_from_specs(spec)
     prov.update(prov_env)
     if prov.get("seat_d", {}).get("source") == "estimate":
-        questions.append(f'螺母座让位孔按 {upd["seat_d"]} mm 建模（模板 40 mm 会切进中心孔）：请提供螺母规格'
+        questions.append(f'螺母座让位孔按 {upd["seat_d"]} mm 建模（{prov["seat_d"]["note"]}）：请提供螺母规格'
                          '（锥座/球座、座面直径、套筒外径），确认这个尺寸能装。')
     base = {**asdict(ForgedWheel()), **upd}
 
@@ -254,8 +287,11 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
     if et is not None:
         recipe["web_thick_hub"] = round(recipe["hub_z"] + recipe["width"] / 2 - et, 1)
         prov["et"] = _record(et, "spec", 1.0, "由 ET 反推安装面位置（中心背面厚度随之调整）")
-        if recipe["web_thick_hub"] < 25:
-            questions.append(f'ET {et} 与测得的凹面深度矛盾：中心只剩 {recipe["web_thick_hub"]} mm 厚。请核对 ET 或斜视图。')
+        note = _hold_hub_web(recipe)
+        if note:
+            prov["dish_depth"] = _record({"hub_z": recipe["hub_z"], "ring_z": recipe["ring_z"]}, "rule", None, note)
+            questions.append(f'{note}（ET {et}）：请核对 ET，或提供更清晰的斜视图 / 凹面深度。')
+    recipe["ring_z"] = min(recipe["ring_z"], RING_Z_MAX)
     if style is not False:                         # False: plain traced wheel (no style features)
         s_upd, s_prov, s_q = style_features(recipe, style)
         recipe.update(s_upd); prov.update(s_prov); questions += s_q
@@ -280,10 +316,12 @@ def verify(step_path, recipe, spec: dict, report: dict) -> dict:
     holes = []
     for f in part.Faces():
         if f.geomType() == "CYLINDER":
-            r = f._geomAdaptor().Cylinder().Radius()
-            if abs(2 * r - recipe.bolt_d) < .05:
-                c = f.Center()
-                holes.append((math.hypot(c.x, c.y), math.degrees(math.atan2(c.y, c.x)) % 360))
+            cyl = f._geomAdaptor().Cylinder()
+            if abs(2 * cyl.Radius() - recipe.bolt_d) < .05:
+                # The axis, not the face centre: a hole split by a sector seam is two half cylinders
+                # whose centres sit off the axis (HF6-2, 2026-09-26).
+                c = cyl.Location()
+                holes.append((math.hypot(c.X(), c.Y()), math.degrees(math.atan2(c.Y(), c.X())) % 360))
     angles = sorted({round(a, 1) for _, a in holes})
     spacing_ok = len(angles) == recipe.bolts and all(
         abs(((angles[(i + 1) % len(angles)] - angles[i]) % 360) - 360 / recipe.bolts) < .2 for i in range(len(angles)))

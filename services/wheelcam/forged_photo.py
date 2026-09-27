@@ -279,26 +279,34 @@ def _refine(recipe, grid, target, p, max_evaluations=250):
 AUTO_DR_MM, AUTO_DTH_DEG = 1.0, .5
 
 
-def _sector_stack(image, p, face, groups):
+def _sector_stack(image, p, face, groups, arc=None):
+    """Every sector's samples, or with `arc` = (start, length) rad only the whole sectors inside it."""
     from scipy.ndimage import map_coordinates
     pitch = 2 * math.pi / groups
     rs = np.arange(p.hub_r + 4, p.ring_r - 1, AUTO_DR_MM)
     ths = np.radians(np.arange(0, math.degrees(pitch), AUTO_DTH_DEG))
     rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    start, count = (0.0, groups) if arc is None else (arc[0], int(arc[1] // pitch + 1e-9))
     stack = []
-    for k in range(groups):
-        xy = face.to_image(rr.ravel(), (tt + k * pitch).ravel())
+    for k in range(count):
+        xy = face.to_image(rr.ravel(), (tt + start + k * pitch).ravel())
         stack.append(np.stack([map_coordinates(image[..., c], [xy[:, 1], xy[:, 0]], order=1, mode="nearest").reshape(rr.shape)
                                for c in range(3)], -1))
     return np.array(stack), rs, ths
 
 
-def auto_group_count(image, base: dict, rim_points, hub_point, candidates=range(3, 13)):
-    """Rotational repeat count of the spoke pattern. Returns (count, {n: mean sector spread})."""
+def auto_group_count(image, base: dict, rim_points, hub_point, candidates=range(3, 13), arc=None):
+    """Rotational repeat count of the spoke pattern. Returns (count, {n: mean sector spread}).
+
+    `arc` (start, length rad): compare only the sectors inside it, for an oblique photo whose far side
+    shows the barrel through the windows (HF6-5's 3/4 shot read as 3 groups over the whole turn);
+    counts with fewer than two sectors in the arc are not tried."""
     spread = {}
     for n in candidates:
+        if arc is not None and arc[1] < 2 * 2 * math.pi / n:
+            continue
         p = recipe_from_dict({**base, "spokes": n})
-        stack, _, _ = _sector_stack(image, p, FaceMap(p, rim_points, hub_point), n)
+        stack, _, _ = _sector_stack(image, p, FaceMap(p, rim_points, hub_point), n, arc)
         spread[n] = float(np.std(stack.mean(-1), 0).mean())
     return choose_group_count(spread), {n: round(v, 4) for n, v in spread.items()}
 
@@ -385,18 +393,49 @@ def auto_windows(image, base: dict, rim_points, hub_point, groups: int):
 TRACE_DTH_DEG, TRACE_XY_MM = .25, .5
 
 
-def _polar_median(image, p, face, groups, rs):
+def _polar_median(image, p, face, groups, rs, sectors=None):
     from scipy.ndimage import map_coordinates
     pitch = 2 * math.pi / groups
     ths = np.radians(np.arange(0, math.degrees(pitch), TRACE_DTH_DEG))
     rr, tt = np.meshgrid(rs, ths, indexing="ij")
     stack = []
-    for k in range(groups):
+    for k in (range(groups) if sectors is None else sectors):
         xy = face.to_image(rr.ravel(), (tt + k * pitch).ravel())
         stack.append(np.stack([map_coordinates(image[..., c], [xy[:, 1], xy[:, 0]], order=1, mode="nearest").reshape(rr.shape)
                                for c in range(3)], -1))
     stack = np.array(stack)
     return np.median(stack, 0), np.std(stack.mean(-1), 0), ths
+
+
+def _lug_angle(image, p, face):
+    """Angle (rad) of a lug hole near the PCD, and its contrast (0..1), or None.
+
+    The photo's lug circle need not match the spec PCD (HF6-4's shot scales to ~124 of 139.7), so radii
+    from 0.8 to 1.1 x PCD/2 are tried; a hole is where the ring differs most from the rings 13 mm
+    in and out, averaged over the bolts.
+    """
+    from scipy.ndimage import map_coordinates
+    gray = image[..., :3].mean(-1)
+    step = .5
+    th = np.radians(np.arange(0, 360, step))
+    per = int(round(360 / step / p.bolts))
+    if per * p.bolts != len(th):
+        return None
+
+    def ring(r):
+        xy = face.to_image(np.full_like(th, r), th)
+        return map_coordinates(gray, [xy[:, 1], xy[:, 0]], order=1, mode="nearest")
+
+    best = None
+    for r in np.arange(p.pcd / 2 * .8, p.pcd / 2 * 1.1, 1.0):
+        fold = np.abs(ring(r) - (ring(r - 13) + ring(r + 13)) / 2).reshape(p.bolts, per).mean(0)
+        contrast = float(fold.max() - np.median(fold))
+        if best is None or contrast > best[1]:
+            best = (math.radians(np.argmax(fold) * step), contrast)
+    return best
+
+
+LUG_CONTRAST = .15   # least lug-hole contrast (grey 0..1) for the lugs to pick the spoke axis
 
 
 def _extend_outward(mask, rs, r_to, min_reach):
@@ -510,8 +549,61 @@ def _polygon_loop(points, corner_r=3.0, tol=TRACE_STRAIGHT_MM):
     return np.array(dense)
 
 
-def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth_mm=2.0, corner_r=3.0):
-    """Outline-family recipe traced from the photo. Returns (recipe dict, report dict)."""
+def see_through_arc(image, base: dict, rim_points, hub_point, bright=.8, step_deg=5.0, smooth_deg=30.0):
+    """(start, length) rad of the face angles whose windows show the background in an oblique photo:
+    the longest run of angle bins (averaged over +-smooth_deg) at least half as bright as the brightest."""
+    from scipy.ndimage import map_coordinates
+    p = recipe_from_dict(base)
+    face = FaceMap(p, rim_points, hub_point)
+    rs = np.arange(p.pcd / 2 + p.seat_d / 2 + 2, p.ring_r - 4, 2.0)
+    ths = np.radians(np.arange(0, 360, 1.0))
+    rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    xy = face.to_image(rr.ravel(), tt.ravel())
+    lit = (map_coordinates(image[..., :3].mean(-1), [xy[:, 1], xy[:, 0]], order=1, mode="nearest") > bright).reshape(rr.shape)
+    per = int(step_deg)
+    share = lit.mean(0).reshape(-1, per).mean(1)
+    k = int(round(smooth_deg / step_deg))                  # spokes and windows alternate bin to bin
+    share = np.convolve(np.concatenate([share[-k:], share, share[:k]]), np.ones(2 * k + 1) / (2 * k + 1), "same")[k:-k]
+    on = share >= .5 * share.max()
+    n = len(on)
+    best = (0, 0)
+    for i in range(n):
+        if on[i] and not on[i - 1]:
+            k = 0
+            while k < n and on[(i + k) % n]:
+                k += 1
+            best = max(best, (k, i), key=lambda b: b[0])
+    if on.all():
+        best = (n, 0)
+    return math.radians(best[1] * step_deg), math.radians(best[0] * step_deg)
+
+
+def see_through_sectors(image, base: dict, rim_points, hub_point, groups: int, bright=.8):
+    """Spoke groups of an oblique photo whose windows show the background (the rest show the barrel
+    inside, as dark as the spokes): those at least half as bright as the brightest group."""
+    p = recipe_from_dict({**base, "spokes": groups})
+    face = FaceMap(p, rim_points, hub_point)
+    rs = np.arange(p.pcd / 2 + p.seat_d / 2 + 2, p.ring_r - 4, 2.0)
+    from scipy.ndimage import map_coordinates
+    pitch = 2 * math.pi / groups
+    ths = np.radians(np.arange(0, math.degrees(pitch), 1.0))
+    rr, tt = np.meshgrid(rs, ths, indexing="ij")
+    lum = image[..., :3].mean(-1)
+    share = []
+    for k in range(groups):
+        xy = face.to_image(rr.ravel(), (tt + k * pitch).ravel())
+        share.append(float((map_coordinates(lum, [xy[:, 1], xy[:, 0]], order=1, mode="nearest") > bright).mean()))
+    top = max(share)
+    return [k for k, v in enumerate(share) if v >= .5 * top], share
+
+
+def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth_mm=2.0, corner_r=3.0, sectors=None,
+                   grow_mm=0.0):
+    """Outline-family recipe traced from the photo. Returns (recipe dict, report dict).
+
+    `sectors`: the spoke groups to read (default all); an oblique photo uses only the groups whose
+    windows show the background (see_through_sectors). `grow_mm` widens every window, for the rims
+    an oblique view loses behind the spoke walls."""
     from scipy.ndimage import binary_closing, binary_opening, gaussian_filter, map_coordinates, label as components
     from .window_fit import _cell_boundary_loops, _loop_area
 
@@ -521,7 +613,7 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     r_min = p.pcd / 2 + p.seat_d / 2 + 1.0              # keep lug seats and the hub out of the trace
     r_lip = p.lip_face_r_in - 2 if p.lip_face_r_in > p.ring_r else p.ring_r - 2
     rs = np.arange(r_min, p.lip_r * .985, 1.0)
-    median, spread, ths = _polar_median(image, p, face, groups, rs)
+    median, spread, ths = _polar_median(image, p, face, groups, rs, sectors)
     labels = _two_means(np.concatenate([median, spread[..., None] * 2], -1).reshape(-1, 4)).reshape(median.shape[:2])
     material = np.bincount(labels[:4].ravel(), minlength=2).argmax()   # the band just outside the lug seats
     n = labels.shape[1]
@@ -540,7 +632,17 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     # The spoke axis carries material through the window band; the window axis does not.
     band = (rs > r_min + 10) & (rs < .8 * p.lip_r)
     if mask[band, other].mean() < mask[band, axis_col].mean():
-        axis_col = other
+        axis_col, other = other, axis_col
+    # The lugs sit half a pitch off the spoke axis in the model (lug_tools); a group with a long centre
+    # window (HF6-5's arrow) fools the material test above, so the photo's lugs decide when they show.
+    lug = _lug_angle(image, p, face)
+    if lug and lug[1] > LUG_CONTRAST:
+        lug_pitch = 2 * math.pi / p.bolts
+        off = lambda col: abs((lug[0] - ths[0] - math.radians(col * TRACE_DTH_DEG) - pitch / 2 + lug_pitch / 2)
+                              % lug_pitch - lug_pitch / 2)
+        if off(other) < off(axis_col):
+            notes.append("按照片中螺栓孔的位置选了辐条轴（窗口带材料判断选的是另一条镜像轴）。")
+            axis_col = other
     level = mask.astype(float)
     if agree > .8:
         level = (level + np.roll(level[:, ::-1], 2 * axis_col + 1, axis=1)) / 2   # thresholded after smoothing
@@ -555,6 +657,9 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     field = map_coordinates(level, [(gr - rs[0]) / 1.0, gt / math.radians(TRACE_DTH_DEG)], order=1, mode="nearest")
     field[(gr < rs[0]) | (gr > rs[-1])] = 0
     field = gaussian_filter(field, (min(smooth_mm, 1.0) if corner_r > 0 else smooth_mm) / TRACE_XY_MM) > .5
+    if grow_mm > 0:
+        from scipy.ndimage import distance_transform_edt
+        field = (distance_transform_edt(~field) * TRACE_XY_MM <= grow_mm) & (gr >= rs[0]) & (gr <= rs[-1])
     regions, count = components(field)
     outlines, areas = [], []
     for index in range(1, count + 1):
@@ -601,12 +706,14 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
 # ---------------------------------------------------------------------------------------------
 
 
-def _wheel_silhouette(q, xx, yy, lip_r, width, sharp=1.0):
-    """Soft mask of a wheel seen at a tilt: front lip ellipse swept to the rear flange (both lip_r).
+def _wheel_silhouette(q, xx, yy, lip_r, width, sharp=1.0, rear=1.0):
+    """Soft mask of a wheel seen at a tilt: front lip ellipse swept to the rear flange.
 
     q = (cx, cy, a, tilt, phi): lip centre, semi-major axis in px, tilt, direction of increasing
-    depth in the image. Weak perspective: the rear flange is the same ellipse moved by
-    width * a / lip_r * sin(tilt) along phi.
+    depth in the image. Weak perspective: the rear flange is the lip ellipse scaled by `rear`
+    (farther away, often a smaller flange) and moved by width * a / lip_r * sin(tilt) along phi.
+    With rear = 1 the outline is the same with front and rear swapped (HF6-5's 3/4 shot fitted
+    the lip onto the rear flange, 2026-09-26).
     """
     cx, cy, a, t, phi = q
     minor = np.array([math.cos(phi), math.sin(phi)])
@@ -615,9 +722,13 @@ def _wheel_silhouette(q, xx, yy, lip_r, width, sharp=1.0):
     off = minor * a / lip_r * width * math.sin(t)
     best = np.full(xx.shape, np.inf)
     for s in np.linspace(0, 1, 25):
+        k = 1 - s * (1 - rear)
         dx, dy = xx - cx - s * off[0], yy - cy - s * off[1]
-        best = np.minimum(best, np.hypot((dx * major[0] + dy * major[1]) / a, (dx * minor[0] + dy * minor[1]) / b))
+        best = np.minimum(best, np.hypot((dx * major[0] + dy * major[1]) / (a * k), (dx * minor[0] + dy * minor[1]) / (b * k)))
     return 1 / (1 + np.exp(np.clip((best - 1) * a / sharp, -50, 50)))
+
+
+REAR_MIN = .8    # least rear-flange / lip scale in the oblique outline model
 
 
 def fit_oblique_camera(image, p, guess_rim, guess_hub, background=.9):
@@ -649,13 +760,18 @@ def fit_oblique_camera(image, p, guess_rim, guess_hub, background=.9):
 
         def loss(q):
             q = np.asarray(q, float)
-            m = _wheel_silhouette([q[0] / step, q[1] / step, q[2] / step, q[3], q[4]], xx, yy, p.lip_r, p.width) * k
-            return 1 - (m * g).sum() / max((m + g - m * g).sum(), 1e-9)
-        return min((minimize(loss, s, method="Nelder-Mead", options=dict(xatol=.05, fatol=1e-6, maxiter=500)) for s in starts),
+            rear = min(max(q[5], REAR_MIN), 1.0)
+            m = _wheel_silhouette([q[0] / step, q[1] / step, q[2] / step, q[3], q[4]], xx, yy, p.lip_r, p.width,
+                                  rear=rear) * k
+            return 1 - (m * g).sum() / max((m + g - m * g).sum(), 1e-9) + abs(q[5] - rear)
+        return min((minimize(loss, s, method="Nelder-Mead", options=dict(xatol=.05, fatol=1e-6, maxiter=800)) for s in starts),
                    key=lambda r: r.fun)
-    coarse = fit(2, [[e["cx"], e["cy"], a0, math.radians(d), phi0] for d in (22, 30, 38)])
+    # Both depth directions: the guess can pick the rear flange for the lip; the smaller rear decides.
+    coarse = fit(2, [[e["cx"], e["cy"], a0, math.radians(d), ph, .9] for d in (22, 30, 38) for ph in (phi0, phi0 + math.pi)])
     best = fit(1, [coarse.x])
-    cx, cy, a, t, phi = (float(v) for v in best.x)
+    cx, cy, a, t, phi = (float(v) for v in best.x[:5])
+    if t < 0:
+        t, phi = -t, phi + math.pi
     minor = np.array([math.cos(phi), math.sin(phi)])
     major = np.array([-minor[1], minor[0]])
     b = a * math.cos(t)
@@ -663,6 +779,7 @@ def fit_oblique_camera(image, p, guess_rim, guess_hub, background=.9):
            for s in np.linspace(0, 2 * math.pi, 24, endpoint=False)]
     hub = (np.array([cx, cy]) + .05 * b * minor).tolist()
     return rim, hub, {"outline_iou": round(1 - float(best.fun), 4), "tilt_deg": round(math.degrees(t), 2),
+                      "rear_scale": round(min(max(float(best.x[5]), REAR_MIN), 1.0), 3),
                       "px_per_mm": round(a / p.lip_r, 4), "centre_px": [round(cx, 1), round(cy, 1)]}
 
 
