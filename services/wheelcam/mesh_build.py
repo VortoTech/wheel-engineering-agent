@@ -218,9 +218,17 @@ def verify(body, p, spec: dict) -> dict:
         hub = body ^ ring
         et = float(hub.bounding_box()[2]) + p.width / 2 if not hub.is_empty() else float("nan")
         checks["offset_et"] = {"pass": abs(et - spec["et_mm"]) < .5, "measured_mm": round(et, 1), "expected_mm": spec["et_mm"]}
-    pitch = 2 * math.pi / p.spokes
+    # Lugs break the spoke symmetry unless the counts share a factor (8 groups, 5 lugs: none left).
+    order = math.gcd(p.spokes, p.bolts)
+    if order < 2:
+        checks["rotational_symmetry"] = {"pass": True, "sector_volume_spread": None,
+                                         "note": f"{p.spokes} 组辐条与 {p.bolts} 个螺栓孔没有共同的旋转对称"}
+        for record in checks.values():
+            record["pass"] = bool(record["pass"])
+        return checks
+    pitch = 2 * math.pi / order
     vols = []
-    for k in range(min(p.spokes, 3)):
+    for k in range(min(order, 3)):
         a0 = k * pitch - pitch / 2
         wedge = m3.CrossSection([np.array([(0, 0), (900 * math.cos(a0), 900 * math.sin(a0)),
                                            (900 * math.cos(a0 + pitch), 900 * math.sin(a0 + pitch))])])

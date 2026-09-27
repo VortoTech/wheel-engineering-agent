@@ -334,16 +334,22 @@ def verify(step_path, recipe, spec: dict, report: dict) -> dict:
         checks["offset_et"] = {"pass": abs(et - spec["et_mm"]) < .5, "measured_mm": et, "expected_mm": spec["et_mm"]}
     # Rotational symmetry: volume in each spoke sector (the part is built by rotation, so any
     # asymmetric boolean failure shows up as a sector that differs).
-    pitch = 360 / recipe.spokes
+    # Lugs break the spoke symmetry unless the counts share a factor (8 groups, 5 lugs: none left).
+    order = math.gcd(recipe.spokes, recipe.bolts)
+    pitch = 360 / max(order, 1)
     wedge = cq.Solid.makeCylinder(recipe.lip_r + 5, 400, cq.Vector(0, 0, -300))
     vols = []
-    for k in range(min(recipe.spokes, 3)):
+    for k in range(min(order, 3) if order >= 2 else 0):
         a0 = math.radians(k * pitch - pitch / 2)
         cut = cq.Workplane("XY").workplane(offset=-300).moveTo(0, 0).lineTo(600 * math.cos(a0), 600 * math.sin(a0)) \
             .lineTo(600 * math.cos(a0 + math.radians(pitch)), 600 * math.sin(a0 + math.radians(pitch))).close().extrude(400).val()
         vols.append(part.intersect(cut.intersect(wedge)).Volume())
-    spread = (max(vols) - min(vols)) / max(np.mean(vols), 1)
-    checks["rotational_symmetry"] = {"pass": spread < .01, "sector_volume_spread": round(float(spread), 4)}
+    if vols:
+        spread = (max(vols) - min(vols)) / max(np.mean(vols), 1)
+        checks["rotational_symmetry"] = {"pass": spread < .01, "sector_volume_spread": round(float(spread), 4)}
+    else:
+        checks["rotational_symmetry"] = {"pass": True, "sector_volume_spread": None,
+                                         "note": f"{recipe.spokes} 组辐条与 {recipe.bolts} 个螺栓孔没有共同的旋转对称"}
     for record in checks.values():
         record["pass"] = bool(record["pass"])             # numpy bools would serialise as "True"
     return checks

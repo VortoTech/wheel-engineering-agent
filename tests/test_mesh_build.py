@@ -70,3 +70,12 @@ def test_mesh_checks_and_scoring_take_the_mesh_part():
     assert all(c["pass"] for c in checks.values()), checks
     tri, ids = mesh(body)
     assert tri.shape[1:] == (3, 3) and len(tri) == len(ids) > 1000
+
+
+def test_symmetry_check_uses_the_symmetry_spokes_and_lugs_share():
+    """8 spoke groups and 5 lugs share no rotation: nothing to compare (LCX-01, GNX-01)."""
+    from wheelcam.mesh_build import build, verify
+    p = recipe_from_dict(outline_recipe(bolts=5, pcd=112, seat_d=28, center_bore_r=33.3, hub_r=40))
+    body, _ = build(p)
+    sym = verify(body, p, {})["rotational_symmetry"]
+    assert sym["pass"] and sym["sector_volume_spread"] is None and "note" in sym

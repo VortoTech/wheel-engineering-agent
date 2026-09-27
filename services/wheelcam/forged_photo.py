@@ -772,21 +772,37 @@ def fit_oblique_camera(image, p, guess_rim, guess_hub, background=.9):
             return 1 - (m * g).sum() / max((m + g - m * g).sum(), 1e-9) + abs(q[5] - rear)
         return min((minimize(loss, s, method="Nelder-Mead", options=dict(xatol=.05, fatol=1e-6, maxiter=800)) for s in starts),
                    key=lambda r: r.fun)
-    # Both depth directions: the guess can pick the rear flange for the lip; the smaller rear decides.
-    coarse = fit(2, [[e["cx"], e["cy"], a0, math.radians(d), ph, .9] for d in (22, 30, 38) for ph in (phi0, phi0 + math.pi)])
-    best = fit(1, [coarse.x])
-    cx, cy, a, t, phi = (float(v) for v in best.x[:5])
-    if t < 0:
-        t, phi = -t, phi + math.pi
-    minor = np.array([math.cos(phi), math.sin(phi)])
-    major = np.array([-minor[1], minor[0]])
-    b = a * math.cos(t)
-    rim = [(np.array([cx, cy]) + a * math.cos(s) * major + b * math.sin(s) * minor).tolist()
-           for s in np.linspace(0, 2 * math.pi, 24, endpoint=False)]
-    hub = (np.array([cx, cy]) + .05 * b * minor).tolist()
-    return rim, hub, {"outline_iou": round(1 - float(best.fun), 4), "tilt_deg": round(math.degrees(t), 2),
-                      "rear_scale": round(min(max(float(best.x[5]), REAR_MIN), 1.0), 3),
-                      "px_per_mm": round(a / p.lip_r, 4), "centre_px": [round(cx, 1), round(cy, 1)]}
+    # Both depth directions, each fitted to the end: the guess can take the rear flange for the lip
+    # (HF6-5, HF-3), and flipped the lip starts at the other end, a rim width along the guessed
+    # direction. Fitted this way the right direction had the higher outline IoU on all five eval
+    # wheels checked by eye (by 0.005-0.012); the face's sector repeat, tried as a tie-break, picked
+    # the wrong one on HF6-5 and HF-2 (2026-09-27).
+    def candidate(flip):
+        starts = []
+        for d in (22, 30, 38):
+            t0 = math.radians(d)
+            far = np.array([e["cx"], e["cy"]]) + minor0 * a0 / p.lip_r * p.width * math.sin(t0)
+            starts.append([far[0], far[1], a0, t0, phi0 + math.pi, .9] if flip else [e["cx"], e["cy"], a0, t0, phi0, .9])
+        best = fit(1, [fit(2, starts).x])
+        cx, cy, a, t, phi = (float(v) for v in best.x[:5])
+        if t < 0:
+            t, phi = -t, phi + math.pi
+        minor = np.array([math.cos(phi), math.sin(phi)])
+        major = np.array([-minor[1], minor[0]])
+        b = a * math.cos(t)
+        rim = [(np.array([cx, cy]) + a * math.cos(s) * major + b * math.sin(s) * minor).tolist()
+               for s in np.linspace(0, 2 * math.pi, 24, endpoint=False)]
+        hub = (np.array([cx, cy]) + .05 * b * minor).tolist()
+        report = {"outline_iou": round(1 - float(best.fun), 4), "tilt_deg": round(math.degrees(t), 2),
+                  "rear_scale": round(min(max(float(best.x[5]), REAR_MIN), 1.0), 3),
+                  "px_per_mm": round(a / p.lip_r, 4), "centre_px": [round(cx, 1), round(cy, 1)]}
+        return rim, hub, report
+
+    options = [candidate(False), candidate(True)]
+    chosen = int(np.argmax([o[2]["outline_iou"] for o in options]))
+    rim, hub, report = options[chosen]
+    report["other_direction"] = {k: options[1 - chosen][2][k] for k in ("outline_iou", "centre_px")}
+    return rim, hub, report
 
 
 def _oblique_camera(p, rim_points, hub_point):
