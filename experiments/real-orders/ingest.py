@@ -36,7 +36,7 @@ from wheelcam.privacy import clean_image, order_from_rows, private_terms, scan, 
 CODE_RE = re.compile(r"\b(HN\d+|M\d+)\b", re.I)
 XT_SIZE_RE = re.compile(r"(\d{2})[Xx]?(\d{1,2}(?:\.\d+)?)-(\d+)[-Xx](\d+(?:\.\d+)?)-\(?(-?\d+)\)?-(\d+(?:\.\d+)?)\.x_t$", re.I)
 PRIVATE_DIR = Path("~/.wheelcam").expanduser()
-MAX_SIDE = 2000
+MAX_SIDE = 1200            # the trace takes ~12 min on 2000 px, and 1200 px resolves 0.5 mm
 
 
 def sheet_rows(path: Path):
