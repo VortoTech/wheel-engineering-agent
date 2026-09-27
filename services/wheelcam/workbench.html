@@ -152,7 +152,8 @@ function render(){
     <h3>截面：轮辋中位误差 ${num(cmp.section_rim.median_mm)} mm（P90 ${num(cmp.section_rim.p90_mm)}），轮毂 ${num(cmp.section_hub.median_mm)} mm</h3>
     <img class="fig" src="${f("compare_section.png")}" alt="截面对照">
     <p class="note">工厂 CAD 只作对照真值，不作输入。辐条曲面为 B 样条，截面对照不含辐条。</p>` : "<p>没有工厂 CAD。</p>";
-  $("#drawing").innerHTML = `<p><a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · <a href="${f("drawing.svg")}" target="_blank">SVG</a></p>
+  const pdf = (ch.steps.find(s => s.step === "drawing") || {}).pdf;
+  $("#drawing").innerHTML = `<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
     <img class="fig" src="${f("drawing.svg")}" alt="工程图">`;
   const sim = data.simulation || {};
   $("#cam").innerHTML = `<p><b>${esc(sim.conclusion || sim.status || "")}</b></p>

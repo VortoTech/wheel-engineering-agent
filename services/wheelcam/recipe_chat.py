@@ -88,7 +88,15 @@ def ask_model(recipe: dict, message: str, history=(), timeout=90) -> dict:
         body.pop("chat_template_kwargs"), body.pop("response_format")
         r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
     r.raise_for_status()
-    return parse_answer(r.json()["choices"][0]["message"]["content"] or "")
+    text = r.json()["choices"][0]["message"]["content"] or ""
+    try:
+        return parse_answer(text)
+    except ValueError:                           # malformed JSON (json.JSONDecodeError is a ValueError): ask once more
+        body["messages"] = messages + [{"role": "assistant", "content": text},
+                                       {"role": "user", "content": "上面的回答不是合法 JSON。请只输出一个合法的 JSON 对象。"}]
+        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        return parse_answer(r.json()["choices"][0]["message"]["content"] or "")
 
 
 def parse_answer(text: str) -> dict:
