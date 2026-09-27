@@ -100,16 +100,17 @@ def test_lug_seat_is_kept_out_of_the_centre_bore():
 
 
 def test_style_features_come_from_rules_and_are_asked_about(front_photo):
-    """Style features: preset + question by default; a VLM/user answer switches them without a question."""
+    """Style features: off by default and offered (plain spokes); a user/VLM answer switches them without a question."""
     from wheelcam.wheel_skill import style_features
     truth, photo = front_photo
     recipe, prov, questions, _, _ = reconstruct(photo, SPEC)
     assert recipe.face_chamfer > 0 and recipe.hub_crease_r > recipe.hub_r
-    assert prov["center_pad"]["source"] == "default" and any("锻造 Y 辐" in q for q in questions)
+    assert prov["center_pad"]["source"] == "default" and prov["center_pad"]["value"] is False
+    assert recipe.spoke_pad_w == 0 and recipe.hub_valley_depth == 0 and any("锻造 Y 辐" in q for q in questions)
     base = {**asdict(recipe)}
-    upd, prov, questions = style_features(base, {"center_pad": False, "arm_groove": False, "hub_valleys": False, "source": "vlm"})
-    assert not questions and prov["center_pad"]["source"] == "vlm"
-    assert "spoke_pad_w" not in upd and "outline_groove_r" not in upd and upd["hub_valley_depth"] == 0
+    upd, prov, questions = style_features(base, {"center_pad": True, "arm_groove": True, "hub_valleys": True, "source": "user"})
+    assert not any("锻造 Y 辐" in q for q in questions) and prov["center_pad"]["source"] == "user"
+    assert upd["spoke_pad_w"] > 0
     plain, _, questions, _, _ = reconstruct(photo, SPEC, style=False)
     assert plain.spoke_pad_w == 0 and not any("锻造 Y 辐" in q for q in questions)
 
