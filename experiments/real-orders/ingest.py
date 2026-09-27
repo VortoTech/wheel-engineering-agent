@@ -10,8 +10,8 @@ size, DWG drawings.
 
 Output, per case (case-01, ...) and size (d20w10.5, ...):
     OUT/case-01/order.json                      engineering fields of the order sheets
-    OUT/case-01/d20w10.5/{front,oblique,back}.jpg   one wheel per image, text block removed,
-                                                    centre cap blurred, no metadata
+    OUT/case-01/d20w10.5/{front,oblique,back}.jpg   one wheel per image, text block removed, no
+                                                    metadata (cap emblems blurred with --blur-logos)
     OUT/case-01/d20w10.5/spec.json              the six key specs, source "order_sheet"
     OUT/case-01/d20w10.5/model.x_t              the CAD with its private header fields redacted
 DWG drawings are not copied (binary headers are not scrubbed). The case map (real folder -> case)
@@ -141,9 +141,9 @@ def logo_circles(a: np.ndarray, min_px=30):
     return out
 
 
-def split_render(src: Path, view: str, dst_by_index, cap_frac=.075):
+def split_render(src: Path, view: str, dst_by_index, cap_frac=.075, blur_logos=False):
     """Write each wheel of `src` to dst_by_index(i) (i = left to right); returns the wheel pixel
-    diameters. The centre cap is blurred (logos)."""
+    diameters. With blur_logos the centre cap and coloured emblems are blurred (for showing)."""
     from PIL import Image
     im = Image.open(src).convert("RGB")
     scale = MAX_SIDE / max(im.size) * (2 if im.size[0] > 1.5 * im.size[1] else 1)
@@ -161,8 +161,8 @@ def split_render(src: Path, view: str, dst_by_index, cap_frac=.075):
         part = part[y0:y1, xa:xb]
         d = float(max(np.ptp(xs), np.ptp(ys)))
         sizes.append(np.ptp(ys) if view == "front" else d)
-        blur = logo_circles(part)
-        if view == "front":                                         # the whole centre cap, straight on
+        blur = logo_circles(part) if blur_logos else []
+        if blur_logos and view == "front":                          # the whole centre cap, straight on
             try:
                 from wheelcam.wheel_skill import _front_rim_hub
                 found = _front_rim_hub(part)
@@ -185,6 +185,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", required=True)
     ap.add_argument("--out", default="runs/real-orders")
+    ap.add_argument("--blur-logos", action="store_true", help="blur cap emblems (for a public showing)")
     a = ap.parse_args()
     raw, out = Path(a.raw).expanduser(), Path(a.out)
     folders = {}
@@ -222,7 +223,8 @@ def main():
         order_by_size = None
         for view, src in zip(("front", "oblique", "back"), renders):
             dsts = {}
-            sizes = split_render(src, view, lambda i: dsts.setdefault(i, cdir / f"_w{i}" / f"{view}.jpg"))
+            sizes = split_render(src, view, lambda i: dsts.setdefault(i, cdir / f"_w{i}" / f"{view}.jpg"),
+                                 blur_logos=a.blur_logos)
             if view == "front":
                 order_by_size = list(np.argsort(sizes))                # smaller wheel = smaller size
         for i, v in enumerate(variants):
