@@ -14,7 +14,8 @@ import numpy as np
 
 from .forged_blank import (PAD_MIN_HALF, POCKET_SKIN, face_z, hub_valley_tools, offset_dish_profile, seat_cone_height,
                            outline_groove_tools, recipe_from_dict, spoke_centrelines, spoke_pad_tools,
-                           window_envelope_profile, window_rings, z_back, z_top)
+                           window_envelope_profile, window_rings, z_back, z_top,
+                           MOUNT_RAMP, mount_r)
 
 SEGMENTS = 720               # revolve and hole resolution: 0.5 deg, ~2.8 mm at a 22" lip
 DENSITY_6061 = 2.70e-6       # kg / mm3
@@ -72,7 +73,11 @@ def blank_profile(p, samples=80):
             (p.barrel_outer_r, lip_back - 26), (p.barrel_outer_r, -p.width + 25), (p.lip_r - 2, -p.width + 12),
             (p.lip_r - 2, -p.width), (p.barrel_inner_r, -p.width), (p.barrel_inner_r, z_back(p, p.ring_r) - 3),
             (p.ring_r + 4, z_back(p, p.ring_r))]
-    pts += [(float(r), float(z_back(p, r))) for r in np.linspace(p.ring_r, p.hub_r, samples // 2)]
+    r0 = mount_r(p)
+    rs = np.linspace(p.ring_r, p.hub_r, samples // 2)
+    if r0 > p.hub_r:                                    # the kinks of the mounting face, exactly
+        rs = np.unique(np.concatenate([rs[rs > r0 + MOUNT_RAMP], [r0 + MOUNT_RAMP, r0]]))[::-1]
+    pts += [(float(r), float(z_back(p, r))) for r in rs]
     pts.append((p.center_bore_r, float(z_back(p, p.hub_r))))
     return pts
 

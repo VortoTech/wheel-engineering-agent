@@ -157,9 +157,36 @@ def z_top(p, r):
     return z0 + (p.ring_z - z0) * t ** p.concavity_exp
 
 
-def z_back(p, r):
+MOUNT_MARGIN = 4.0   # flat mounting face beyond the outer edge of the lug seats, mm
+MOUNT_RAMP = 20.0    # run over which the back climbs from the mounting face to the web, mm
+
+
+def mount_r(p):
+    """Outer radius of the flat mounting face: it covers every lug seat. The web back used to slope
+    from hub_r, which on the real orders left the bolt holes in a sloped, thin back and the 60 deg
+    seat cones broke through it (9 of 13, 2026-09-27)."""
+    if p.pcd <= 0:
+        return p.hub_r
+    return min(max(p.hub_r, p.pcd / 2 + p.seat_d / 2 + MOUNT_MARGIN), p.ring_r - MOUNT_RAMP - 1)
+
+
+def _web_back(p, r):
     t = (min(max(r, p.hub_r), p.ring_r) - p.hub_r) / (p.ring_r - p.hub_r)
     return z_top(p, r) - (p.web_thick_hub + (p.web_thick_ring - p.web_thick_hub) * t)
+
+
+def z_back(p, r):
+    """Back of the web: flat at the mounting face out to mount_r, then a straight climb over
+    MOUNT_RAMP to the web back of the template."""
+    r0 = mount_r(p)
+    if r0 <= p.hub_r:
+        return _web_back(p, r)
+    mount, r1 = _web_back(p, p.hub_r), r0 + MOUNT_RAMP
+    if r <= r0:
+        return mount
+    if r < r1:
+        return mount + (_web_back(p, r1) - mount) * (r - r0) / MOUNT_RAMP
+    return _web_back(p, r)
 
 
 def polar(r, deg):
@@ -192,7 +219,9 @@ def blank(p):
     start = p.hub_crease_r if creased else p.hub_r
     rs = np.linspace(start, p.ring_r, 9)
     front = [(r, z_top(p, r) + lift) for r in rs]
-    back = [(r, z_back(p, r)) for r in np.linspace(p.hub_r, p.ring_r, 9)[::-1]]
+    r0 = mount_r(p)
+    r1 = r0 + MOUNT_RAMP if r0 > p.hub_r else p.hub_r        # the spline runs over the web only
+    back = [(r, z_back(p, r)) for r in np.linspace(r1, p.ring_r, 9)[::-1]]
     lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
     wp = cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z + lift).lineTo(p.hub_r, p.hub_z + lift)
     if creased:                                  # a straight run to the crease keeps it sharp (a spline would round it)
@@ -204,8 +233,10 @@ def blank(p):
           .lineTo(p.lip_r - 2, -p.width + 12).lineTo(p.lip_r - 2, -p.width)
           .lineTo(p.barrel_inner_r, -p.width).lineTo(p.barrel_inner_r, z_back(p, p.ring_r) - 3)
           .lineTo(p.ring_r + 4, z_back(p, p.ring_r))
-          .spline(back, includeCurrent=True)
-          .lineTo(p.center_bore_r, z_back(p, p.hub_r)).close())
+          .spline(back, includeCurrent=True))
+    if r0 > p.hub_r:
+        wp = wp.lineTo(r0, z_back(p, r0))
+    wp = wp.lineTo(p.center_bore_r, z_back(p, p.hub_r)).close()
     return wp.revolve(360, (0, 0, 0), (0, 1, 0)).val()
 
 

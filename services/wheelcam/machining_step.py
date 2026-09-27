@@ -27,6 +27,22 @@ from .forged_blank import (TOOL_R, _robust_cut, blank, hole_form, lug_tools, rec
 SPLINE_STEP_MM = 3.0   # point spacing of a window spline: coarse enough that no edge is a sliver
 MIN_WINDOW_MM2 = 40.0  # smaller islands of the opened footprint are dropped (a cutter cannot clear them)
 SLIVER_MM2 = 5.0
+MIN_HOLE_LAND_MM = 8.0  # least straight bolt hole left below the seat cone, down to the back face
+
+
+def seat_land(p):
+    """(seat_depth, note): the template seat depth, raised when less than MIN_HOLE_LAND_MM of straight
+    hole would be left under the cone. On one real order the cone ended 0.1 mm above the sloped back
+    and left a sliver face (2026-09-27); the seat depth is a template estimate, the hole form is not."""
+    from .forged_blank import seat_cone_height
+    h = seat_cone_height(p) if p.seat_cone_deg > 0 else 0.0
+    back = max(z_back(p, r) for r in np.linspace(p.pcd / 2 - p.seat_d / 2, p.pcd / 2 + p.seat_d / 2, 25))
+    land = p.hub_z - p.seat_depth - h - back
+    if land >= MIN_HOLE_LAND_MM:
+        return p.seat_depth, None
+    depth = round(p.hub_z - h - back - MIN_HOLE_LAND_MM, 1)
+    return depth, (f"锥座深度由模板 {p.seat_depth:g} mm 上提到 {depth:g} mm："
+                   f"原深度下锥座底部到背面只剩 {land:.1f} mm 直孔，现保留 {MIN_HOLE_LAND_MM:g} mm。须工程师确认。")
 
 
 def through_radius(p):
@@ -80,6 +96,8 @@ def window_prisms(p, loops):
 def build(p):
     """(stock, part, stages). Each stage is one boolean family; a failure names its stage."""
     p = replace(p, face_crown_w=0.0)                  # finished dish: no surfacing stock on the front
+    depth, note = seat_land(p)
+    p = replace(p, seat_depth=depth)
     stock = blank(p)
     body, stages = stock, []
 
@@ -97,6 +115,8 @@ def build(p):
     loops = window_loops(p)
     apply("through_windows", window_prisms(p, loops))
     apply("lug_holes_and_seats", lug_tools(replace(p, lug_pocket_d=0.0)))
+    if note:
+        stages[-1]["note"] = note
     return stock, body, stages
 
 
@@ -138,6 +158,7 @@ def export(recipe: dict, out, hole_form_text=None, et_mm=None) -> dict:
         "hole_form": form or {"bolt_d": p.bolt_d, "seat_d": p.seat_d, "seat_cone_deg": p.seat_cone_deg,
                               "source": "recipe (no order hole form given)"},
         "checks": checks, "stages": stages,
+        "adjustments": [s["note"] for s in stages if s.get("note")],
         "in_step": ["turned blank (finished dish)", "through windows, straight walls, 6 mm end-mill corners",
                     "bolt holes with conical seats", "centre bore"],
         "not_in_step": ["spoke face surfaces, ridges, grooves, flanks", "hub valleys", "pockets under the lip",
@@ -145,7 +166,7 @@ def export(recipe: dict, out, hole_form_text=None, et_mm=None) -> dict:
         "coordinates": "Z is the wheel axis, Z = 0 the rim-width mid-plane, +Z the face side; mm",
     }
     (out / "machining_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
-    (out / "recipe.json").write_text(json.dumps(asdict(p), ensure_ascii=False, indent=1))
+    (out / "recipe.json").write_text(json.dumps(asdict(replace(p, seat_depth=seat_land(p)[0])), ensure_ascii=False, indent=1))
     return report
 
 
