@@ -155,11 +155,14 @@ def _oblique_rim_hub(image):
     return rim, hub
 
 
-STYLE_KEYS = ("center_pad", "arm_groove", "hub_valleys")
+STYLE_KEYS = ("center_pad", "arm_groove", "hub_valleys", "deep_flank")
 # "forged_y" preset (HF6-4 benchmark, 2026-09-26): the numbers the rules below reproduce on that wheel.
 FORGED_Y = dict(flank_w=16.0, flank_depth=22.0, flank_share=.4, face_chamfer=2.0, window_pocket_depth=60.0,
                 spoke_pad_depth=10.0, spoke_pad_share=.45, groove_w=4.0, groove_depth=3.0,
                 hub_valley_depth=16.0, hub_valley_draft_deg=35.0)
+# Without deep_flank the window edges get a narrow chamfer: HF6-4's 16 x 22 mm flank on every wheel
+# ate half of HF-1's and HF-2's slim spokes and made HF6-2's read as a star (2026-09-27).
+PLAIN_EDGE = dict(flank_w=4.0, flank_depth=4.0, face_chamfer=1.5)
 
 
 def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict, list]:
@@ -184,8 +187,8 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
     # put slots the photo does not have into HF-3's slim spokes, and the VLM could not judge them.
     on = {k: bool(v) for k, v in given.items()}
     if any(v is None for v in given.values()):
-        questions.append("造型特征无法从照片可靠判断，按素辐建模。可选加上「锻造 Y 辐」特征："
-                         "辐条中心凸台、臂上沟槽、中心谷（可逐项打开）。")
+        questions.append("造型特征无法从照片可靠判断，按素辐建模（窗口边窄倒角）。可选加上「锻造 Y 辐」特征："
+                         "辐条中心凸台、臂上沟槽、中心谷、窗口深斜面（可逐项打开）。")
     for k in STYLE_KEYS:
         prov[k] = _record(on[k], source if given[k] is not None else "default", None,
                           "由视觉模型/用户判断" if given[k] is not None else "未判断，默认关闭（可选）")
@@ -202,6 +205,8 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
                concavity_exp=1.0)
     prov["hub_crease"] = _record({"r": upd["hub_crease_r"], "z": upd["hub_crease_z"]}, "rule", None,
                                  "窗口起点内 15 mm，自中心孔外 6 mm 起 0.58 坡度（HF6-4 标定）")
+    if not on["deep_flank"]:
+        upd.update(PLAIN_EDGE)
     pad_w = round(2 * .7 * stem_half, 1)
     if on["center_pad"]:
         upd.update(spoke_pad_w=pad_w, spoke_pad_r=[round(crease_r + 2, 1), round(p.ring_r - 9, 1)])

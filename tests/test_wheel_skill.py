@@ -107,10 +107,12 @@ def test_style_features_come_from_rules_and_are_asked_about(front_photo):
     assert recipe.face_chamfer > 0 and recipe.hub_crease_r > recipe.hub_r
     assert prov["center_pad"]["source"] == "default" and prov["center_pad"]["value"] is False
     assert recipe.spoke_pad_w == 0 and recipe.hub_valley_depth == 0 and any("锻造 Y 辐" in q for q in questions)
+    assert recipe.flank_w == 4 and recipe.face_chamfer > 0                     # narrow chamfer, not the deep flank
     base = {**asdict(recipe)}
-    upd, prov, questions = style_features(base, {"center_pad": True, "arm_groove": True, "hub_valleys": True, "source": "user"})
+    upd, prov, questions = style_features(base, {"center_pad": True, "arm_groove": True, "hub_valleys": True,
+                                                 "deep_flank": True, "source": "user"})
     assert not any("锻造 Y 辐" in q for q in questions) and prov["center_pad"]["source"] == "user"
-    assert upd["spoke_pad_w"] > 0
+    assert upd["spoke_pad_w"] > 0 and upd["flank_w"] == 16
     plain, _, questions, _, _ = reconstruct(photo, SPEC, style=False)
     assert plain.spoke_pad_w == 0 and not any("锻造 Y 辐" in q for q in questions)
 
