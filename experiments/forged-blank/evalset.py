@@ -34,18 +34,19 @@ def one(photos: Path, out: Path, wheel: dict, kernel: str = "mesh") -> dict:
 
     front, oblique = photos / wheel["id"] / "front.jpg", photos / wheel["id"] / "oblique.jpg"
     t = time.time()
-    result = run(front, wheel["spec"], out, oblique if oblique.exists() else None, kernel=kernel)
+    build_dir = out / "build"                      # the skill wants an empty directory of its own
+    result = run(front, wheel["spec"], build_dir, oblique if oblique.exists() else None, kernel=kernel)
     row = {"id": wheel["id"], "seconds": round(time.time() - t), "readiness": result["readiness"],
            "mass_kg": result["mass_kg_6061"], "questions": len(result["questions"]),
            "checks_failed": [k for k, v in result["checks"].items() if not v.get("pass", True)],
            "spokes": result["parameters"].get("spokes", {}).get("value"),
            "planform": result["parameters"].get("planform", {}).get("value")}
-    p = recipe_from_dict(json.loads((out / "recipe.json").read_text()))
+    p = recipe_from_dict(json.loads((build_dir / "recipe.json").read_text()))
     if kernel == "mesh":
         from wheelcam.mesh_build import build
         shape = build(p)[0]
     else:
-        shape = cq.importers.importStep(str(out / "cad" / "wheel.step")).val()
+        shape = cq.importers.importStep(str(build_dir / "cad" / "wheel.step")).val()
     row["kernel"] = kernel
     load = lambda path: np.asarray(Image.open(path).convert("RGB"), float) / 255
     image = load(front)

@@ -43,7 +43,7 @@ def test_mesh_build_cuts_every_stage_and_exports(tmp_path):
     """Windows (flanked), grooves, pads, valleys and lugs all remove material; one closed solid."""
     from wheelcam.mesh_build import build, export_glb
     p = recipe_from_dict(outline_recipe(flank_w=12, flank_depth=14, face_chamfer=2, hub_crease_r=80, hub_crease_z=-40,
-                                        spoke_pad_w=24, spoke_pad_depth=6, spoke_pad_r=[90, 220],
+                                        spoke_pad_w=24, spoke_pad_depth=6, spoke_pad_r=[90, 220], spoke_pad_style="pocket",
                                         outline_groove_r=[140, 215], hub_valley_depth=12, hub_arm_w=30))
     body, report = build(p)
     assert report["status"] == "Error.NoError" and report["genus"] > p.spokes
@@ -79,3 +79,23 @@ def test_symmetry_check_uses_the_symmetry_spokes_and_lugs_share():
     body, _ = build(p)
     sym = verify(body, p, {})["rotational_symmetry"]
     assert sym["pass"] and sym["sector_volume_spread"] is None and "note" in sym
+
+
+def test_ridge_pads_keep_the_spine_and_slope_to_the_spoke_edges():
+    """Ridge pads: the face stays on the skeleton and drops toward the spoke edge, with no shelf."""
+    import numpy as np
+    from wheelcam.forged_blank import face_z, spoke_centrelines
+    from wheelcam.mesh_build import _cylinder, build
+    p = recipe_from_dict(outline_recipe(spoke_pad_w=16, spoke_pad_depth=8, spoke_pad_r=[90, 230]))
+    body, report = build(p)
+    ops = {s["op"]: s["removed_mm3"] for s in report["stages"]}
+    assert report["status"] == "Error.NoError" and ops["spoke_ridges"] > 0 and "spoke_pads" not in ops
+    line, hw = next((l, h) for l, h in spoke_centrelines(p) if np.hypot(*l.T).min() < 160 < np.hypot(*l.T).max())
+    k = int(np.argmin(np.abs(np.hypot(*line.T) - 160)))
+    q, h = line[k], hw[k]
+    t = line[min(k + 1, len(line) - 1)] - line[max(k - 1, 0)]
+    n = np.array([-t[1], t[0]]) / np.hypot(*t)
+    top = lambda xy: (body ^ _cylinder(.4, -p.width - 5, 60, *xy, 16)).bounding_box()[5]
+    spine, side = top(q), top(q + n * (min(8, .45 * h) + .6 * (h - min(8, .45 * h))))
+    assert spine == pytest.approx(face_z(p, float(np.hypot(*q))), abs=.6)
+    assert spine - side > 1.0, (spine, side)

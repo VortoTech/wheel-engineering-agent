@@ -84,6 +84,10 @@ class ForgedWheel:
     # so the spokes run out to the lip (deep-concave style). 0 = off; the radius is the pocket's outer edge.
     window_pocket_r: float = 0.0
     window_pocket_depth: float = 24.0
+    # Outline family: windows cut through out to this radius (0 = ring_r - 2) and are blind pockets
+    # beyond. The trace sets it where the photo still shows background through the windows
+    # (LCX-01's lip windows); it stays 3 mm inside the barrel wall.
+    window_through_r: float = 0.0
     # Through slots in spoke 0's frame, [r_from, r_to, lateral_offset, width] each; offset > 0 = a
     # mirrored pair (stem slots beside the lugs), 0 = one slot on the spoke axis (hole ahead of a fork).
     stem_slots: tuple = ()
@@ -133,6 +137,9 @@ class ForgedWheel:
     spoke_pad_r: tuple = (0.0, 0.0)
     spoke_pad_draft_deg: float = 35.0
     spoke_pad_share: float = .6      # a pad covers at most this share of the local spoke half width
+    # 'ridge': the pad's sides slope down to the spoke edges (mesh build); 'pocket': flat-floored
+    # drafted pockets beside the pad (the B-Rep build always cuts pockets).
+    spoke_pad_style: str = 'ridge'
 
 
 def z_top(p, r):
@@ -370,7 +377,8 @@ def windows(p, outlines):
     return cq.Compound.makeCompound([_prism_window(p, pts) for pts in outlines])
 
 
-FLANK_SMOOTH = 2.0   # Gaussian sigma (outline points) of the flank reach along a window
+FLANK_SMOOTH = 12.0  # Gaussian sigma (outline points) of the flank reach along a window: at 2 the spoke
+#                      crest edges came out wavy next to the straight official HF6-4 edges (2026-09-27)
 TOOL_R = 3.0   # smallest inside radius a window can have (a 6 mm end mill), mm
 
 
@@ -788,7 +796,7 @@ def window_envelope_profile(p):
     # Pocket floor keeps POCKET_SKIN above the web's back at the ring: with the spoke ends lowered
     # (ring_z < 0) a 60 mm pocket cut through to the barrel (HF6-4 v3, 2026-09-25).
     floor = max(-p.window_pocket_depth, z_back(p, p.ring_r) + POCKET_SKIN)
-    ring = p.ring_r - 2
+    ring = max(p.ring_r - 2, min(p.window_through_r, p.barrel_inner_r - 3))
     # Never past the lip face: a flank widens the outline outward, and with the spoke ends below
     # the lip (ring_z < 0) it cut the lip flange away (HF6-4, 2026-09-25).
     outer = p.lip_face_r_in - 1
@@ -1112,11 +1120,15 @@ def spoke_pad_tools(p, trim=True):
             continue
         loop = max(_cell_boundary_loops(region), key=len)
         pts = np.array([(c_ * res - half, half - r_ * res) for r_, c_ in loop])
-        pts = _polygon_loop(pts, corner_r=run + 1.5)
-        if not trim:                       # the mesh build lofts the rings and trims them itself
-            tools.append(_pad_rings(p, pts, run))
+        pts = _machinable(_polygon_loop(pts, corner_r=run + 1.5), max(TOOL_R, run + 1.5))
+        try:
+            rings = _pad_rings(p, pts, run)
+        except FoldError:                  # a pocket too narrow for its draft (LCX-01, 2026-09-27): not cut
             continue
-        tool = _pad_pocket(p, pts, run).intersect(floor)
+        if not trim:                       # the mesh build lofts the rings and trims them itself
+            tools.append(rings)
+            continue
+        tool = _loft_rings(rings).intersect(floor)
         if tool.Solids():                  # a pocket wholly above the offset dish cuts nothing (HF6-5)
             tools.append(tool)
     return tools

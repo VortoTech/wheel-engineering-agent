@@ -440,11 +440,11 @@ LUG_CONTRAST = .15   # least lug-hole contrast (grey 0..1) for the lugs to pick 
 
 def _extend_outward(mask, rs, r_to, min_reach):
     """Continue windows that end on the barrel view outward along their own side edges."""
-    from scipy.ndimage import label as components
-    out = mask.copy()
+    from scipy.ndimage import binary_dilation, label as components
     n = mask.shape[1]
     regions, count = components(np.hstack([mask, mask]))
     dr = rs[1] - rs[0]
+    grown = []                                  # (region, its extension) per extended window
     for index in range(1, count + 1):
         rows, cols = np.nonzero(regions == index)
         if cols.min() >= n or rs[rows.max()] < min_reach:
@@ -462,6 +462,9 @@ def _extend_outward(mask, rs, r_to, min_reach):
         if mask[np.ix_(beyond, span)].mean(axis=1).max(initial=0) > .5:
             continue
         a_lo, a_hi = np.polyfit(rs[fit_rows], lo, 1), np.polyfit(rs[fit_rows], hi, 1)
+        own = np.zeros_like(mask)
+        own[rows, cols % n] = True
+        ext = np.zeros_like(mask)
         for row in range(top + 1, len(rs)):
             if rs[row] > r_to:
                 break
@@ -469,7 +472,18 @@ def _extend_outward(mask, rs, r_to, min_reach):
             if c1 - c0 < 2:
                 break
             for c in range(int(round(c0)), int(round(c1)) + 1):
-                out[row, c % n] = True
+                ext[row, c % n] = True
+        grown.append((own, ext & ~mask))
+    # An extension must not join two windows: LCX-01's lip windows end 7 mm short of the lip, and
+    # their fanned-out sides met across the ribs and merged the row into one ring (2026-09-27).
+    out = mask.copy()
+    for i, (own, ext) in enumerate(grown):
+        others = mask & ~own
+        for j, (_, ext_j) in enumerate(grown):
+            if j != i:
+                others |= ext_j
+        if not (binary_dilation(ext, iterations=1) & others).any():
+            out |= ext
     return out
 
 
@@ -501,6 +515,7 @@ def _smooth_loop(points, sigma, keep=120):
 TRACE_CORNER_DEG = 25.0     # a turn sharper than this is a machined corner, not part of a curve
 TRACE_STRAIGHT_MM = 1.5     # Douglas-Peucker tolerance: edges within this of a line are made straight
 TRACE_SMOOTH_MM = 3.0       # Gaussian smoothing of a traced loop before it is made straight edges and corners
+TRACE_FIT_MM = 2 * TRACE_SMOOTH_MM   # an edge's line is fitted to its points this far from its ends
 
 
 def _douglas_peucker(pts, tol):
@@ -520,7 +535,37 @@ def _douglas_peucker(pts, tol):
         if d[k] > tol:
             keep[i + 1 + k] = True
             stack += [(i, i + 1 + k), (i + 1 + k, j)]
-    return pts[keep]
+    return np.nonzero(keep)[0]
+
+
+def _fit_edges(xy, idx):
+    """Douglas-Peucker vertices xy[idx] (closed, idx[-1] = len(xy)) moved onto the lines fitted to the
+    middles of the long edges next to them. DP vertices lie on the smoothed corners, up to the
+    smoothing width inside the true corner, and tilted the edges between them (2026-09-27)."""
+    lines = []
+    for a, b in zip(idx[:-1], idx[1:]):
+        seg = xy[np.arange(a, b + 1) % len(xy)]
+        cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(seg, axis=0), axis=1))])
+        if cum[-1] < 2 * TRACE_FIT_MM + 2:                      # short: part of a curve or a corner
+            lines.append(None)
+            continue
+        mid = seg[(cum > TRACE_FIT_MM) & (cum < cum[-1] - TRACE_FIT_MM)]
+        c = mid.mean(axis=0)
+        d = np.linalg.svd(mid - c)[2][0]
+        lines.append((c, d))
+    out = []
+    for k, i in enumerate(idx[:-1]):
+        v = xy[i]
+        l0, l1 = lines[k - 1], lines[k]
+        if l0 and l1 and abs(l0[1][0] * l1[1][1] - l0[1][1] * l1[1][0]) > .1:
+            t = np.linalg.solve(np.column_stack([l0[1], -l1[1]]), l1[0] - l0[0])
+            hit = l0[0] + t[0] * l0[1]
+            if np.hypot(*(hit - v)) < 2 * TRACE_SMOOTH_MM:
+                out.append(hit)
+                continue
+        on = [c + d * ((v - c) @ d) for c, d in (l for l in (l0, l1) if l)]
+        out.append(np.mean(on, axis=0) if on else v)
+    return np.array(out)
 
 
 def _polygon_loop(points, corner_r=3.0, tol=TRACE_STRAIGHT_MM):
@@ -532,7 +577,7 @@ def _polygon_loop(points, corner_r=3.0, tol=TRACE_STRAIGHT_MM):
     xy = _smooth_loop(points, TRACE_SMOOTH_MM, keep=None)
     start = int(np.argmax(xy[:, 0]))                             # start on the outermost point (a curve apex, not a corner)
     xy = np.roll(xy, -start, axis=0)
-    poly = _douglas_peucker(np.vstack([xy, xy[:1]]), tol)[:-1]
+    poly = _fit_edges(xy, _douglas_peucker(np.vstack([xy, xy[:1]]), tol))
     m = len(poly)
     out = []
     for i in range(m):
@@ -632,6 +677,10 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     mask = binary_closing(binary_opening(wrapped, iterations=1), iterations=2)[:, pad:-pad]
     mask[rs > p.lip_r * .97] = False
     notes = []
+    # Background seen through the windows beyond the spoke ring: those windows go through (LCX-01's
+    # lip windows); where the barrel shows instead they are extended below as blind pockets.
+    lit = rs[(mask.mean(axis=1) > .3) & (rs > p.ring_r - 2)]
+    through_r = round(float(min(lit.max(), p.barrel_inner_r - 3)), 1) if len(lit) else 0.0
     extended = _extend_outward(mask, rs, r_lip, .7 * p.lip_r)
     if extended.sum() > mask.sum() * 1.02:
         notes.append(f"窗口外段在照片里看到的是轮辋内壁，已沿窗口两侧边外延到 r≈{r_lip:.0f} mm（轮缘内侧）。")
@@ -688,7 +737,8 @@ def trace_outlines(image, base: dict, rim_points, hub_point, groups: int, smooth
     through = [r for w in outlines for r, _ in w if r < p.ring_r - 2]
     recipe = asdict(recipe_from_dict({**asdict(p), "family": "outline", "outlines": outlines,
                                       "window_r_in": round(min(r for w in outlines for r, _ in w), 1),
-                                      "window_r_out": round(max(through), 1) if through else p.window_r_out}))
+                                      "window_r_out": round(max(through), 1) if through else p.window_r_out,
+                                      "window_through_r": through_r}))
     overlay = []
     for k in range(groups):
         for w in outlines:

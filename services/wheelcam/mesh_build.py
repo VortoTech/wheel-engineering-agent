@@ -12,8 +12,9 @@ import math
 
 import numpy as np
 
-from .forged_blank import (POCKET_SKIN, hub_valley_tools, offset_dish_profile, outline_groove_tools,
-                           recipe_from_dict, spoke_pad_tools, window_envelope_profile, window_rings, z_back, z_top)
+from .forged_blank import (PAD_MIN_HALF, POCKET_SKIN, face_z, hub_valley_tools, offset_dish_profile,
+                           outline_groove_tools, recipe_from_dict, spoke_centrelines, spoke_pad_tools,
+                           window_envelope_profile, window_rings, z_back, z_top)
 
 SEGMENTS = 720               # revolve and hole resolution: 0.5 deg, ~2.8 mm at a 22" lip
 DENSITY_6061 = 2.70e-6       # kg / mm3
@@ -145,6 +146,67 @@ def outlines(p, samples=200):
     return out
 
 
+RIDGE_STEP = 1.5      # skeleton step of the ridge tents, mm
+RIDGE_SMOOTH_MM = 8.0  # smoothing of the measured spoke half width along the skeleton (steps showed as facets)
+RIDGE_MIN_RUN = 7.0   # least slope run of a ridge side (a 10 mm drop at 35 deg from vertical), mm
+
+
+def ridge_tools(p):
+    """Spoke pads as a ridge: a flat strip along every spoke's skeleton whose sides slope straight
+    down to the spoke edge, spoke_pad_depth below the dish there (the official HF6-4 spine). The
+    pocket pads left a flat shelf and a stepped wall beside the strip instead (2026-09-27).
+
+    Returns (band, tents): the zone to lower (spoke_pad_r, drafted ends, down to the lowered dish)
+    and the roofs that stay, one convex hull per skeleton step of group 0."""
+    m3 = _m3()
+    r0, r1 = p.spoke_pad_r
+    d = p.spoke_pad_depth
+    if p.spoke_pad_w <= 0 or d <= 0 or r1 - r0 < 2 * (d + 10):
+        return None, []
+    up = 20.0                                                   # at most this far above the face
+    tents = []
+    for line, hw in spoke_centrelines(p):
+        if np.median(hw) < PAD_MIN_HALF:
+            continue                                            # side ribs are lowered whole
+        n = max(2, int(np.sum(np.linalg.norm(np.diff(line, axis=0), axis=1)) / RIDGE_STEP) + 1)
+        cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))])
+        u = np.linspace(0, cum[-1], n)
+        pts = np.column_stack([np.interp(u, cum, line[:, 0]), np.interp(u, cum, line[:, 1])])
+        from scipy.ndimage import gaussian_filter1d
+        half = gaussian_filter1d(np.interp(u, cum, hw), RIDGE_SMOOTH_MM / RIDGE_STEP, mode='nearest')
+        tangent = np.gradient(pts, axis=0)
+        tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
+        normal = np.column_stack([-tangent[:, 1], tangent[:, 0]])
+        section = []
+        for q, t, nrm, h in zip(pts, tangent, normal, half):
+            a = min(p.spoke_pad_w / 2, p.spoke_pad_share * h)
+            run = max(h - a, RIDGE_MIN_RUN)
+            z = face_z(p, float(np.hypot(*q)))
+            # The slope runs on above the face, but only to near the skeleton: carried the full
+            # `up` it crossed over and the hull covered the whole spoke (nothing was cut).
+            rise = min(up, .9 * a * d / run)
+            ring = []
+            for side in (1, -1):
+                for off, dz in ((a - rise * run / d, rise), (a + run * (d + 2) / d, -d - 2)):
+                    for along in (-.75, .75):                   # a little along, so the steps overlap
+                        xy = q + side * nrm * off + t * along * RIDGE_STEP
+                        ring.append((*xy, z + dz))
+            section.append(ring)
+        for sa, sb in zip(section[:-1], section[1:]):
+            tents.append(m3.Manifold.hull_points(sa + sb))
+    if not tents:
+        return None, []
+    # Drafted 45 deg at both ends; the floor follows the dish (a straight chord from end to end stayed
+    # above HF6-4's dish in between and the band held only air, 2026-09-27).
+    k = d + 12
+    floor = [(float(r), face_z(p, float(r)) - k) for r in np.linspace(r0 + k, r1 - k, 40)]
+    band = revolve([(r0 - 40, 80.0), (r0 - 40, face_z(p, r0) + 40), *floor,
+                    (r1 + 40, face_z(p, r1) + 40), (r1 + 40, 80.0)])
+    dish = offset_dish_profile(p, d)
+    band = band ^ revolve([(0.0, 80.0), *dish, (p.lip_r + 5, 80.0)])
+    return band, tents
+
+
 def build(recipe):
     """(part manifold, report). Outline family; style features are added stage by stage."""
     import time
@@ -170,7 +232,11 @@ def build(recipe):
 
     apply('through_windows', [loft(r) for r in window_rings(p, outlines(p))], trim=revolve(window_envelope_profile(p)))
     apply('spoke_grooves_outline', _round([to_manifold(t) for t in outline_groove_tools(p)], p))
-    pads = [loft(rings) for rings in spoke_pad_tools(p, trim=False)]
+    band, tents = ridge_tools(p) if p.spoke_pad_style == 'ridge' else (None, [])
+    if band is not None:
+        roofs = m3.Manifold.batch_boolean(_round(tents, p), m3.OpType.Add)
+        apply('spoke_ridges', [band - roofs])
+    pads = [] if band is not None else [loft(rings) for rings in spoke_pad_tools(p, trim=False)]
     if pads:
         dish = offset_dish_profile(p, p.spoke_pad_depth)
         above = revolve([(0.0, 80.0), *dish, (p.lip_r + 5, 80.0)])         # the pocket floor is the lowered dish

@@ -234,10 +234,11 @@ def test_small_windows_get_a_flank_in_proportion():
     import numpy as np
     import wheelcam.forged_blank as fb
     p = recipe_from_dict(dict(FAST, flank_w=16, flank_depth=18))
-    tri = np.array([(150 + 15 * np.cos(a), 15 * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 3, endpoint=False)])
+    # 12 mm: the cutter-radius rounding (TOOL_R) makes a 15 mm triangle big enough for a 4 mm flank
+    tri = np.array([(150 + 12 * np.cos(a), 12 * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 3, endpoint=False)])
     loop = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(tri, np.roll(tri, -1, axis=0))
                            for t in [np.linspace(0, 1, 40, endpoint=False)]])
-    big = np.column_stack([150 + (loop[:, 0] - 150) * 5, loop[:, 1] * 5])
+    big = np.column_stack([150 + (loop[:, 0] - 150) * 6, loop[:, 1] * 6])
     seen = []
     orig = fb._unfold
     fb._unfold = lambda xy, n, reach, rounds=60: (seen.append(np.max(reach)), orig(xy, n, reach, rounds))[1]
@@ -258,7 +259,8 @@ def test_small_windows_get_a_flank_in_proportion():
         fb.windows(mid, [ring.tolist()])
     finally:
         fb._unfold = orig
-    assert seen[0] <= fb.WINDOW_SHARE * fb._window_size(ring) + 1e-6 < 16      # mid-size: flank in proportion
+    size = fb._window_size(fb._machinable(ring))                               # the loop as cut
+    assert seen[0] <= fb.WINDOW_SHARE * size + 1e-6 < 16                        # mid-size: flank in proportion
 
 
 def test_build_stops_when_a_cut_adds_material(monkeypatch):
@@ -353,15 +355,18 @@ def test_face_chamfer_is_built_into_window_tools():
     cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))])   # the build does
     u = np.linspace(0, cum[-1], 160, endpoint=False)
     loop = np.column_stack([np.interp(u, cum, closed[:, 0]), np.interp(u, cum, closed[:, 1])])
+    import wheelcam.mesh_build as mb
     removed = {}
-    for c, kind, extra in ((0.0, "prism", {}), (2.0, "prism", {})):
-        p = recipe_from_dict(dict(FAST, face_chamfer=c, **extra))
-        tool = fb._prism_window(p, loop.tolist()) if kind == "prism" else fb._flanked_window(p, pts=loop.tolist())
-        b = fb.blank(p)
-        cut = b.cut(tool)
-        assert tool.isValid() and cut.isValid() and len(cut.Solids()) == 1, (kind, c)
-        removed[kind, c] = b.Volume() - cut.Volume()
-    extra = removed["prism", 2.0] - removed["prism", 0.0]
+    for c in (0.0, 2.0):
+        p = recipe_from_dict(dict(FAST, face_chamfer=c))
+        tool = fb._prism_window(p, loop.tolist())
+        cut = fb.blank(p).cut(tool)
+        assert tool.isValid() and cut.isValid() and len(cut.Solids()) == 1, c
+        # Volumes on the mesh kernel the builds use: the OCC cut of the chamfer loft came out 690 mm3
+        # smaller than the straight cut it contains (2026-09-27).
+        b = mb.revolve(mb.blank_profile(p))
+        removed[c] = b.volume() - (b - mb.loft(fb._prism_rings(p, loop, c))).volume()
+    extra = removed[2.0] - removed[0.0]
     assert 50 < extra < 2_000, extra                     # ~ perimeter 90 mm x chamfer section 2-6 mm2
     p = recipe_from_dict(dict(FAST, face_chamfer=2.0, flank_w=8, flank_depth=10))
     assert fb._flanked_window(p, pts=loop.tolist()).isValid()       # flanked cuts are checked in the HF6-4 build
