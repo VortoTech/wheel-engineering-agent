@@ -499,7 +499,8 @@ def _smooth_loop(points, sigma, keep=120):
 
 
 TRACE_CORNER_DEG = 25.0     # a turn sharper than this is a machined corner, not part of a curve
-TRACE_STRAIGHT_MM = .8      # Douglas-Peucker tolerance: edges within this of a line are made straight
+TRACE_STRAIGHT_MM = 1.5     # Douglas-Peucker tolerance: edges within this of a line are made straight
+TRACE_SMOOTH_MM = 3.0       # Gaussian smoothing of a traced loop before it is made straight edges and corners
 
 
 def _douglas_peucker(pts, tol):
@@ -526,7 +527,9 @@ def _polygon_loop(points, corner_r=3.0, tol=TRACE_STRAIGHT_MM):
     """Traced window loop as machined geometry: straight edges, corners of radius corner_r, and
     gentle curves kept as curves. Gaussian smoothing alone rounds every corner by the smoothing
     width and leaves traced edges wavy (HF6-4 spokes looked soft next to the photo)."""
-    xy = _smooth_loop(points, .75, keep=None)                    # pixel stairs only
+    # Pixel stairs and trace noise: ~600 px product shots put 1 mm on a pixel, and HF-3's window ends
+    # by the busy hub came out jagged with only the stairs smoothed (2026-09-27).
+    xy = _smooth_loop(points, TRACE_SMOOTH_MM, keep=None)
     start = int(np.argmax(xy[:, 0]))                             # start on the outermost point (a curve apex, not a corner)
     xy = np.roll(xy, -start, axis=0)
     poly = _douglas_peucker(np.vstack([xy, xy[:1]]), tol)[:-1]

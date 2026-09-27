@@ -165,6 +165,7 @@ WINDOW_SHARE = .5
 # Below this a flank is left to the CAM edge break and the window cut straight: a 2-4 mm flank
 # loft on the dish face made OCC cuts fail silently (fork triangles came out as posts, 2026-09-25).
 MIN_FLANK = 4.0
+BEVEL_SHARE = .3        # a small window's bevel is at most this share of its size (2 x area / perimeter)
 SMALL_BEVEL_MAX = 4.0   # widest chamfer on a straight-walled small window, mm
 GROOVE_LAND = 2.0    # least spoke top left each side of a centreline groove, mm
 
@@ -369,9 +370,38 @@ def windows(p, outlines):
     return cq.Compound.makeCompound([_prism_window(p, pts) for pts in outlines])
 
 
+FLANK_SMOOTH = 2.0   # Gaussian sigma (outline points) of the flank reach along a window
+TOOL_R = 3.0   # smallest inside radius a window can have (a 6 mm end mill), mm
+
+
+def _machinable(xy, r=TOOL_R):
+    """The window loop with every tip rounded to at least `r` (morphological opening), resampled to the
+    same point count from the point nearest the old start. A traced slit of HF-3 ended in near-cusps,
+    where the flank offset normals turned round within two points and crossed into fishtail notches
+    (2026-09-27); a cutter cannot make those tips anyway."""
+    import manifold3d as m3
+    xy = np.asarray(xy, float)
+    cs = m3.CrossSection([xy], m3.FillRule.NonZero).offset(-r, m3.JoinType.Round, 2, 64).offset(r, m3.JoinType.Round, 2, 64)
+    polys = cs.to_polygons()
+    if not polys:
+        return xy                                          # narrower than the cutter everywhere: leave it
+    loop = max((np.asarray(q, float) for q in polys), key=lambda q: abs(_signed_area(q)))
+    if _signed_area(loop) * _signed_area(xy) < 0:
+        loop = loop[::-1]
+    loop = np.roll(loop, -int(np.argmin(np.linalg.norm(loop - xy[0], axis=1))), axis=0)
+    closed = np.vstack([loop, loop[:1]])
+    cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))])
+    u = np.linspace(0, cum[-1], len(xy), endpoint=False)
+    return np.column_stack([np.interp(u, cum, closed[:, 0]), np.interp(u, cum, closed[:, 1])])
+
+
+def _signed_area(xy):
+    return .5 * float(np.sum(xy[:, 0] * np.roll(xy[:, 1], -1) - np.roll(xy[:, 0], -1) * xy[:, 1]))
+
+
 def window_rings(p, outlines):
     """Point rings of every window tool (bottom to top), shared by the B-Rep and the mesh build."""
-    loops = [np.asarray(pts, float) for pts in outlines]
+    loops = [_machinable(pts) for pts in outlines]
     if not (p.flank_w > 0 and p.flank_depth > 0):
         return [_prism_rings(p, xy, p.face_chamfer) for xy in loops]
     from scipy.spatial import cKDTree
@@ -382,13 +412,16 @@ def window_rings(p, outlines):
         reach = WINDOW_SHARE * _window_size(xy)
         # Small windows: straight walls with a chamfer in proportion (the official fork triangle and
         # slots have a 3-4 mm dark bevel), instead of a thin flank loft that OCC cut badly.
-        bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach)) if p.face_chamfer > 0 else 0.0
+        # The bevel is capped by the window's own size: a 2 mm bevel round HF-3's 3 mm slits met itself
+        # at their pointed ends and left fishtail notches (2026-09-27).
+        cap = BEVEL_SHARE * _window_size(xy)
+        bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach), cap) if p.face_chamfer > 0 else 0.0
         rings = None
         if reach >= MIN_FLANK:
             try:
                 rings = _flank_rings(p, xy, spoke_w=width, max_reach=reach)
             except FoldError:
-                bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0))   # HF-3's slim windows (2026-09-26)
+                bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0), cap)   # HF-3's slim windows (2026-09-26)
         out.append(rings if rings is not None else _prism_rings(p, xy, bevel))
     return out
 
@@ -472,7 +505,7 @@ def _flank_rings(p, pts, spoke_w=None, max_reach=np.inf):
     if spoke_w is not None:
         reach = np.minimum(reach, p.flank_share * np.asarray(spoke_w))
     from scipy.ndimage import gaussian_filter1d
-    reach = gaussian_filter1d(reach, 2, mode='wrap')
+    reach = gaussian_filter1d(reach, FLANK_SMOOTH, mode='wrap')
     wide = _unfold(xy, normal, reach)
     z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
     D, c = p.flank_depth, p.face_chamfer

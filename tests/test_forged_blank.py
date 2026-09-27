@@ -429,3 +429,21 @@ def test_robust_cut_drops_free_faces_left_beside_the_solid(monkeypatch):
     monkeypatch.setattr(cq.Shape, "cut", lambda self, *tools, **kw: messy)
     out = _robust_cut(box, cq.Solid.makeBox(1, 1, 1, cq.Vector(20, 20, 20)), "test")
     assert len(out.Faces()) == 6 and volume(out) == pytest.approx(1000, rel=1e-6)
+
+
+def test_window_tips_are_rounded_to_the_cutter_radius():
+    """HF-3's slits ended in near-cusps whose flank offset crossed into fishtails; a cutter rounds them."""
+    import numpy as np
+    import wheelcam.forged_blank as fb
+    t = np.linspace(0, 2 * np.pi, 200, endpoint=False)
+    slit = np.column_stack([150 + 40 * np.cos(t), 4 * np.sin(t) * np.abs(np.sin(t)) ** .2])   # pointed both ends
+    out = fb._machinable(slit)
+    assert len(out) == len(slit)
+    tip = out[np.argmax(out[:, 0])]
+    near = out[np.linalg.norm(out - tip, axis=1) < 2.5]
+    assert np.ptp(near[:, 1]) > 3.0                        # a round end, not a point
+    wide = out + fb._outward_normal(out) * 5.0
+    assert len(fb._crossing_segments(wide)) == 0
+    big = np.column_stack([150 + 40 * np.cos(t), 30 * np.sin(t)])            # nothing to round
+    moved = fb._machinable(big)
+    assert np.min(np.linalg.norm(moved[:, None] - big[None], axis=2), axis=1).max() < .8   # point spacing ~1.1 mm
