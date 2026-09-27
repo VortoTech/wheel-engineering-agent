@@ -14,6 +14,7 @@ Output, per case (case-01, ...) and size (d20w10.5, ...):
                                                     metadata (cap emblems blurred with --blur-logos)
     OUT/case-01/d20w10.5/spec.json              the six key specs, source "order_sheet"
     OUT/case-01/d20w10.5/model.x_t              the CAD with its private header fields redacted
+    OUT/case-01/d20w10.5/truth.json             dimensions read from the CAD (parasolid_xt.wheel_truth)
 DWG drawings are not copied (binary headers are not scrubbed). The case map (real folder -> case)
 and the deny list of private terms found in the sheets and headers go to ~/.wheelcam/, never to OUT
 or the repo; OUT is scanned against the deny list at the end.
@@ -29,6 +30,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "services"))
 
+from wheelcam.parasolid_xt import read_xt, wheel_truth  # noqa: E402
 from wheelcam.privacy import clean_image, order_from_rows, private_terms, scan, scrub_xt  # noqa: E402
 
 CODE_RE = re.compile(r"\b(HN\d+|M\d+)\b", re.I)
@@ -250,6 +252,8 @@ def main():
                      and abs(v["width_in"] - float(m.group(2))) < 1e-6] if m else []
             if match:
                 (cdir / tag(match[0]) / "model.x_t").write_text(scrub_xt(text), encoding="latin-1")
+                truth = wheel_truth(read_xt(text))
+                (cdir / tag(match[0]) / "truth.json").write_text(json.dumps({**truth, "source": "factory_cad_x_t"}, indent=1))
         summary.append({"case": case, "sizes": [tag(v) for v in variants],
                         "renders": len(renders), "cad": sorted(p.parent.name for p in cdir.glob("*/model.x_t"))})
     terms_file = PRIVATE_DIR / "private_terms.txt"
