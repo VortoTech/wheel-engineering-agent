@@ -48,7 +48,7 @@ def compare(run: Path, case: Path) -> dict:
     report = run / "engineering_report.json"
     if report.exists():
         checks = json.loads(report.read_text()).get("checks", {})
-    measured = lambda k: checks.get(k, {}).get("measured_mm")
+    measured = lambda k: checks.get(k, {}).get("measured_mm", checks.get(k, {}).get("derived_mm"))
     rows = {
         "lip_od_mm": (measured("outer_diameter") or 2 * p.lip_r, truth.get("lip_od_mm")),
         "overall_width_mm": (measured("overall_width") or p.width, truth.get("overall_width_mm")),
