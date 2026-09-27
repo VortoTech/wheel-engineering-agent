@@ -32,6 +32,9 @@ STYLE = {
     "spoke_pad_depth": ("辐条脊线高度 mm", 0.0, 16.0, "脊两侧向辐条边缘下降的高度"),
     "hub_valley_depth": ("中心凹谷深度 mm", 0.0, 25.0, "轮毂中心辐条根部之间的凹谷"),
     "hub_arm_w": ("中心辐条根部宽度 mm", 12.0, 45.0, "中心凹谷之间留下的辐条根部宽度"),
+    # Not detected from the photo: the spokes crossing the lip band gave the same angular period
+    # (12 thin spokes read as 12 lip windows, 2026-09-27), so the count is the user's word.
+    "lip_pockets": ("外圈盲窗数量", 0, 40, "轮面外圈的盲窗总数，平均分到每个窗口上方（M59 为 15，每个间隙 3 个）"),
 }
 CHOICES = {}                 # name -> allowed strings (none at present)
 # Fixed by the order or the photo: never changed by a conversation.
@@ -156,6 +159,10 @@ def apply_edit(recipe: dict, accepted: dict) -> dict:
         if new["web_thick_hub"] < need:
             raise ValueError(f"凹度 {new['hub_z']:g} 会让安装面处只剩 {new['web_thick_hub']:g} mm 厚，"
                              f"螺栓孔和锥座至少要 {need:.0f} mm，拒绝修改")
+    if "lip_pockets" in new:
+        new["lip_pockets"] = int(round(new["lip_pockets"]))
+        if new["lip_pockets"]:
+            new["lip_pocket_r"] = (p.ring_r + 2, p.lip_face_r_in - 3)   # the band between ring and lip face
     if "spoke_pad_depth" in new and new["spoke_pad_depth"] > 0 and p.spoke_pad_w <= 0 and "spoke_pad_w" not in new:
         new["spoke_pad_w"] = 20.0                    # a ridge needs a top; the template's width
     out = asdict(replace(p, **new))

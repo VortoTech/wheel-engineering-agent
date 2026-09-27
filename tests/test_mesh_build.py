@@ -118,3 +118,28 @@ def test_conical_seat_from_the_order_hole_form():
     ring = lambda r, z: (body ^ (_cylinder(r + .3, z - .2, z + .2, x, y, 64) - _cylinder(r - .3, z - .3, z + .3, x, y, 64))).volume()
     assert ring(10.5, seat_z - h / 2) < 1e-3                     # open half way down the cone (r 11.75 there)
     assert ring(9.5, seat_z - h - .5) > 1.0                      # below it only the 15 mm hole
+
+
+def test_rim_section_has_bead_seats_a_drop_well_and_the_lip_above_the_seat():
+    """The rim section learnt from the factory CAD of the real orders (2026-09-27)."""
+    import numpy as np
+    from wheelcam.forged_blank import FLANGE_H, WELL_DEPTH, rim_points
+    p = recipe_from_dict(outline_recipe())
+    pts = np.array(rim_points(p))
+    R = p.lip_r - FLANGE_H
+    assert pts[:, 0].max() == pytest.approx(p.lip_r)
+    assert pts[:, 0].min() < R - WELL_DEPTH                         # the well's inside
+    assert np.isclose(pts[:, 0], R - WELL_DEPTH).sum() >= 2          # a flat well floor
+    assert pts[:, 1].min() == pytest.approx(-p.width)
+
+
+def test_lip_windows_sit_over_the_windows_and_do_not_break_through():
+    from wheelcam.mesh_build import build
+    r = outline_recipe()
+    p = recipe_from_dict(r)
+    plain, _ = build(r)
+    n = 2 * len([o for o in p.outlines]) * p.spokes
+    body, report = build({**r, "lip_pockets": n, "lip_pocket_r": [p.ring_r + 2, p.lip_face_r_in - 3]})
+    stage = [s for s in report["stages"] if s["op"] == "lip_windows"][0]
+    assert stage["tools"] == n and stage["removed_mm3"] > 0
+    assert body.genus() == plain.genus()                               # blind: no new holes

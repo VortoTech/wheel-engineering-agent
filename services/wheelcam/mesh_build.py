@@ -15,7 +15,7 @@ import numpy as np
 from .forged_blank import (PAD_MIN_HALF, POCKET_SKIN, face_z, hub_valley_tools, offset_dish_profile, seat_cone_height,
                            outline_groove_tools, recipe_from_dict, spoke_centrelines, spoke_pad_tools,
                            window_envelope_profile, window_rings, z_back, z_top,
-                           MOUNT_RAMP, mount_r)
+                           MOUNT_RAMP, mount_r, rim_points, FLANGE_H)
 
 SEGMENTS = 720               # revolve and hole resolution: 0.5 deg, ~2.8 mm at a 22" lip
 DENSITY_6061 = 2.70e-6       # kg / mm3
@@ -64,15 +64,11 @@ def blank_profile(p, samples=80):
     """(r, z) outline of the revolved blank, as forged_blank.blank draws it (dish splines sampled)."""
     creased = p.hub_crease_r > p.hub_r
     start = p.hub_crease_r if creased else p.hub_r
-    lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
     pts = [(p.center_bore_r, p.hub_z), (p.hub_r, p.hub_z)]
     if creased:
         pts.append((p.hub_crease_r, p.hub_crease_z))
     pts += [(float(r), float(z_top(p, r))) for r in np.linspace(start, p.ring_r, samples)[1:]]
-    pts += [(p.lip_face_r_in, 0.0), (p.lip_r, 0.0), (p.lip_r, lip_back), (p.barrel_outer_r + 2, lip_back - 12),
-            (p.barrel_outer_r, lip_back - 26), (p.barrel_outer_r, -p.width + 25), (p.lip_r - 2, -p.width + 12),
-            (p.lip_r - 2, -p.width), (p.barrel_inner_r, -p.width), (p.barrel_inner_r, z_back(p, p.ring_r) - 3),
-            (p.ring_r + 4, z_back(p, p.ring_r))]
+    pts += [(p.lip_face_r_in, 0.0), (p.lip_r, 0.0), *rim_points(p)]
     r0 = mount_r(p)
     rs = np.linspace(p.ring_r, p.hub_r, samples // 2)
     if r0 > p.hub_r:                                    # the kinks of the mounting face, exactly
@@ -152,6 +148,48 @@ def outlines(p, samples=200):
         rot = np.array([[math.cos(t), math.sin(t)], [-math.sin(t), math.cos(t)]])
         out += [(xy @ rot).tolist() for xy in group]
     return out
+
+
+LIP_WINDOW_DEPTH = 18.0  # lip window floor below the face at its inner radius, mm (above the drop well)
+
+
+def lip_window_tools(p):
+    """Blind windows round the lip face, `lip_pockets` in all, set out over the through windows: each
+    window's angular span at its outer end is split into equal pockets with lip_rib_w ribs, so the
+    spokes run on to the lip as in the order renders (M59: 3 over each of 5 windows, 2026-09-27)."""
+    if p.lip_pockets <= 0:
+        return []
+    m3 = _m3()
+    wins = [np.asarray(w, float) for w in outlines(p)]
+    per = p.lip_pockets // len(wins) if wins else 0
+    if per < 1:
+        return []
+    r0, r1 = p.lip_pocket_r
+    # beyond the bead seat radius only the ~13 mm front flange is left under the face (rim_points):
+    # a window out there opened daylight into the tyre side (M59, 2026-09-27)
+    r1 = min(r1, p.lip_r - FLANGE_H - 1)
+    floor = face_z(p, r0) - min(p.lip_pocket_depth, LIP_WINDOW_DEPTH)
+    tools = []
+    for w in wins:
+        rr = np.hypot(w[:, 0], w[:, 1])
+        end = w[(rr > r0 - 16) & (rr < r0 - 2)]          # the window just inside the lip windows
+        if len(end) < 4:
+            continue
+        c = math.atan2(end[:, 1].mean(), end[:, 0].mean())
+        rel = (np.arctan2(end[:, 1], end[:, 0]) - c + math.pi) % (2 * math.pi) - math.pi
+        a0, a1 = c + rel.min(), c + rel.max()
+        step, gap = (a1 - a0) / per, p.lip_rib_w / 2 / ((r0 + r1) / 2)
+        for i in range(per):
+            b = np.linspace(a0 + i * step + gap, a0 + (i + 1) * step - gap, 10)
+            if b[-1] <= b[0]:
+                continue
+            poly = np.vstack([np.column_stack([r0 * np.cos(b), r0 * np.sin(b)]),
+                              np.column_stack([r1 * np.cos(b[::-1]), r1 * np.sin(b[::-1])])])
+            if _area(poly) < 0:                         # counter-clockwise, or it reads as a hole
+                poly = poly[::-1]
+            cs = m3.CrossSection([poly]).offset(-2.5, m3.JoinType.Round).offset(2.5, m3.JoinType.Round)
+            tools.append(cs.extrude(60).translate([0, 0, floor]))
+    return tools
 
 
 RIDGE_STEP = 1.5      # skeleton step of the ridge tents, mm
@@ -249,6 +287,7 @@ def build(recipe):
         dish = offset_dish_profile(p, p.spoke_pad_depth)
         above = revolve([(0.0, 80.0), *dish, (p.lip_r + 5, 80.0)])         # the pocket floor is the lowered dish
         apply('spoke_pads', _round(pads, p), trim=above)
+    apply('lip_windows', lip_window_tools(p))
     apply('hub_valleys', _round([to_manifold(t) for t in hub_valley_tools(p)], p))
     apply('lug_holes_and_seats', lug_tools(p))
     report = {'status': str(body.status()), 'genus': body.genus(), 'volume_mm3': round(body.volume(), 1),

@@ -208,6 +208,48 @@ SMALL_BEVEL_MAX = 4.0   # widest chamfer on a straight-walled small window, mm
 GROOVE_LAND = 2.0    # least spoke top left each side of a centreline groove, mm
 
 
+# Rim section learnt from the factory CAD of the 13 real orders (2026-09-27): every one has the lip
+# 19.9 mm above the nominal bead seat radius R = D/2, 5 deg bead seats with humps, a drop well about
+# 20 mm below R starting ~24 mm behind the front flange's inner face, and a barrel ~7 mm below R.
+# The old section was a plain cylinder with slab flanges ("the barrel looks wrong").
+FLANGE_H = 19.9      # lip radius above the bead seat radius, mm (13/13 orders)
+FLANGE_T = 13.0      # flange thickness up to its inner face, mm (median of the orders: 13.0-16.1)
+RIM_WALL = 5.0       # barrel wall, mm
+WELL_DEPTH = 20.0    # drop well below the bead seat radius, mm
+BARREL_DROP = 7.0    # barrel below the bead seat radius behind the well, mm
+
+
+def rim_points(p):
+    """(r, z) of the rim section from the front lip edge round the outside to the rear flange and back
+    along the inside to the web ring: the outline between the lip face and the web back."""
+    R, W, f, t = p.lip_r - FLANGE_H, p.width, FLANGE_T, RIM_WALL
+    zb = z_back(p, p.ring_r)
+    # the well starts behind the web's back at the ring, 24 mm behind the flange face as in the orders
+    w0 = min(-f - 24.0, zb - 6.0)
+    outer = [(p.lip_r, -5.5), (R + 10, -f), (R + 2.5, -f), (R + 1.5, -f - 2.5),       # front flange
+             (R, w0 + 5), (R + 1.2, w0 + 3), (R, w0),                                    # bead seat, hump
+             (R - WELL_DEPTH, w0 - 9), (R - WELL_DEPTH, w0 - 36),                        # drop well
+             (R - BARREL_DROP, w0 - 68),                                                 # up to the barrel
+             (R - BARREL_DROP, -W + f + 40), (R, -W + f + 26), (R + 1.2, -W + f + 22),   # rear hump
+             (R + 1.5, -W + f + 2.5), (R + 2.5, -W + f), (R + 10, -W + f),               # rear bead seat
+             (p.lip_r, -W + 5.5), (p.lip_r, -W), (R - 2, -W), (R - t, -W + 3)]           # rear flange
+    inner = [(R - t, -W + f + 22), (R - BARREL_DROP - t, -W + f + 40), (R - BARREL_DROP - t, w0 - 68),
+             (R - WELL_DEPTH - t, w0 - 36), (R - WELL_DEPTH - t, w0 - 9)]
+    if w0 - 68 <= -W + f + 40:
+        raise ValueError(f"rim section: the drop well (from z {w0:.0f}) runs into the rear bead seat; the web is too deep")
+    # the web meets the rim from the inside of the well up to its own back at the ring: the join must
+    # not fall inside the ring (the back spline starts there), nor through the rim's outer wall
+    return outer + inner + [(min(p.ring_r + 4, R - t - 1), zb)]
+
+
+def through_limit(p):
+    """Outer radius of the through part of a window: out to the ring (or window_through_r), but inside
+    the drop well's inner wall, which runs under the web there (rim_points); a through cut past it
+    notched the well (2026-09-27)."""
+    ring = max(p.ring_r - 2, min(p.window_through_r, p.barrel_inner_r - 3))
+    return min(ring, p.lip_r - FLANGE_H - WELL_DEPTH - RIM_WALL - 1)
+
+
 def blank(p):
     """Revolved forging blank: hub, concave face web, lip face ring and barrel.
 
@@ -222,17 +264,13 @@ def blank(p):
     r0 = mount_r(p)
     r1 = r0 + MOUNT_RAMP if r0 > p.hub_r else p.hub_r        # the spline runs over the web only
     back = [(r, z_back(p, r)) for r in np.linspace(r1, p.ring_r, 9)[::-1]]
-    lip_back = -min(14.0, p.lip_r - p.barrel_outer_r)
     wp = cq.Workplane('XZ').moveTo(p.center_bore_r, p.hub_z + lift).lineTo(p.hub_r, p.hub_z + lift)
     if creased:                                  # a straight run to the crease keeps it sharp (a spline would round it)
         wp = wp.lineTo(p.hub_crease_r, p.hub_crease_z + lift)
-    wp = (wp.spline(front[1:], includeCurrent=True)
-          .lineTo(p.lip_face_r_in, lift).lineTo(p.lip_r, lift).lineTo(p.lip_r, lip_back)
-          .lineTo(p.barrel_outer_r + 2, lip_back - 12)
-          .lineTo(p.barrel_outer_r, lip_back - 26).lineTo(p.barrel_outer_r, -p.width + 25)
-          .lineTo(p.lip_r - 2, -p.width + 12).lineTo(p.lip_r - 2, -p.width)
-          .lineTo(p.barrel_inner_r, -p.width).lineTo(p.barrel_inner_r, z_back(p, p.ring_r) - 3)
-          .lineTo(p.ring_r + 4, z_back(p, p.ring_r))
+    wp = wp.spline(front[1:], includeCurrent=True).lineTo(p.lip_face_r_in, lift).lineTo(p.lip_r, lift)
+    for r, z in rim_points(p):
+        wp = wp.lineTo(r, z)
+    wp = (wp
           .spline(back, includeCurrent=True))
     if r0 > p.hub_r:
         wp = wp.lineTo(r0, z_back(p, r0))
@@ -831,7 +869,11 @@ def window_envelope_profile(p):
     # Pocket floor keeps POCKET_SKIN above the web's back at the ring: with the spoke ends lowered
     # (ring_z < 0) a 60 mm pocket cut through to the barrel (HF6-4 v3, 2026-09-25).
     floor = max(-p.window_pocket_depth, z_back(p, p.ring_r) + POCKET_SKIN)
-    ring = max(p.ring_r - 2, min(p.window_through_r, p.barrel_inner_r - 3))
+    ring = through_limit(p)
+    if p.lip_pockets and p.family == 'outline':
+        # separate lip windows sit beyond the ring (mesh_build.lip_window_tools): a traced window that
+        # ran on under the lip (one dark area in the photo) stops at the ring
+        return [(0, -p.width - 30), (ring, -p.width - 30), (ring, 80), (0, 80)]
     # Never past the lip face: a flank widens the outline outward, and with the spoke ends below
     # the lip (ring_z < 0) it cut the lip flange away (HF6-4, 2026-09-25).
     outer = p.lip_face_r_in - 1

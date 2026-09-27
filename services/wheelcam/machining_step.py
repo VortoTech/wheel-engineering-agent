@@ -22,7 +22,8 @@ from pathlib import Path
 import cadquery as cq
 import numpy as np
 
-from .forged_blank import (TOOL_R, _robust_cut, blank, hole_form, lug_tools, recipe_from_dict, z_back, z_top)
+from .forged_blank import (TOOL_R, _robust_cut, blank, hole_form, lug_tools, recipe_from_dict, through_limit,
+                           z_back, z_top)
 
 SPLINE_STEP_MM = 3.0   # point spacing of a window spline: coarse enough that no edge is a sliver
 MIN_WINDOW_MM2 = 40.0  # smaller islands of the opened footprint are dropped (a cutter cannot clear them)
@@ -47,7 +48,7 @@ def seat_land(p):
 
 def through_radius(p):
     """Outer radius of the through part of a window, as forged_blank.window_envelope_profile has it."""
-    return max(p.ring_r - 2, min(p.window_through_r, p.barrel_inner_r - 3))
+    return through_limit(p)
 
 
 def window_loops(p):
