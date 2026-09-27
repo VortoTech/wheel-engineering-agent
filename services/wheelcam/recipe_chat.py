@@ -41,6 +41,9 @@ LOCKED = {
     "bolt_d": "孔型来自确认单", "seat_d": "孔型来自确认单", "seat_cone_deg": "孔型来自确认单",
     "spokes": "辐条组数来自照片轮廓，改组数需要重新识图", "outlines": "窗口轮廓来自照片，需重新描图",
 }
+NAMES = {"pcd": "PCD", "bolts": "螺栓孔数", "center_bore_r": "中心孔", "lip_r": "轮辋直径", "width": "轮辋宽度",
+         "web_thick_hub": "ET", "bolt_d": "孔型", "seat_d": "孔型", "seat_cone_deg": "孔型", "spokes": "辐条组数",
+         "outlines": "窗口轮廓", "hub_z": "凹度"}
 ALIASES = {"et": "web_thick_hub", "et_mm": "web_thick_hub", "pcd_mm": "pcd", "center_bore_mm": "center_bore_r",
            "diameter_in": "lip_r", "width_in": "width", "hole_form": "bolt_d"}
 
@@ -200,7 +203,8 @@ def summary(result: dict) -> str:
              for k, v in (result.get("changed") or {}).items()]
     text = "已修改：" + "；".join(parts) + "。" if parts else ""
     if result.get("refused"):
-        text += "未修改：" + "；".join(f"{r['param']}（{r['reason']}）" for r in result["refused"]) + "。"
+        text += "未修改：" + "；".join(f"{NAMES.get(r['param'], r['param'])}（{r['reason']}）"
+                                     for r in result["refused"]) + "。"
     built = result.get("built")
     if built:
         failed = [k for k, c in built["checks"].items() if not c["pass"]]

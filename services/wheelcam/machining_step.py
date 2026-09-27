@@ -159,10 +159,8 @@ def export(recipe: dict, out, hole_form_text=None, et_mm=None) -> dict:
                               "source": "recipe (no order hole form given)"},
         "checks": checks, "stages": stages,
         "adjustments": [s["note"] for s in stages if s.get("note")],
-        "in_step": ["turned blank (finished dish)", "through windows, straight walls, 6 mm end-mill corners",
-                    "bolt holes with conical seats", "centre bore"],
-        "not_in_step": ["spoke face surfaces, ridges, grooves, flanks", "hub valleys", "pockets under the lip",
-                        "edge breaks and fillets: factory CAM"],
+        "in_step": ["车削回转体（成品凹面）", "直壁通窗（Ø6 立铣刀圆角）", "螺栓孔与锥座", "中心孔"],
+        "not_in_step": ["辐条正面曲面、脊线、槽和窗口斜面", "中心凹谷", "外圈盲槽", "倒角与圆角：交工厂 CAM"],
         "coordinates": "Z is the wheel axis, Z = 0 the rim-width mid-plane, +Z the face side; mm",
     }
     (out / "machining_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
