@@ -1,10 +1,12 @@
 """Multi-wheel eval: run the wheel skill on every wheel of evalset.json, score each build against its photos.
 
     .venv/bin/python experiments/forged-blank/evalset.py --photos DIR [--out runs/evalset] [--only hf-1,hf-3] [--jobs 2]
+        [--kernel mesh|brep]
 
 DIR/<id>/front.jpg and DIR/<id>/oblique.jpg are the official photos (not in the repo). Each wheel runs in
 its own process under scripts/capped.sh (CAP_KB, default 20 GB); a failure is recorded, not fatal.
-Writes OUT/summary.json and prints one line per wheel. A build takes 10-20 min.
+Writes OUT/summary.json and prints one line per wheel. A mesh build takes about a minute, a B-Rep
+build 10-90 min (and failed on most wheels, 2026-09-26).
 """
 import argparse
 import json
@@ -20,7 +22,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "services"))
 
 
-def one(photos: Path, out: Path, wheel: dict) -> dict:
+def one(photos: Path, out: Path, wheel: dict, kernel: str = "mesh") -> dict:
     """Build and score one wheel in this process (called through --one)."""
     import cadquery as cq
     import numpy as np
@@ -32,14 +34,19 @@ def one(photos: Path, out: Path, wheel: dict) -> dict:
 
     front, oblique = photos / wheel["id"] / "front.jpg", photos / wheel["id"] / "oblique.jpg"
     t = time.time()
-    result = run(front, wheel["spec"], out, oblique if oblique.exists() else None)
+    result = run(front, wheel["spec"], out, oblique if oblique.exists() else None, kernel=kernel)
     row = {"id": wheel["id"], "seconds": round(time.time() - t), "readiness": result["readiness"],
            "mass_kg": result["mass_kg_6061"], "questions": len(result["questions"]),
            "checks_failed": [k for k, v in result["checks"].items() if not v.get("pass", True)],
            "spokes": result["parameters"].get("spokes", {}).get("value"),
            "planform": result["parameters"].get("planform", {}).get("value")}
     p = recipe_from_dict(json.loads((out / "recipe.json").read_text()))
-    shape = cq.importers.importStep(str(out / "cad" / "wheel.step")).val()
+    if kernel == "mesh":
+        from wheelcam.mesh_build import build
+        shape = build(p)[0]
+    else:
+        shape = cq.importers.importStep(str(out / "cad" / "wheel.step")).val()
+    row["kernel"] = kernel
     load = lambda path: np.asarray(Image.open(path).convert("RGB"), float) / 255
     image = load(front)
     rim, _ = _front_rim_hub(image)
@@ -64,13 +71,14 @@ def main():
     ap.add_argument("--out", default="runs/evalset")
     ap.add_argument("--only", default="")
     ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--kernel", choices=("mesh", "brep"), default="mesh")
     ap.add_argument("--one", help=argparse.SUPPRESS)
     a = ap.parse_args()
     wheels = json.loads((HERE / "evalset.json").read_text())["wheels"]
     out = Path(a.out)
     if a.one:
         wheel = next(w for w in wheels if w["id"] == a.one)
-        row = one(Path(a.photos), out / wheel["id"], wheel)
+        row = one(Path(a.photos), out / wheel["id"], wheel, a.kernel)
         (out / wheel["id"] / "eval_row.json").write_text(json.dumps(row, ensure_ascii=False, indent=1))
         return
     if a.only:
@@ -83,7 +91,8 @@ def main():
         env = {**os.environ, "CAP_KB": os.environ.get("CAP_KB", "20000000"), "PYTHONPATH": str(ROOT / "services")}
         with open(out / wid / "log.txt", "w") as log:
             code = subprocess.call([str(ROOT / "scripts/capped.sh"), sys.executable, __file__, "--photos", a.photos,
-                                    "--out", str(out), "--one", wid], stdout=log, stderr=subprocess.STDOUT, env=env)
+                                    "--out", str(out), "--one", wid, "--kernel", a.kernel],
+                                   stdout=log, stderr=subprocess.STDOUT, env=env)
         row_file = out / wid / "eval_row.json"
         if code == 0 and row_file.exists():
             row = json.loads(row_file.read_text())

@@ -23,7 +23,12 @@ BAND_OUT = .78               # outer edge of the scored band, as a share of lip_
 
 
 def mesh(shape, tol=.3):
-    """Triangles (n, 3, 3) and a B-Rep face id per triangle."""
+    """Triangles (n, 3, 3) and a B-Rep face id per triangle (a triangle id for a mesh-build manifold)."""
+    if hasattr(shape, "to_mesh"):
+        m = shape.to_mesh()
+        tri = np.asarray(m.vert_properties, float)[:, :3][np.asarray(m.tri_verts)]
+        keep = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) > 1e-3
+        return tri[keep], np.arange(len(tri))[keep]
     tris, ids = [], []
     for k, face in enumerate(shape.Faces()):
         vs, fs = face.tessellate(tol, .3)

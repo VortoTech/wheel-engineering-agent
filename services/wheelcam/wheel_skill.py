@@ -372,24 +372,34 @@ def readiness(prov: dict, checks: dict, spec: dict, built: bool) -> tuple[str, l
     return level, why
 
 
-def run(front, spec, out, oblique=None, build=True):
+def run(front, spec, out, oblique=None, build=True, kernel="mesh"):
+    """kernel "mesh": manifold3d build (seconds; GLB, mass and checks); "brep": the OCC build with a STEP
+    for manufacturing (tens of minutes, and OCC booleans failed on most eval-set wheels, 2026-09-26)."""
     from PIL import Image
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     load = lambda path: np.asarray(Image.open(path).convert("RGB"), float) / 255
     recipe, prov, questions, unknown, evidence = reconstruct(load(front), spec, load(oblique) if oblique else None)
     (out / "recipe.json").write_text(json.dumps(asdict(recipe), ensure_ascii=False, indent=1))
-    checks, report = {}, {}
-    if build:
+    checks, report, mass = {}, {}, None
+    if build and kernel == "mesh":
+        from . import mesh_build
+        (out / "cad").mkdir(parents=True, exist_ok=True)
+        body, report = mesh_build.build(recipe)
+        mesh_build.export_glb(body, out / "cad" / "wheel.glb")
+        (out / "cad" / "report.json").write_text(json.dumps(report, indent=1))
+        checks, mass = mesh_build.verify(body, recipe, spec), report["mass_kg_6061"]
+    elif build:
         from .forged_blank import export_model
         report = export_model(asdict(recipe), out / "cad", {"forged": asdict(recipe)})
         checks = verify(out / "cad" / "wheel.step", recipe, spec, report)
+        mass = report.get("forged", {}).get("part_mass_kg_6061")
     level, why = readiness(prov, checks, spec, build)
     result = {"skill": "wheel-engineering-v0.1", "inputs": {"front": str(front), "oblique": str(oblique) if oblique else None, "spec": spec},
               "readiness": level, "readiness_limits": why, "questions": questions, "parameters": prov, "unknown": unknown,
               "checks": checks, "evidence": evidence,
-              "mass_kg_6061": report.get("forged", {}).get("part_mass_kg_6061"),
-              "artifacts": {k: str(out / "cad" / k) for k in ("wheel.step", "wheel.glb")} if build else {}}
+              "kernel": kernel if build else None, "mass_kg_6061": mass,
+              "artifacts": {k: str(out / "cad" / k) for k in ("wheel.step", "wheel.glb") if (out / "cad" / k).exists()} if build else {}}
     (out / "engineering_report.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=str))
     return result
 
@@ -401,7 +411,8 @@ if __name__ == "__main__":
     ap.add_argument("--spec", default="{}", help="JSON: diameter_in, width_in, pcd_mm, bolts, center_bore_mm, et_mm")
     ap.add_argument("--out", required=True)
     ap.add_argument("--no-build", action="store_true")
+    ap.add_argument("--kernel", choices=("mesh", "brep"), default="mesh", help="mesh: seconds, GLB; brep: STEP, slow")
     a = ap.parse_args()
-    res = run(a.front, json.loads(a.spec), a.out, a.oblique, not a.no_build)
+    res = run(a.front, json.loads(a.spec), a.out, a.oblique, not a.no_build, a.kernel)
     print(json.dumps({k: res[k] for k in ("readiness", "readiness_limits", "questions", "checks", "mass_kg_6061")},
                      ensure_ascii=False, indent=1, default=str))

@@ -262,3 +262,20 @@ def test_polygon_loop_keeps_straight_edges_and_small_corners():
     assert np.abs(mid[:, 1]).max() < .35                        # the bottom edge is straight
     corner = np.hypot(loop[:, 0], loop[:, 1]).min()
     assert .5 < corner < 2.0, corner                            # rounded by ~3 mm, not by the smoothing width
+
+
+def test_windows_are_not_extended_across_a_ring_with_more_windows_beyond():
+    """LCX-01: spokes end on a ring with lip windows beyond; extending the spoke windows outward
+    merged everything into one region and the trace lost every window (2026-09-27)."""
+    from wheelcam.forged_photo import _extend_outward
+    rs = np.arange(60, 280, 1.0)
+    n = 90
+    mask = np.zeros((len(rs), n), bool)
+    for r in range(len(rs)):
+        if 100 <= rs[r] < 200:                                   # a spoke window, widening outward
+            half = 10 + (rs[r] - 100) * .1
+            mask[r, int(45 - half):int(45 + half)] = True
+    ringed = mask.copy()
+    ringed[(rs >= 215) & (rs < 235), :] = True                   # lip windows beyond a ring at 200-215
+    assert _extend_outward(ringed, rs, 260, 150)[(rs >= 200) & (rs < 215)].sum() == 0
+    assert _extend_outward(mask, rs, 260, 150)[(rs >= 200) & (rs < 215)].sum() > 0      # barrel view: extended

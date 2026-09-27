@@ -365,25 +365,32 @@ def windows(p, outlines):
     grow past 90 GB (2026-09-24). Sequential cuts stay under 1 GB.
     """
     if p.flank_w > 0 and p.flank_depth > 0:
-        from scipy.spatial import cKDTree
-        loops = [np.asarray(pts, float) for pts in outlines]
-        tools = []
-        for i, xy in enumerate(loops):
-            others = [o for j, o in enumerate(loops) if j != i]
-            width = cKDTree(np.concatenate(others)).query(xy)[0] if others else np.full(len(xy), np.inf)
-            reach = WINDOW_SHARE * _window_size(xy)
-            # Small windows: straight walls with a chamfer in proportion (the official fork triangle and
-            # slots have a 3-4 mm dark bevel), instead of a thin flank loft that OCC cut badly.
-            bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach)) if p.face_chamfer > 0 else 0.0
-            tool = None
-            if reach >= MIN_FLANK:
-                try:
-                    tool = _flanked_window(p, pts=outlines[i], spoke_w=width, max_reach=reach)
-                except FoldError:
-                    bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0))   # HF-3's slim windows (2026-09-26)
-            tools.append(tool if tool is not None else _prism_window(p, outlines[i], chamfer=bevel))
-        return tools
+        return [_loft_rings(rings) for rings in window_rings(p, outlines)]
     return cq.Compound.makeCompound([_prism_window(p, pts) for pts in outlines])
+
+
+def window_rings(p, outlines):
+    """Point rings of every window tool (bottom to top), shared by the B-Rep and the mesh build."""
+    loops = [np.asarray(pts, float) for pts in outlines]
+    if not (p.flank_w > 0 and p.flank_depth > 0):
+        return [_prism_rings(p, xy, p.face_chamfer) for xy in loops]
+    from scipy.spatial import cKDTree
+    out = []
+    for i, xy in enumerate(loops):
+        others = [o for j, o in enumerate(loops) if j != i]
+        width = cKDTree(np.concatenate(others)).query(xy)[0] if others else np.full(len(xy), np.inf)
+        reach = WINDOW_SHARE * _window_size(xy)
+        # Small windows: straight walls with a chamfer in proportion (the official fork triangle and
+        # slots have a 3-4 mm dark bevel), instead of a thin flank loft that OCC cut badly.
+        bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, reach)) if p.face_chamfer > 0 else 0.0
+        rings = None
+        if reach >= MIN_FLANK:
+            try:
+                rings = _flank_rings(p, xy, spoke_w=width, max_reach=reach)
+            except FoldError:
+                bevel = min(SMALL_BEVEL_MAX, max(p.face_chamfer, 2.0))   # HF-3's slim windows (2026-09-26)
+        out.append(rings if rings is not None else _prism_rings(p, xy, bevel))
+    return out
 
 
 def _outward_normal(xy):
@@ -400,16 +407,27 @@ def _prism_window(p, pts, chamfer=None):
     (with a chamfer, default face_chamfer: a ring at the top, c deep and crossing the face c + 1 out)."""
     c = p.face_chamfer if chamfer is None else chamfer
     if c > 0:
-        xy = np.asarray(pts, float)
-        z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
-        crest = _unfold(xy, _outward_normal(xy), np.full(len(xy), c + 1.0))
-        rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]), np.column_stack([xy, z(xy) - c]),
-                 np.column_stack([crest, z(crest) + 1.0]), np.column_stack([crest, np.full(len(xy), 40.0)])]
-        wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
-        return cq.Solid.makeLoft(wires, ruled=True)
+        return _loft_rings(_prism_rings(p, pts, c))
     edge = cq.Edge.makeSpline([cq.Vector(x, y, -p.width) for x, y in pts], periodic=True)
     face = cq.Face.makeFromWires(cq.Wire.assembleEdges([edge]))
     return cq.Solid.extrudeLinear(face, cq.Vector(0, 0, p.width + 20))
+
+
+def _prism_rings(p, pts, c):
+    """Point rings (bottom to top) of a straight window, with a chamfer ring c deep when c > 0."""
+    xy = np.asarray(pts, float)
+    if c <= 0:
+        return [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]), np.column_stack([xy, np.full(len(xy), 40.0)])]
+    z = lambda q: np.array([z_top(p, math.hypot(*v)) for v in q])
+    crest = _unfold(xy, _outward_normal(xy), np.full(len(xy), c + 1.0))
+    return [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]), np.column_stack([xy, z(xy) - c]),
+            np.column_stack([crest, z(crest) + 1.0]), np.column_stack([crest, np.full(len(xy), 40.0)])]
+
+
+def _loft_rings(rings):
+    """B-Rep tool through point rings: a periodic spline per ring, ruled between them."""
+    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
+    return cq.Solid.makeLoft(wires, ruled=True)
 
 
 def _window_size(xy):
@@ -419,7 +437,13 @@ def _window_size(xy):
 
 
 def _flanked_window(p, pts, spoke_w=None, max_reach=np.inf):
-    """Window prism whose top widens by p.flank_w over p.flank_depth: ruled loft through four rings.
+    """Window prism whose top widens by p.flank_w over p.flank_depth (see _flank_rings)."""
+    return _loft_rings(_flank_rings(p, pts, spoke_w, max_reach))
+
+
+def _flank_rings(p, pts, spoke_w=None, max_reach=np.inf):
+    """Point rings (bottom to top) of a flanked window: a ruled loft through them widens its top by
+    p.flank_w over p.flank_depth.
 
     Each outline point moves along its outward normal (into the material), so the rings keep point
     correspondence and the flank rules straight across. Outlines are smooth (fillets / traced and
@@ -460,11 +484,9 @@ def _flanked_window(p, pts, spoke_w=None, max_reach=np.inf):
         wide = crest
     else:
         top = [np.column_stack([wide, z(wide) + 1.0])]
-    rings = [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]),
-             np.column_stack([xy, z(xy) - D]), *top,
-             np.column_stack([wide, np.full(len(xy), 40.0)])]
-    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
-    return cq.Solid.makeLoft(wires, ruled=True)
+    return [np.column_stack([xy, np.full(len(xy), -p.width - 10.0)]),
+            np.column_stack([xy, z(xy) - D]), *top,
+            np.column_stack([wide, np.full(len(xy), 40.0)])]
 
 
 def _crossing_segments(loop):
@@ -724,6 +746,12 @@ def back_pocket_cutters(p):
 
 def _window_envelope(p):
     """Where an outline-family window may cut: through inside the ring, only down to the pocket floor beyond."""
+    pts = window_envelope_profile(p)
+    return cq.Workplane('XZ').polyline(pts).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
+
+
+def window_envelope_profile(p):
+    """(r, z) outline of the window envelope, revolved about the wheel axis."""
     # Pocket floor keeps POCKET_SKIN above the web's back at the ring: with the spoke ends lowered
     # (ring_z < 0) a 60 mm pocket cut through to the barrel (HF6-4 v3, 2026-09-25).
     floor = max(-p.window_pocket_depth, z_back(p, p.ring_r) + POCKET_SKIN)
@@ -745,8 +773,7 @@ def _window_envelope(p):
     climb = [(float(r), max(floor + (top - floor) * (r - shelf_r) / max(outer - shelf_r, 1e-6),
                             back(r) + POCKET_SKIN if r > p.barrel_outer_r else -1e9)) for r in rs]
     pts = [(0, -p.width - 30), (ring, -p.width - 30), (ring, floor), (shelf_r, floor), *climb, (outer, 80), (0, 80)]
-    pts = [q for i, q in enumerate(pts) if i == 0 or np.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 1e-6]
-    return cq.Workplane('XZ').polyline(pts).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
+    return [q for i, q in enumerate(pts) if i == 0 or np.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > 1e-6]
 
 
 def outline_window_tools(p, samples=200):
@@ -1004,7 +1031,7 @@ def hub_valley_tools(p):
 PAD_MIN_HALF = 8.0   # skeleton lines narrower than this (half width, mm) are side ribs: lowered, not pads
 
 
-def spoke_pad_tools(p):
+def spoke_pad_tools(p, trim=True):
     """Pockets that leave a pad standing along every spoke's skeleton (outline family).
 
     The skeleton is the traced spokes' centrelines (stem and arms, at least PAD_MIN_HALF half wide),
@@ -1041,7 +1068,7 @@ def spoke_pad_tools(p):
     regions, count = components(low)
     pitch = 2 * math.pi / p.spokes
     run = p.spoke_pad_depth * math.tan(math.radians(p.spoke_pad_draft_deg))
-    floor = _offset_dish(p, p.spoke_pad_depth)
+    floor = _offset_dish(p, p.spoke_pad_depth) if trim else None
     tools = []
     for k in range(1, count + 1):
         region = regions == k
@@ -1053,21 +1080,34 @@ def spoke_pad_tools(p):
         loop = max(_cell_boundary_loops(region), key=len)
         pts = np.array([(c_ * res - half, half - r_ * res) for r_, c_ in loop])
         pts = _polygon_loop(pts, corner_r=run + 1.5)
+        if not trim:                       # the mesh build lofts the rings and trims them itself
+            tools.append(_pad_rings(p, pts, run))
+            continue
         tool = _pad_pocket(p, pts, run).intersect(floor)
         if tool.Solids():                  # a pocket wholly above the offset dish cuts nothing (HF6-5)
             tools.append(tool)
     return tools
 
 
+def offset_dish_profile(p, depth):
+    """(r, z) of the dish lowered by `depth`, from the axis to past the lip."""
+    rs = np.linspace(0, p.lip_r + 5, 60)
+    return [(float(r), face_z(p, max(float(r), p.hub_r)) - depth) for r in rs]
+
+
 def _offset_dish(p, depth):
     """Everything above the dish lowered by `depth` (r up to the lip): the floor of a pad pocket."""
-    rs = np.linspace(0, p.lip_r + 5, 60)
-    prof = [(float(r), face_z(p, max(float(r), p.hub_r)) - depth) for r in rs]
+    prof = offset_dish_profile(p, depth)
     wp = cq.Workplane('XZ').moveTo(0, 80).lineTo(0, prof[0][1]).spline(prof[1:], includeCurrent=True)
     return wp.lineTo(p.lip_r + 5, 80).close().revolve(360, (0, 0, 0), (0, 1, 0)).val()
 
 
 def _pad_pocket(p, pts, run, samples=220):
+    """Drafted pocket through the loop `pts` (see _pad_rings)."""
+    return _loft_rings(_pad_rings(p, pts, run, samples))
+
+
+def _pad_rings(p, pts, run, samples=220):
     """Drafted pocket through the loop `pts` (its top edge on the face): the wall runs from `run`
     inside the loop, below the floor, out through the face and on 3 mm above it (a wall edge on
     the face made cuts fail), then straight up. The floor comes from the offset-dish intersection."""
@@ -1093,10 +1133,8 @@ def _pad_pocket(p, pts, run, samples=220):
         outer = xy + normal * (run * 3 / d)
         top = [np.column_stack([outer, fz + 3])]
     # End rings flat, so the loft closes with planar caps (sloped end rings left it open, invalid).
-    rings = [np.column_stack([inner, np.full(len(xy), fz.min() - d - 12)]), np.column_stack([inner, fz - d - 2]),
-             *top, np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
-    wires = [cq.Wire.assembleEdges([cq.Edge.makeSpline([cq.Vector(*v) for v in r], periodic=True)]) for r in rings]
-    return cq.Solid.makeLoft(wires, ruled=True)
+    return [np.column_stack([inner, np.full(len(xy), fz.min() - d - 12)]), np.column_stack([inner, fz - d - 2]),
+            *top, np.column_stack([outer, np.full(len(xy), fz.max() + 30)])]
 
 
 def lug_tools(p):

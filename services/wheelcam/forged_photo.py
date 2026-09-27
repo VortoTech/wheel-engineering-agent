@@ -455,6 +455,12 @@ def _extend_outward(mask, rs, r_to, min_reach):
             continue
         lo = np.array([cols[rows == row].min() for row in fit_rows], float)
         hi = np.array([cols[rows == row].max() for row in fit_rows], float)
+        # More window farther out over the same angles: the dark band is a real ring (LCX-01's
+        # spokes end on a ring with a row of lip windows beyond), not the barrel seen through.
+        span = np.arange(int(lo[-1]), int(hi[-1]) + 1) % n
+        beyond = (rs > rs[top] + 4) & (rs <= r_to)
+        if mask[np.ix_(beyond, span)].mean(axis=1).max(initial=0) > .5:
+            continue
         a_lo, a_hi = np.polyfit(rs[fit_rows], lo, 1), np.polyfit(rs[fit_rows], hi, 1)
         for row in range(top + 1, len(rs)):
             if rs[row] > r_to:

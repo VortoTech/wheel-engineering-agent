@@ -413,7 +413,7 @@ def test_a_folding_flank_falls_back_to_a_beveled_straight_window(monkeypatch):
 
     def folds(*args, **kwargs):
         raise fb.FoldError("flank offset still folds")
-    monkeypatch.setattr(fb, "_flanked_window", folds)
+    monkeypatch.setattr(fb, "_flank_rings", folds)
     tools = fb.windows(p, [loop])
     assert len(tools) == 1 and tools[0].isValid()
 
