@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+RETRIES = 3
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "services"))
 
@@ -38,6 +39,11 @@ def one(size_dir: Path, out: Path, kernel: str) -> dict:
            "checks_failed": [k for k, v in result["checks"].items() if not v.get("pass", True)],
            "spokes": result["parameters"].get("spokes", {}).get("value"),
            "step": (build / "cad" / "wheel.step").exists()}
+    cad_report = build / "cad" / "report.json"
+    if cad_report.exists():                          # B-rep: style stages the build had to skip
+        rep = json.loads(cad_report.read_text())
+        row["skipped_stages"] = rep.get("forged", {}).get("skipped_operations", [])
+        row["step_roundtrip"] = rep.get("checks", {}).get("step_roundtrip")
     cmp = compare(build, size_dir)
     section_image(cmp, out / "compare_section.png")
     public = {k: v for k, v in cmp.items() if not k.startswith("_")}
@@ -55,6 +61,7 @@ def main():
     ap.add_argument("--kernel", choices=("mesh", "brep"), default="mesh")
     ap.add_argument("--only", default="")
     ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--timeout", type=float, default=2700, help="seconds per attempt of one size")
     ap.add_argument("--one", help=argparse.SUPPRESS)
     a = ap.parse_args()
     cases, out = Path(a.cases), Path(a.out) / a.kernel
@@ -71,20 +78,40 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     def launch(size):
+        """One size; a B-rep build killed for time or memory is retried without the stage it was in
+        (the build writes the running stage to a progress file), at most RETRIES times."""
+        import shutil
         target = out / size.replace("/", "-")
         target.mkdir(parents=True, exist_ok=True)
-        env = {**os.environ, "CAP_KB": os.environ.get("CAP_KB", "20000000"), "PYTHONPATH": str(ROOT / "services")}
+        progress, skipped = target / "stage.txt", []
         t = time.time()
-        with open(target / "log.txt", "w") as log:
-            code = subprocess.call([str(ROOT / "scripts/capped.sh"), sys.executable, __file__, "--cases", str(cases),
-                                    "--out", a.out, "--kernel", a.kernel, "--one", size],
-                                   stdout=log, stderr=subprocess.STDOUT, env=env)
+        for attempt in range(RETRIES + 1):
+            shutil.rmtree(target / "build", ignore_errors=True)
+            env = {**os.environ, "CAP_KB": os.environ.get("CAP_KB", "20000000"), "PYTHONPATH": str(ROOT / "services"),
+                   "WHEELCAM_STAGE_PROGRESS": str(progress), "WHEELCAM_SKIP_STAGES": ",".join(skipped)}
+            with open(target / "log.txt", "w") as log:
+                proc = subprocess.Popen([str(ROOT / "scripts/capped.sh"), sys.executable, __file__, "--cases", str(cases),
+                                         "--out", a.out, "--kernel", a.kernel, "--one", size],
+                                        stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+                try:
+                    code = proc.wait(timeout=a.timeout)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, 9)
+                    proc.wait()
+                    code = "timeout"
+            killed = code == "timeout" or code == 137
+            stage = progress.read_text().strip() if progress.exists() else ""
+            if not killed or not stage or stage in skipped:
+                break
+            skipped.append(stage)                    # retry without it
         row_file = target / "row.json"
         if code == 0 and row_file.exists():
-            row = {"size": size, **json.loads(row_file.read_text())}
+            row = {"size": size, **json.loads(row_file.read_text()), "attempts": attempt + 1,
+                   "skipped_by_runner": skipped}
         else:
             tail = (target / "log.txt").read_text(errors="ignore").strip().splitlines()[-3:]
-            row = {"size": size, "error": " | ".join(tail)[-300:], "seconds": round(time.time() - t)}
+            row = {"size": size, "error": (f"killed ({code}) in stage {stage}; " if killed else "") + " | ".join(tail)[-300:],
+                   "seconds": round(time.time() - t), "attempts": attempt + 1, "skipped_by_runner": skipped}
         print(json.dumps(row, ensure_ascii=False), flush=True)
         return row
 

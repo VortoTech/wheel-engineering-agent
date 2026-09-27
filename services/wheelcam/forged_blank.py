@@ -1316,47 +1316,18 @@ class StageError(RuntimeError):
     """A build stage that failed, timed out or ran out of memory; the build skips it."""
 
 
-def _run_stage(fn):
-    """fn() -> (shape, record). With WHEELCAM_STAGE_TIMEOUT_S or WHEELCAM_STAGE_MEM_GB set (Linux), in
-    a forked child under those limits: one OCC boolean of a real order grew past 40 GB and took the
-    whole wheel with it (Spark, 2026-09-27). The shape comes back as BRep."""
-    import sys
-    limit_s = float(os.environ.get('WHEELCAM_STAGE_TIMEOUT_S') or 0)
-    mem_gb = float(os.environ.get('WHEELCAM_STAGE_MEM_GB') or 0)
-    if not (limit_s or mem_gb) or not sys.platform.startswith('linux'):
-        return fn()
-    import json
-    import multiprocessing as mp
-    import resource
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        def child():
-            if mem_gb:
-                cap = int(mem_gb * 2 ** 30)
-                resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
-            try:
-                shape, record = fn()
-                shape.exportBrep(f'{d}/shape.brep')
-                with open(f'{d}/record.json', 'w') as out:
-                    json.dump(record, out)
-            except BaseException as e:           # noqa: BLE001 - reported to the parent
-                with open(f'{d}/error.txt', 'w') as out:
-                    out.write(f'{type(e).__name__}: {e}'[:300])
-                os._exit(1)
-            os._exit(0)
-        proc = mp.get_context('fork').Process(target=child)
-        proc.start()
-        proc.join(limit_s or None)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
-            raise StageError(f'timed out after {limit_s:g} s')
-        if os.path.exists(f'{d}/error.txt'):
-            raise StageError(open(f'{d}/error.txt').read())
-        if proc.exitcode != 0:
-            raise StageError(f'stage process died (exit {proc.exitcode}; memory limit {mem_gb:g} GB?)')
-        with open(f'{d}/record.json') as rec:
-            return cq.Shape.importBrep(f'{d}/shape.brep'), json.load(rec)
+def _run_stage(name, fn):
+    """fn() -> (shape, record), with the stage announced first. WHEELCAM_STAGE_PROGRESS names a file that
+    holds the running stage, so a runner that kills a wheel for time or memory knows which stage to
+    put in WHEELCAM_SKIP_STAGES on the retry: one OCC boolean of a real order grew past 40 GB (Spark,
+    2026-09-27). A forked child per stage deadlocked in OCC (futex wait at 0 % CPU) and was dropped."""
+    if name in os.environ.get('WHEELCAM_SKIP_STAGES', '').split(','):
+        raise StageError('skipped by the runner: this stage ran out of time or memory before')
+    progress = os.environ.get('WHEELCAM_STAGE_PROGRESS')
+    if progress:
+        with open(progress, 'w') as f:
+            f.write(name)
+    return fn()
 
 
 def _skipped(name, error, seconds):
@@ -1413,7 +1384,7 @@ def _build_sector(p):
             return True
         start_body, start = body, time.time()
         try:
-            body, record = _run_stage(lambda: cut_stage(name, tools, rotate, whole, start_body))
+            body, record = _run_stage(name, lambda: cut_stage(name, tools, rotate, whole, start_body))
             stages.append(record)
             return True
         except Exception as e:                   # noqa: BLE001 - OCC raises many kinds
@@ -1490,6 +1461,9 @@ def _build_sector(p):
 
     start = time.time()
     sector = body
+    if os.environ.get('WHEELCAM_STAGE_PROGRESS'):
+        with open(os.environ['WHEELCAM_STAGE_PROGRESS'], 'w') as f:
+            f.write('sector_pattern')
     if os.environ.get('WHEELCAM_SECTOR_DUMP'):
         cq.exporters.export(sector, os.environ['WHEELCAM_SECTOR_DUMP'])
     body = sector.fuse(*[sector.rotate((0, 0, 0), (0, 0, 1), k * pitch) for k in range(1, p.spokes)], glue=True)
@@ -1513,7 +1487,8 @@ def build(p, sector=None):
     """Blank and cut part. `sector` (default: outline family without a face surface) builds one
     spoke sector and patterns it; otherwise every tool cuts the whole wheel."""
     if sector is None:
-        sector = p.family == 'outline' and p.face_crown_w <= 0
+        sector = (p.family == 'outline' and p.face_crown_w <= 0
+                  and 'sector_pattern' not in os.environ.get('WHEELCAM_SKIP_STAGES', '').split(','))
     if sector:
         start = time.time()
         try:
@@ -1533,7 +1508,7 @@ def build(p, sector=None):
             return True
         start_body, start = body, time.time()
         try:
-            body, record = _run_stage(lambda: cut_stage(name, tools, rotate, start_body))
+            body, record = _run_stage(name, lambda: cut_stage(name, tools, rotate, start_body))
             stages.append(record)
             return True
         except Exception as e:                   # noqa: BLE001 - OCC raises many kinds
