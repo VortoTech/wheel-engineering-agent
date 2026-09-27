@@ -160,14 +160,13 @@ STYLE_KEYS = ("center_pad", "arm_groove", "hub_valleys", "deep_flank")
 FORGED_Y = dict(flank_w=16.0, flank_depth=22.0, flank_share=.4, face_chamfer=2.0, window_pocket_depth=60.0,
                 spoke_pad_depth=10.0, spoke_pad_share=.45, groove_w=4.0, groove_depth=3.0,
                 hub_valley_depth=16.0, hub_valley_draft_deg=35.0)
-# Without deep_flank the window edges get a narrow chamfer: HF6-4's 16 x 22 mm flank on every wheel
-# ate half of HF-1's and HF-2's slim spokes and made HF6-2's read as a star (2026-09-27).
+# With deep_flank turned off the window edges get a narrow chamfer instead of HF6-4's 16 x 22 mm flank.
 PLAIN_EDGE = dict(flank_w=4.0, flank_depth=4.0, face_chamfer=1.5)
 
 
 def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict, list]:
-    """Style features of an outline-family recipe: which ones (from `style`, e.g. the user or a VLM;
-    unjudged ones stay off and are offered) and their sizes, from rules on the traced geometry.
+    """Style features of an outline-family recipe: which ones (from `style`, e.g. the user or a VLM,
+    else the forged_y preset, asked about) and their sizes, from rules on the traced geometry.
 
     Rules (fitted on the HF6-4 benchmark, to be checked on other wheels):
       hub crease   r = window_r_in - 15, rising 0.58 mm/mm from bore + 6; the dish is straight beyond it
@@ -183,15 +182,15 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
     upd, prov, questions = dict(FORGED_Y), {}, []
     given = {k: (style or {}).get(k) for k in STYLE_KEYS}
     source = (style or {}).get("source", "user") if style else None
-    # Unjudged features stay off (plain spokes) and are offered as options (user, 2026-09-27): the preset
-    # put slots the photo does not have into HF-3's slim spokes, and the VLM could not judge them.
-    on = {k: bool(v) for k, v in given.items()}
+    # Unjudged features take the forged_y preset and are asked about. Plain spokes by default were tried
+    # (2026-09-27) and judged worse by the user: HF6-4 lost its spine, the other wheels their look.
+    on = {k: (v if v is not None else True) for k, v in given.items()}
     if any(v is None for v in given.values()):
-        questions.append("造型特征无法从照片可靠判断，按素辐建模（窗口边窄倒角）。可选加上「锻造 Y 辐」特征："
-                         "辐条中心凸台、臂上沟槽、中心谷、窗口深斜面（可逐项打开）。")
+        questions.append("造型特征按「锻造 Y 辐」预设（辐条中心凸台、臂上沟槽、中心谷、窗口深斜面）建模："
+                         "照片里是否有这些特征？可逐项关闭。")
     for k in STYLE_KEYS:
         prov[k] = _record(on[k], source if given[k] is not None else "default", None,
-                          "由视觉模型/用户判断" if given[k] is not None else "未判断，默认关闭（可选）")
+                          "由视觉模型/用户判断" if given[k] is not None else "forged_y 预设，待确认")
     lines = spoke_centrelines(p)
     wide = [(line, hw) for line, hw in lines if np.median(hw) >= PAD_MIN_HALF]
     radii = [np.hypot(*line.T) for line, _ in wide]
