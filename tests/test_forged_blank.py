@@ -263,15 +263,18 @@ def test_small_windows_get_a_flank_in_proportion():
     assert seen[0] <= fb.WINDOW_SHARE * size + 1e-6 < 16                        # mid-size: flank in proportion
 
 
-def test_build_stops_when_a_cut_adds_material(monkeypatch):
-    """A boolean that merges its tool (seen with thin flank lofts) must fail the build, not ship."""
+def test_build_skips_a_cut_that_adds_material(monkeypatch):
+    """A boolean that merges its tool (seen with thin flank lofts) must not ship: the stage is
+    skipped and recorded, and the part keeps the other stages (2026-09-27: stages degrade)."""
     import cadquery as cq
     import wheelcam.forged_blank as fb
     post = cq.Solid.makeCylinder(5, 60, cq.Vector(150, 0, -20))
     monkeypatch.setattr(fb, "lug_tools", lambda p: [post])
     monkeypatch.setattr(cq.Shape, "cut", lambda self, *tools, **kw: self.fuse(*tools))
-    with pytest.raises(RuntimeError, match="added material"):
-        fb.build(recipe_from_dict(dict(FAST, facet_deg=0)))
+    stock, part, stages = fb.build(recipe_from_dict(dict(FAST, facet_deg=0)))
+    lug = [s for s in stages if s["op"] == "lug_holes_and_seats"][0]
+    assert lug["skipped"] and "added material" in lug["error"]
+    assert part.BoundingBox().zmax <= stock.BoundingBox().zmax + .5
 
 
 def test_outline_grooves_follow_the_spoke_centrelines():

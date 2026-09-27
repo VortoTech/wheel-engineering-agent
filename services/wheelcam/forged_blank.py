@@ -1312,6 +1312,64 @@ def _robust_cut(body, tool, name):
     raise RuntimeError(f'{name}: cut gives an invalid solid even after retries (OCC boolean failure)')
 
 
+class StageError(RuntimeError):
+    """A build stage that failed, timed out or ran out of memory; the build skips it."""
+
+
+def _run_stage(fn):
+    """fn() -> (shape, record). With WHEELCAM_STAGE_TIMEOUT_S or WHEELCAM_STAGE_MEM_GB set (Linux), in
+    a forked child under those limits: one OCC boolean of a real order grew past 40 GB and took the
+    whole wheel with it (Spark, 2026-09-27). The shape comes back as BRep."""
+    import sys
+    limit_s = float(os.environ.get('WHEELCAM_STAGE_TIMEOUT_S') or 0)
+    mem_gb = float(os.environ.get('WHEELCAM_STAGE_MEM_GB') or 0)
+    if not (limit_s or mem_gb) or not sys.platform.startswith('linux'):
+        return fn()
+    import json
+    import multiprocessing as mp
+    import resource
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        def child():
+            if mem_gb:
+                cap = int(mem_gb * 2 ** 30)
+                resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+            try:
+                shape, record = fn()
+                shape.exportBrep(f'{d}/shape.brep')
+                with open(f'{d}/record.json', 'w') as out:
+                    json.dump(record, out)
+            except BaseException as e:           # noqa: BLE001 - reported to the parent
+                with open(f'{d}/error.txt', 'w') as out:
+                    out.write(f'{type(e).__name__}: {e}'[:300])
+                os._exit(1)
+            os._exit(0)
+        proc = mp.get_context('fork').Process(target=child)
+        proc.start()
+        proc.join(limit_s or None)
+        if proc.is_alive():
+            proc.kill()
+            proc.join()
+            raise StageError(f'timed out after {limit_s:g} s')
+        if os.path.exists(f'{d}/error.txt'):
+            raise StageError(open(f'{d}/error.txt').read())
+        if proc.exitcode != 0:
+            raise StageError(f'stage process died (exit {proc.exitcode}; memory limit {mem_gb:g} GB?)')
+        with open(f'{d}/record.json') as rec:
+            return cq.Shape.importBrep(f'{d}/shape.brep'), json.load(rec)
+
+
+def _skipped(name, error, seconds):
+    return {'op': name, 'skipped': True, 'error': f'{type(error).__name__}: {error}'[:300],
+            'seconds': round(seconds, 1)}
+
+
+def _straight_windows(p):
+    """Straight-walled through windows (the machining STEP's), when the flanked window cut fails."""
+    from .machining_step import window_loops, window_prisms
+    return window_prisms(p, window_loops(p))
+
+
 def _clean_measured(body):
     """(body, volume) with clean() applied when the cleaned body is valid and still integrates; after
     the HF6-5 lug cuts it was valid but the volume integration failed (2026-09-26)."""
@@ -1323,6 +1381,10 @@ def _clean_measured(body):
         except VolumeMeasurementError:
             pass
     return body, volume(body)
+
+
+class SectorGlueError(RuntimeError):
+    """The patterned sectors did not glue into one valid solid."""
 
 
 def _build_sector(p):
@@ -1345,9 +1407,21 @@ def _build_sector(p):
     stages = []
 
     def apply(name, tools, rotate=False, whole=False):
+        """Cut one stage; a stage that fails is skipped and recorded (the part keeps the others)."""
         nonlocal body
         if not tools:
-            return
+            return True
+        start_body, start = body, time.time()
+        try:
+            body, record = _run_stage(lambda: cut_stage(name, tools, rotate, whole, start_body))
+            stages.append(record)
+            return True
+        except Exception as e:                   # noqa: BLE001 - OCC raises many kinds
+            body = start_body
+            stages.append(_skipped(name, e, time.time() - start))
+            return False
+
+    def cut_stage(name, tools, rotate, whole, body):
         start, before = time.time(), volume(body)
         limit = body.BoundingBox()
         if rotate:
@@ -1394,12 +1468,15 @@ def _build_sector(p):
             fallbacks = 0
             body = cut_all(sorted(tools, key=lambda t: t.Volume()))
         body, after = _clean_measured(body)
-        stages.append({'op': name, 'removed_mm3': round(before - after, 1), 'valid': body.isValid(),
-                       **({'fallbacks': fallbacks} if fallbacks else {}),
-                       'solids': len(body.Solids()), 'seconds': round(time.time() - start, 1)})
+        if not body.isValid() or after <= 0:
+            raise StageError(f'{name}: invalid or empty result')
+        return body, {'op': name, 'removed_mm3': round(before - after, 1), 'valid': body.isValid(),
+                      **({'fallbacks': fallbacks} if fallbacks else {}),
+                      'solids': len(body.Solids()), 'seconds': round(time.time() - start, 1)}
 
     apply('face_facets', facet_cutters(p), rotate=True)
-    apply('through_windows', outline_window_tools(p))
+    if not apply('through_windows', outline_window_tools(p)):
+        apply('through_windows_straight', _straight_windows(p))
     apply('stem_slots', slot_tools(p), rotate=True)
     apply('window_pockets', window_pocket_tools(p))
     apply('spoke_grooves', groove_cutters(p), rotate=True)
@@ -1422,7 +1499,7 @@ def _build_sector(p):
     if cleaned.isValid() and len(cleaned.Solids()) == 1:
         body = cleaned
     if len(body.Solids()) != 1 or not body.isValid():
-        raise RuntimeError(f'sector pattern: {len(body.Solids())} solids, valid {body.isValid()} (OCC glue failure)')
+        raise SectorGlueError(f'sector pattern: {len(body.Solids())} solids, valid {body.isValid()} (OCC glue failure)')
     stages.append({'op': 'sector_pattern', 'removed_mm3': 0.0, 'valid': True, 'solids': 1,
                    'seconds': round(time.time() - start, 1)})
     reach = body.BoundingBox()
@@ -1438,16 +1515,33 @@ def build(p, sector=None):
     if sector is None:
         sector = p.family == 'outline' and p.face_crown_w <= 0
     if sector:
-        return _build_sector(p)
+        start = time.time()
+        try:
+            return _build_sector(p)
+        except SectorGlueError as e:           # the whole-wheel route is slower but has no seams
+            stock, body, stages = build(p, sector=False)
+            return stock, body, [_skipped('sector_pattern', e, time.time() - start), *stages]
     body = blank(p)
     stock = body
     limit = stock.BoundingBox()
     stages = []
 
     def apply(name, tools, rotate=False):
+        """Cut one stage; a stage that fails is skipped and recorded (the part keeps the others)."""
         nonlocal body
         if not tools:
-            return
+            return True
+        start_body, start = body, time.time()
+        try:
+            body, record = _run_stage(lambda: cut_stage(name, tools, rotate, start_body))
+            stages.append(record)
+            return True
+        except Exception as e:                   # noqa: BLE001 - OCC raises many kinds
+            body = start_body
+            stages.append(_skipped(name, e, time.time() - start))
+            return False
+
+    def cut_stage(name, tools, rotate, body):
         start, before = time.time(), volume(body)
         pitch = 360 / p.spokes
         for i in range(p.spokes if rotate else 1):
@@ -1463,9 +1557,11 @@ def build(p, sector=None):
                 if len(body.Solids()) > len(stock.Solids()):
                     raise RuntimeError(f'{name}: a cut left a loose piece (OCC boolean failure)')
         body, after = _clean_measured(body)
-        stages.append({'op': name, 'removed_mm3': round(before - after, 1),
-                       'valid': body.isValid(), 'solids': len(body.Solids()),
-                       'seconds': round(time.time() - start, 1)})
+        if not body.isValid() or after <= 0:
+            raise StageError(f'{name}: invalid or empty result')
+        return body, {'op': name, 'removed_mm3': round(before - after, 1),
+                      'valid': body.isValid(), 'solids': len(body.Solids()),
+                      'seconds': round(time.time() - start, 1)}
 
     surfaced = p.face_crown_w > 0
     if surfaced:
@@ -1474,7 +1570,8 @@ def build(p, sector=None):
         p = replace(p, facet_deg=0.0, groove_offsets=(), flank_w=0.0, back_pocket_skin=0.0)
     apply('face_facets', facet_cutters(p), rotate=True)
     if p.family == 'outline':
-        apply('through_windows', outline_window_tools(p))
+        if not apply('through_windows', outline_window_tools(p)):
+            apply('through_windows_straight', _straight_windows(p))
     else:
         cutters = windows(p, window_outlines(p))
         apply('through_windows', cutters if isinstance(cutters, list) else [cutters])
@@ -1582,8 +1679,13 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
     mounting_face_z = z_back(p, p.hub_r) + p.width / 2
     from .models import Preparation
     from .preparation import check_preparation
-    preparation = check_preparation(part, None, Preparation.model_validate((snapshot or {}).get("preparation") or {}),
-                                    output, mounting_face_z_mm=mounting_face_z, export_stock=False)
+    try:
+        preparation = check_preparation(part, None, Preparation.model_validate((snapshot or {}).get("preparation") or {}),
+                                        output, mounting_face_z_mm=mounting_face_z, export_stock=False)
+    except Exception as e:                       # noqa: BLE001 - a failed check is reported, the STEP stays
+        preparation = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
+    skipped = [s["op"] for s in stages if s.get("skipped")]
+    checks["all_style_stages_built"] = not skipped
     if not (output / "recipe.json").exists():
         (output / "recipe.json").write_text(json.dumps(snapshot or {"forged": asdict(p)}, ensure_ascii=False, indent=2))
     limitations = [
@@ -1593,6 +1695,8 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
     ]
     if suspect:
         limitations.insert(0, f"以下工序结果可疑，须复核：{', '.join(suspect)}")
+    if skipped:
+        limitations.insert(0, f"以下造型工序建模失败已跳过，STEP 中没有这些特征（外观见网格 GLB）：{', '.join(skipped)}")
     report = {
         "checks": checks, "solid_count": len(part.Solids()),
         "volume_mm3": round(measurement.volume_mm3, 3), "volume_measurement": measurement.to_dict(),
@@ -1606,7 +1710,8 @@ def export_model(recipe: dict, output, snapshot: dict | None = None) -> dict:
         "status": "geometry_checked", "engineering_approved": False, "manufacturing_status": "not_released",
         "forged": {"stages": stages, "removal_ratio": round(1 - measurement.volume_mm3 / volume(stock), 4),
                    "part_mass_kg_6061": round(measurement.volume_mm3 * 2700 / 1e9, 2),
-                   "stock_volume_mm3": round(volume(stock), 1), "suspect_operations": suspect},
+                   "stock_volume_mm3": round(volume(stock), 1), "suspect_operations": suspect,
+                   "skipped_operations": skipped},
         "cam_operations": [{"op": "window_rim_edge_break", "size_mm": p.edge_break, "angle_deg": 45,
                             "edges": "all through-window rims, front (face) side",
                             "note": "Not modelled in CAD; chamfer the sharp rim edges in CAM."}] if p.edge_break > 0 else [],
