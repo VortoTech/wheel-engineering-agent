@@ -46,3 +46,29 @@ PYTHONPATH=services .venv/bin/python -m wheelcam.workbench \
 本次验证前端呈现与只读交互，未重新发送真实模型请求或构建 CAD。本机预览服务没有配置模型端点；新建文字/对话功能需运行环境提供模型配置。本次 HTML 尚未部署至 Spark。此前 Spark 全链结果见 `spark-workbench-flow-evidence.md`。
 
 GLB 仍为 L0 视觉草案；加工级 STEP 不包含完整造型曲面，未做结构仿真与制造审核，制造状态仍为 `not_released`。
+
+## 第二轮：外圈盲窗与可用性修正
+
+问题定位：Spark 图片链的 `delivery-4727f8143153` 配方为 `lip_pockets=0`；不是显示器材质问题。图片流程默认未运行造型 Agent，而 `wheel_skill.reconstruct()` 初始禁用外圈盲窗。文字链另一版设置了 15，因此外观不同。
+
+本次新增：
+
+- 预览区显示辐条组数、外圈盲窗目标数量、侧斜面宽度。
+- 手动盲窗入口（0–40 整数）复用 `recipe_chat.apply_edit()` 与快照重建路径，无需语言模型。径向范围联动，工程尺寸不改变。
+- `POST /api/runs/{name}/style` 保存独立子版本；旧配方 hash 拒绝，工程参数额外字段拒绝，失败不替换父版本。
+- 来源记录为用户确认的造型目标及规则推导范围；深度保留模板假设。界面不把目标数量冒充自动识图或独立实测。
+- `GET /api/capabilities` 仅报告模型是否配置，不暴露地址/密钥，也不将配置等同连通。未配置时禁用文字新建和对话，手动盲窗仍可用。
+- URL 保留当前版本，刷新后仍显示同一款；版本读取失败恢复选中项。
+- 压缩左侧参数区，确认按钮更易看到；状态横幅占据真实布局空间；显示手动修改记录。
+
+实际浏览器操作验收在 `runs/workbench-refinement-20260928/demo-m59` 隔离副本完成，没有改写 Spark 评测目录：
+
+- 手动 0 → 15，产生 `style-fb479ef7ad6e`，构建阶段 4.3 s。
+- 配方实际变化仅 `lip_pockets` 与 `lip_pocket_r`，生成 15 个盲窗切削体。
+- 单实体、外径 547.8 mm、总宽 294 mm、5 孔/PCD112、ET15、旋转对称：6 项均通过。
+- 正面图可见外圈窗口，刷新后当前版本保留，控制台未记录 error。
+- 截图：`runs/workbench-refinement-20260928/workspace-pockets.png`。
+
+新增回归覆盖真实几何体积下降、尺寸锁定、径向范围联动、来源、旧版本冲突、非法输入、构建失败保留父版本及模型配置状态。此轮为 Mac 构建；尚未在 Spark 部署复测，未生成该造型子版本的下游交付包。盲窗属于视觉造型，仍不能声称完整造型已进入加工级 STEP。
+
+第二轮自动验收命令：`PYTHONPATH=services .venv/bin/pytest -q tests/test_workbench_style.py tests/test_workbench.py tests/test_workbench_revision.py tests/test_privacy.py`，结果 **22 passed**（110.01 s）；JS 语法与 `git diff --check` 通过。

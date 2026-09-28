@@ -12,6 +12,7 @@ import io
 import threading
 from contextlib import contextmanager
 import json
+import os
 import re
 import subprocess
 import sys
@@ -34,6 +35,12 @@ class ChatIn(BaseModel):
 
 class TextIn(BaseModel):
     message: str = Field(min_length=1, max_length=800)
+
+
+class StyleIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_recipe_sha256: str
+    lip_pockets: int = Field(strict=True, ge=0, le=40)
 
 
 class RevisionIn(BaseModel):
@@ -100,6 +107,12 @@ def create_app(runs: Path) -> FastAPI:
     def page():
         return (Path(__file__).parent / "workbench.html").read_text()
 
+    @app.get("/api/capabilities")
+    def capabilities():
+        configured = all(os.getenv(f"WHEELCAM_CHAT_{key}") or os.getenv(f"WHEELCAM_AGENT_{key}")
+                         for key in ("BASE_URL", "MODEL"))
+        return {"chat_configured": configured, "manual_style": True}
+
     @app.get("/api/runs")
     def list_runs():
         return [p.parent.name for p in sorted(runs.glob("*/chain.json"))
@@ -144,7 +157,7 @@ def create_app(runs: Path) -> FastAPI:
             "spec_evidence": {k: {"source": "user"} for k in spec}, "style_agent": False, "hole_form_source": "user"}))
         return execute(name, [str(source), "--preview-only"])
 
-    def revise(name, body, delivery):
+    def revise(name, body, delivery, style=None):
         d = run_dir(name)
         with edit_lock(name):
             recipe = current_recipe(d)
@@ -152,15 +165,20 @@ def create_app(runs: Path) -> FastAPI:
                 raise HTTPException(409, "模型版本已改变，请刷新后重新确认")
             chain = read(d / "chain.json")
             spec, form = chain.get("spec", {}), chain.get("hole_form")
-            changes = body.spec.model_dump(exclude_none=True)
+            changes = body.spec.model_dump(exclude_none=True) if style is None else {}
             if delivery and (changes or body.hole_form is not None):
                 raise HTTPException(422, "请先确认工程尺寸，再生成交付包")
-            if not delivery and (not body.confirmed or not (changes or body.hole_form)):
+            if style is None and not delivery and (not body.confirmed or not (changes or body.hole_form)):
                 raise HTTPException(422, "请明确确认本次工程尺寸修改")
-            if body.hole_form is not None:
-                form = body.hole_form
+            hole_form = getattr(body, "hole_form", None)
+            if hole_form is not None:
+                form = hole_form
             try:
-                if not delivery:
+                before = recipe
+                if style is not None:
+                    from .recipe_chat import apply_edit
+                    recipe = apply_edit(recipe, {"lip_pockets": style})
+                elif not delivery:
                     recipe, spec = confirm_spec(recipe, spec, changes, form)
                 original = read(d / "reconstruct/engineering_report.json") or {}
                 history, _ = chat_state(d)
@@ -170,20 +188,31 @@ def create_app(runs: Path) -> FastAPI:
                             if field in recipe:
                                 original.setdefault("parameters", {})[field] = {
                                     "value": recipe[field], "source": "agent", "note": entry.get("message", "造型对话修改")}
-                report = snapshot_report(original, recipe, spec, changes, form, body.hole_form is not None)
+                report = snapshot_report(original, recipe, spec, changes, form, hole_form is not None)
+                if style is not None:
+                    report["parameters"]["lip_pockets"] = {"value": style, "source": "user",
+                        "note": "工作台手动确认造型目标；不是照片自动识别结果"}
+                    report["parameters"]["lip_pocket_r"] = {"value": recipe["lip_pocket_r"], "source": "rule",
+                        "note": "由盲窗数量修改联动设置径向范围"}
+                    report.setdefault("questions", []).append("外圈盲窗深度采用模板假设，须工程师确认；盲窗不是轮辋贯穿孔。")
             except ValueError as e:
                 raise HTTPException(422, str(e)[:300])
-            child = f"{'delivery' if delivery else 'revision'}-{uuid.uuid4().hex[:12]}"
+            child = f"{'style' if style is not None else 'delivery' if delivery else 'revision'}-{uuid.uuid4().hex[:12]}"
             source = runs / ".inputs" / child
             source.mkdir(parents=True)
             payload = {"recipe": recipe, "recipe_sha256": digest(recipe), "spec": spec, "hole_form": form,
                        "report": report, "reference": str(d / "reference"),
                        "parent": {"run": name, "recipe_sha256": body.expected_recipe_sha256,
-                                  "changes": changes, "hole_form_confirmed": body.hole_form is not None},
+                                  "changes": changes, "hole_form_confirmed": hole_form is not None,
+                                  "style_changes": {"lip_pockets": {"from": before.get("lip_pockets", 0), "to": style}} if style is not None else {}},
                        "source_text": chain.get("text")}
             snapshot = source / "snapshot.json"
             snapshot.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
             return execute(child, ["--snapshot", str(snapshot)] + ([] if delivery else ["--preview-only"]))
+
+    @app.post("/api/runs/{name}/style")
+    def edit_style(name: str, body: StyleIn):
+        return revise(name, body, False, style=body.lip_pockets)
 
     @app.post("/api/runs/{name}/spec")
     def confirm_dimensions(name: str, body: RevisionIn):
@@ -203,6 +232,8 @@ def create_app(runs: Path) -> FastAPI:
         return {"name": name, "chain": read(d / "chain.json"), "compare": read(d / "compare.json"),
                 "machining": read(d / "machining" / "machining_report.json"),
                 "engineering_report": original,
+                "style_parameters": {k: (current_recipe(d) or {}).get(k) for k in
+                                     ("lip_pockets", "lip_pocket_r", "spokes", "flank_w", "spoke_pad_depth")},
                 "reconstruct": {k: v for k, v in original.items()
                                 if k in ("readiness", "readiness_limits", "checks", "questions", "unknown", "engineering_understanding")},
                 "current_preview": {"revision": f"chat/{current.name}" if current else "reconstruct",
