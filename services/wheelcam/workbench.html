@@ -30,16 +30,13 @@ body{background:#0c0f13;font-size:13px}button{border-radius:7px;transition:backg
 @media(max-width:950px){.workspace{grid-template-columns:210px minmax(0,1fr)}.inspector{height:670px}.projectbar{padding:12px 16px}.project-title{min-width:120px}.center-panel{height:640px}.input-panel{max-height:640px}.focus-mode .center-panel{height:calc(100dvh - 175px)}.view-tools #focus-view{display:none}.focus-mode .view-tools #focus-view{display:block}.brand-caption{display:none}}
 @media(max-width:560px){.workspace{grid-template-columns:1fr}.project-title{min-width:100px}.project-title strong{font-size:14px}.project-identity select{min-width:0;max-width:190px}.center-panel{height:570px}.input-panel{max-height:none}.projectbar .actions .primary{font-size:11px;padding:8px}.parameter-row{padding:12px}.header-actions button{font-size:10px}.style-summary{flex-wrap:wrap}.material-label{margin-left:auto}.viewbar span{font-size:9px}.inspector{height:680px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
-.page-nav{display:flex;gap:5px;padding:4px;background:#171d25;border:1px solid var(--line);border-radius:8px}.page-nav a{font-size:12px;text-decoration:none;color:var(--mute);padding:5px 12px;border-radius:5px}.page-nav a[aria-current=page]{background:#333d4b;color:#fff}.agent-page .workspace{grid-template-columns:220px minmax(400px,1fr) 390px}.agent-page .input-panel{grid-column:1;grid-row:1}.agent-page .inspector{grid-column:2;grid-row:1}.agent-page .center-panel{grid-column:3;grid-row:1}.agent-page #log{padding:24px 30px;gap:18px}.agent-page .msg{max-width:90%;font-size:14px;padding:15px 18px}.agent-page .agent-intro{padding:22px 26px 16px}.agent-page .agent-intro h2{font-size:23px}.agent-page .agent-intro p{font-size:13px}.agent-page #ask{margin:0 22px;padding:12px}.agent-page #q{font-size:14px;min-height:78px!important}.agent-page .chips{padding:0 24px 12px}.agent-page #agent-footnote{padding:12px 24px}.agent-page .style-editor{margin:0 24px 12px}.agent-page .empty-log{font-size:14px}.agent-page #next-action{max-width:360px}.agent-page #focus-view{display:none}.agent-page #chain{grid-template-columns:1fr 1fr}.agent-page .brand-caption{display:none}.agent-page .viewbar strong{font-size:11px}.agent-page .center-panel .view-tools{gap:2px}.agent-page .center-panel .view-tools button{padding:5px 7px}.agent-page #model-state{padding-left:26px}
-@media(max-width:1200px){.agent-page .workspace{grid-template-columns:190px minmax(320px,1fr) 280px}.page-nav a{padding:5px 8px}.brand-caption{display:none}}
-@media(max-width:950px){.agent-page .workspace{grid-template-columns:minmax(0,1fr) 270px}.agent-page .input-panel{display:none}.agent-page .inspector{grid-column:1;grid-row:1;height:730px}.agent-page .center-panel{grid-column:2;grid-row:1;height:730px}header{flex-wrap:wrap}.page-nav{margin-left:auto}.header-actions{margin-left:0}}
-@media(max-width:560px){.agent-page .workspace{grid-template-columns:1fr}.agent-page .inspector{grid-column:1;grid-row:1;height:760px}.agent-page .center-panel{grid-column:1;grid-row:2;height:500px}.agent-page #log{padding:16px}.agent-page .agent-intro{padding:18px}.agent-page #ask{margin:0 12px}.page-nav a{font-size:11px}.header-actions{width:100%;justify-content:flex-end;padding-bottom:8px}header{padding-top:8px}}
+.conversation-tools{display:flex;justify-content:flex-end;padding:8px 14px 0}.conversation-tools button{font-size:10px;padding:4px 9px;background:transparent;color:var(--mute)}.chat-expanded .workspace{grid-template-columns:220px minmax(320px,1fr) minmax(420px,38vw)}.chat-expanded .msg{font-size:14px;line-height:1.8}.chat-expanded #q{font-size:14px}.chat-expanded #log{padding:20px}.focus-mode .workspace{grid-template-columns:minmax(0,1fr)}@media(max-width:1100px){.chat-expanded .workspace{grid-template-columns:minmax(280px,1fr) minmax(360px,46vw)}.chat-expanded .input-panel{display:none}}@media(max-width:950px){.conversation-tools{display:none}.chat-expanded .workspace{grid-template-columns:220px minmax(0,1fr)}.chat-expanded .input-panel{display:block}}@media(max-width:560px){.chat-expanded .workspace{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header>
   <h1>Wheel<span>CAM</span></h1><span class="brand-caption">Engineering Reconstruction Workspace</span>
-  <nav class="page-nav" aria-label="主导航"><a id="workspace-link" href="/">设计工作台</a><a id="agent-link" href="/agent">Agent 对话</a></nav><div class="header-actions"><button id="new-image">用图片新建</button><button id="new-text">用文字新建</button></div>
+  <div class="header-actions"><button id="new-image">用图片新建</button><button id="new-text">用文字新建</button></div>
   <span class="chip">工程草案 · 未经制造审核</span>
 </header>
 <div class="projectbar">
@@ -79,7 +76,7 @@ body{background:#0c0f13;font-size:13px}button{border-radius:7px;transition:backg
   <aside class="inspector" aria-label="Agent 与交付检查">
     <nav id="tabs" role="tablist" aria-label="工作区面板"><button data-t="chat" class="on" role="tab" aria-selected="true">造型 Agent</button><button data-t="spec" role="tab" aria-selected="false">校验</button><button data-t="deliverables" role="tab" aria-selected="false">交付</button><button data-t="ref" role="tab" aria-selected="false">对照</button></nav>
     <div class="tab" id="spec" role="tabpanel"></div><div class="tab" id="ref" role="tabpanel"></div><div class="tab" id="cad" role="tabpanel"></div><div class="tab" id="deliverables" role="tabpanel"></div><div class="tab" id="drawing" role="tabpanel"></div><div class="tab" id="cam" role="tabpanel"></div>
-    <div id="chat" class="on" role="tabpanel">
+    <div id="chat" class="on" role="tabpanel"><div class="conversation-tools"><button id="expand-chat" aria-pressed="false">展开对话</button></div>
       <div class="agent-intro"><div class="agent-label">WHEEL ENGINEERING SKILL</div><h2 id="agent-title">把想法说出来，逐步完善</h2><p id="agent-summary">先创建一个轮毂，再描述想调整的造型。每轮修改都会重建并校验。</p><button id="next-action" hidden></button></div>
       <details class="style-editor"><summary>手动调整 · 外圈盲窗</summary><label for="lip-pockets">外圈盲窗 · 目标数量</label><div class="row"><input id="lip-pockets" type="number" min="0" max="40" step="1" value="0"><button id="apply-pockets">应用并重建</button></div><small id="pocket-note">0 表示未建外圈盲窗。非轮辋贯穿孔，深度需确认。</small></details>
       <div id="model-state" role="status"></div>
@@ -98,14 +95,12 @@ import {RoomEnvironment} from "three/addons/environments/RoomEnvironment.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const agentPage=location.pathname==='/agent';
-document.body.classList.toggle('agent-page',agentPage);
-$('#'+(agentPage?'agent-link':'workspace-link')).setAttribute('aria-current','page');
-if(agentPage)document.title='WheelCAM · Agent 对话';
+if(location.pathname==='/agent')history.replaceState(null,'','/'+location.search);
+$('#expand-chat').onclick=()=>{const expanded=document.body.classList.toggle('chat-expanded');$('#expand-chat').textContent=expanded?'收起对话':'展开对话';$('#expand-chat').setAttribute('aria-pressed',String(expanded));requestAnimationFrame(()=>{$('#log').scrollTop=$('#log').scrollHeight;});};
 const num = v => v == null ? "—" : (typeof v === "number" ? (Math.round(v * 100) / 100).toString() : esc(v));
 let run = null, data = null, busy = false, busyTimer = null, capabilities = null;
 function setBusy(value){
-  busy = value; clearInterval(busyTimer); document.querySelector('.workspace').setAttribute('aria-busy', String(value));document.querySelectorAll('.page-nav a').forEach(a=>a.setAttribute('aria-disabled',String(value)));
+  busy = value; clearInterval(busyTimer); document.querySelector('.workspace').setAttribute('aria-busy', String(value));
   document.querySelectorAll('header button, .projectbar button, #run, #confirm-spec, #next-action, #ask button, .chips button, [data-start]').forEach(b => b.disabled = value || (!data && ['confirm-spec','deliver','next-action'].includes(b.id)));
   const noChat = capabilities?.chat_configured === false;
   $('#new-text').disabled=value||noChat;
@@ -281,12 +276,11 @@ $('#drawing-in').onclick=()=>zoomDrawing(drawingZoom+25);$('#drawing-out').oncli
 $('#drawing-fit').onclick=fitDrawing;
 $('#q').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#ask').requestSubmit();}};
 
-document.querySelector('.page-nav').addEventListener('click',e=>{if(busy)e.preventDefault();});
 let openSequence=0;
 async function open(name){
   $('#drawing-viewer').close();
   const sequence=++openSequence;
-  try{const response=await fetch(`/api/runs/${encodeURIComponent(name)}`);if(!response.ok)throw new Error('版本读取失败');const result=await response.json();if(sequence!==openSequence)return;run=name;data=result;$('#run').value=name;$('#workspace-link').href='/?run='+encodeURIComponent(name);$('#agent-link').href='/agent?run='+encodeURIComponent(name);history.replaceState(null,'',`?run=${encodeURIComponent(name)}`);render();}
+  try{const response=await fetch(`/api/runs/${encodeURIComponent(name)}`);if(!response.ok)throw new Error('版本读取失败');const result=await response.json();if(sequence!==openSequence)return;run=name;data=result;$('#run').value=name;history.replaceState(null,'',`?run=${encodeURIComponent(name)}`);render();}
   catch(e){if(sequence===openSequence){$('#run').value=run||'';$('#task-status').textContent='无法打开版本：'+e.message;}}
 }
 const FIELDS = {diameter_in:"直径 inch",width_in:"宽度 J",et_mm:"ET mm",bolts:"螺栓孔数",pcd_mm:"PCD mm",center_bore_mm:"中心孔 mm"};
