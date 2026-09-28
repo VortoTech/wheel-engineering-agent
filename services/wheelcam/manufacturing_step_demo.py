@@ -25,14 +25,14 @@ from .manufacturing_demo import (
 from .mesh_build import export_glb
 
 
-def _step_mesh(path: Path):
+def _step_mesh(path: Path, linear_tolerance=.1, angular_tolerance=.1):
     """Read the actual STEP and weld OCC's separate face meshes for Manifold."""
     import trimesh
 
     shape = cq.importers.importStep(str(path)).val()
     if not shape.isValid() or len(shape.Solids()) != 1:
         raise ValueError(f"Invalid or multi-solid STEP: {path}")
-    vertices, faces = shape.tessellate(0.1, 0.1)
+    vertices, faces = shape.tessellate(linear_tolerance, angular_tolerance)
     tri = trimesh.Trimesh(vertices=[[v.x, v.y, v.z] for v in vertices],
                           faces=faces, process=True)
     if not tri.is_watertight:
@@ -88,6 +88,23 @@ def create_step_package(machining_dir: Path, output: Path, *, spec_path: Path | 
     part_step, part = _step_mesh(inputs["machining.step"])
     # Independent triangulations differ slightly at curved STEP face seams.
     baseline_mismatch = max(0.0, (part - stock).volume())
+    initial_mismatch = baseline_mismatch
+    tessellation = {"linear_tolerance_mm": .1, "angular_tolerance_rad": .1, "refined": False}
+    if baseline_mismatch > part.volume() * .001:
+        from .mass_properties import measure_volume
+        # Separate meshes can disagree along curved surfaces even when the precise solids are
+        # nested. Establish exact containment before refining; never relax the sampling gate.
+        difference = part_step.cut(stock_step)
+        if not difference.isValid():
+            raise ValueError("Exact STEP containment check returned invalid geometry")
+        exact_outside = measure_volume(difference).volume_mm3
+        if exact_outside > 1.0:
+            raise ValueError(f"Machining STEP lies outside stock STEP by {exact_outside:.3f} mm3")
+        stock_step, stock = _step_mesh(inputs["stock.step"], .03, .05)
+        part_step, part = _step_mesh(inputs["machining.step"], .03, .05)
+        baseline_mismatch = max(0.0, (part - stock).volume())
+        tessellation = {"linear_tolerance_mm": .03, "angular_tolerance_rad": .05,
+                        "refined": True, "exact_outside_mm3": exact_outside}
     if (stock - part).volume() <= 0 or baseline_mismatch > part.volume() * .001:
         raise ValueError("Machining STEP must lie within stock STEP")
     z_shift = p.width / 2
@@ -145,6 +162,8 @@ def create_step_package(machining_dir: Path, output: Path, *, spec_path: Path | 
         "coordinates": report["coordinates"],
         "basis": "Read back both exported STEP solids; window footprint from the same recipe and machining_step.window_loops builder.",
         "geometry": {"stock_step_valid": stock_step.isValid(), "machining_step_valid": part_step.isValid(),
+                     "tessellation": tessellation,
+                     "initial_mesh_baseline_mismatch_mm3": round(initial_mismatch, 3),
                      "stock_mesh_volume_mm3": round(stock.volume(), 1),
                      "machining_mesh_volume_mm3": round(part.volume(), 1),
                      "stock_mesh_vs_step_volume_fraction": round(abs(stock.volume() - stock_step.Volume()) / stock_step.Volume(), 4),

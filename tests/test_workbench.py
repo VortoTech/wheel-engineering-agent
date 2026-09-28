@@ -58,3 +58,57 @@ def test_workbench_text_entry_creates_a_run(tmp_path, monkeypatch):
     assert name.startswith("text-") and name in c.get("/api/runs").json()
     assert c.get(f"/api/runs/{name}").json()["chain"]["text"] == "做一个轮毂"
     assert "用文字新建" in c.get("/").text
+
+
+def test_failed_chat_never_replaces_preview_and_original_recipe_is_used(tmp_path, monkeypatch):
+    import wheelcam.recipe_chat as rc
+    from wheelcam.workbench import create_app
+    run = make_run(tmp_path, {"marker": "machining"})
+    (run / "reconstruct").mkdir()
+    (run / "reconstruct/recipe.json").write_text(json.dumps({"marker": "visual"}))
+    calls = []
+
+    def failed(recipe, message, out, spec, history):
+        calls.append(recipe)
+        out.mkdir(parents=True)
+        (out / "recipe.json").write_text('{}')
+        return {"summary": "校验未通过", "built": {"passed": False}, "refused": [], "changed": {}}
+
+    monkeypatch.setattr(rc, "turn", failed)
+    c = TestClient(create_app(tmp_path))
+    result = c.post("/api/runs/m1/chat", json={"message": "脊高一点"}).json()
+    assert calls == [{"marker": "visual"}]
+    assert result["dir"] is None and "未采用" in result["summary"]
+    state = c.get("/api/runs/m1").json()
+    assert state["current_preview"]["downstream_stale"] is False
+    assert state["glb"] == "reconstruct/cad/wheel.glb"
+
+
+def test_active_preview_checks_and_stale_artifacts_reset(tmp_path):
+    from wheelcam.workbench import create_app
+    run = make_run(tmp_path, {})
+    (run / "chat/01").mkdir(parents=True)
+    checks = {"offset_et": {"pass": True, "measured_mm": 15}}
+    (run / "chat/01/report.json").write_text(json.dumps({"checks": checks}))
+    (run / "chat/history.json").write_text(json.dumps([{"dir": "01", "message": "改造型", "summary": "已修改"}]))
+    c = TestClient(create_app(tmp_path))
+    state = c.get("/api/runs/m1").json()
+    assert state["current_preview"]["checks"] == checks
+    assert state["current_preview"]["downstream_stale"] is True
+    assert state["glb"] == "chat/01/wheel.glb"
+    assert c.post("/api/runs/m1/chat/reset").status_code == 200
+    state = c.get("/api/runs/m1").json()
+    assert state["current_preview"]["downstream_stale"] is False
+    assert state["glb"] == "reconstruct/cad/wheel.glb"
+
+
+def test_workbench_render_dependencies_are_served_locally(tmp_path):
+    from wheelcam.workbench import create_app
+    c = TestClient(create_app(tmp_path))
+    assert 'https://cdn.jsdelivr.net' not in c.get('/').text
+    for path in ('build/three.module.js', 'examples/jsm/controls/OrbitControls.js',
+                 'examples/jsm/loaders/GLTFLoader.js', 'examples/jsm/utils/BufferGeometryUtils.js',
+                 'examples/jsm/environments/RoomEnvironment.js'):
+        response = c.get('/static/three/' + path)
+        assert response.status_code == 200
+        assert 'javascript' in response.headers['content-type']

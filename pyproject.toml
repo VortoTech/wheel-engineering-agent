@@ -25,6 +25,9 @@ test = ["pytest>=8", "httpx>=0.28"]
 [tool.setuptools.packages.find]
 where = ["services"]
 
+[tool.setuptools.package-data]
+wheelcam = ["workbench.html", "static/three/LICENSE", "static/three/build/*.js", "static/three/examples/jsm/*/*.js"]
+
 [tool.pytest.ini_options]
 pythonpath = ["services"]
 testpaths = ["tests", "experiments/annotate", "experiments/genviews"]

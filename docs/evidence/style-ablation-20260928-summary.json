@@ -1,0 +1,228 @@
+{
+  "attempts": 2,
+  "results": [
+    {
+      "case": "case-03-d20w10.5",
+      "completed": true,
+      "baseline": {
+        "scores": {
+          "edge_mm": 4.1,
+          "window_iou": 0.958
+        },
+        "checks": {
+          "single_valid_solid": {
+            "pass": true
+          },
+          "outer_diameter": {
+            "pass": true,
+            "measured_mm": 547.8,
+            "expected_mm": 547.8
+          },
+          "overall_width": {
+            "pass": true,
+            "measured_mm": 294.0,
+            "expected_mm": 294.0
+          },
+          "bolt_pattern": {
+            "pass": true,
+            "holes_found": 5,
+            "expected": 5,
+            "pcd_mm": 112.0
+          },
+          "offset_et": {
+            "pass": true,
+            "measured_mm": 15.0,
+            "expected_mm": 15.0
+          },
+          "rotational_symmetry": {
+            "pass": true,
+            "sector_volume_spread": 0.0
+          }
+        },
+        "build_seconds": 346.41
+      },
+      "candidate": {
+        "scores": {
+          "window_iou": 0.958,
+          "edge_mm": 2.18,
+          "edge_photo_to_cad_mm": 1.74,
+          "edge_cad_to_photo_mm": 2.62,
+          "phase_deg": -18.0,
+          "missing_open_mm2": 1963,
+          "extra_open_mm2": 1502
+        },
+        "checks": {
+          "single_valid_solid": {
+            "pass": true
+          },
+          "outer_diameter": {
+            "pass": true,
+            "measured_mm": 547.8,
+            "expected_mm": 547.8
+          },
+          "overall_width": {
+            "pass": true,
+            "measured_mm": 294.0,
+            "expected_mm": 294.0
+          },
+          "bolt_pattern": {
+            "pass": true,
+            "holes_found": 5,
+            "expected": 5,
+            "pcd_mm": 112.0
+          },
+          "offset_et": {
+            "pass": true,
+            "measured_mm": 15.0,
+            "expected_mm": 15.0
+          },
+          "rotational_symmetry": {
+            "pass": true,
+            "sector_volume_spread": 0.0
+          }
+        },
+        "agent_seconds": 22.16
+      },
+      "final_scoring_seconds": 5.73,
+      "comparison": {
+        "locked_fields_unchanged": true,
+        "changed_locked_fields": [],
+        "checks_failed": {
+          "baseline": [],
+          "candidate": []
+        },
+        "valid_pair": true,
+        "edge_reduction_mm": 1.92,
+        "edge_reduction_percent": 46.83,
+        "window_iou_delta": 0.0
+      },
+      "changed": {
+        "flank_w": {
+          "from": 16.0,
+          "to": 4.0
+        },
+        "flank_depth": {
+          "from": 22.0,
+          "to": 6.0
+        },
+        "lip_pockets": {
+          "from": 0,
+          "to": 15
+        },
+        "lip_pocket_r": {
+          "from": [
+            228.0,
+            247.0
+          ],
+          "to": [
+            237.9,
+            256.9
+          ]
+        }
+      },
+      "readiness": "L0",
+      "manufacturing_status": "not_released",
+      "total_seconds": 375.12
+    },
+    {
+      "case": "case-01-d20w10",
+      "completed": true,
+      "baseline": {
+        "scores": {
+          "edge_mm": 1.36,
+          "window_iou": 0.925
+        },
+        "checks": {
+          "single_valid_solid": {
+            "pass": true
+          },
+          "outer_diameter": {
+            "pass": true,
+            "measured_mm": 547.8,
+            "expected_mm": 547.8
+          },
+          "overall_width": {
+            "pass": true,
+            "measured_mm": 281.3,
+            "expected_mm": 281.3
+          },
+          "bolt_pattern": {
+            "pass": true,
+            "holes_found": 5,
+            "expected": 5,
+            "pcd_mm": 112.0
+          },
+          "offset_et": {
+            "pass": true,
+            "measured_mm": 7.9,
+            "expected_mm": 8.0
+          },
+          "rotational_symmetry": {
+            "pass": true,
+            "sector_volume_spread": 0.0
+          }
+        },
+        "build_seconds": 216.31
+      },
+      "candidate": {
+        "scores": {
+          "window_iou": 0.925,
+          "edge_mm": 1.36,
+          "edge_photo_to_cad_mm": 0.62,
+          "edge_cad_to_photo_mm": 2.1,
+          "phase_deg": -18.0,
+          "missing_open_mm2": 4055,
+          "extra_open_mm2": 2885
+        },
+        "checks": {
+          "single_valid_solid": {
+            "pass": true
+          },
+          "outer_diameter": {
+            "pass": true,
+            "measured_mm": 547.8,
+            "expected_mm": 547.8
+          },
+          "overall_width": {
+            "pass": true,
+            "measured_mm": 281.3,
+            "expected_mm": 281.3
+          },
+          "bolt_pattern": {
+            "pass": true,
+            "holes_found": 5,
+            "expected": 5,
+            "pcd_mm": 112.0
+          },
+          "offset_et": {
+            "pass": true,
+            "measured_mm": 7.9,
+            "expected_mm": 8.0
+          },
+          "rotational_symmetry": {
+            "pass": true,
+            "sector_volume_spread": 0.0
+          }
+        },
+        "agent_seconds": 22.1
+      },
+      "final_scoring_seconds": 6.03,
+      "comparison": {
+        "locked_fields_unchanged": true,
+        "changed_locked_fields": [],
+        "checks_failed": {
+          "baseline": [],
+          "candidate": []
+        },
+        "valid_pair": true,
+        "edge_reduction_mm": 0.0,
+        "edge_reduction_percent": 0.0,
+        "window_iou_delta": 0.0
+      },
+      "changed": {},
+      "readiness": "L0",
+      "manufacturing_status": "not_released",
+      "total_seconds": 244.44
+    }
+  ]
+}

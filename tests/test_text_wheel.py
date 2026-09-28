@@ -68,3 +68,21 @@ def test_text_recipe_exports_valid_machining_step(tmp_path):
     assert (tmp_path / "machining" / "machining.step").exists()
     assert result["checks"]["valid_single_solid"]["pass"]
     assert result["checks"]["step_roundtrip"]["pass"]
+
+
+def test_chinese_adjacent_dimensions_and_hole_form_are_not_lost():
+    from wheelcam.text_wheel import specs_in_text, review
+    message = "做20×10.5J轮毂，偏距15，孔距5×112，中心孔66.6，孔型15X32X60。"
+    spec, form = specs_in_text(message)
+    assert spec == {"diameter_in": 20, "width_in": 10.5, "et_mm": 15,
+                    "bolts": 5, "pcd_mm": 112, "center_bore_mm": 66.6}
+    assert form == "15X32X60"
+    decision = review("做一个21寸的6辐Y形轮毂", {"family": "y_split", "spokes": 6})
+    assert decision["parameters"]["diameter_in"] == {"value": 21, "source": "user"}
+    assert "width_in" in decision["unknown"]
+
+
+def test_hole_form_cannot_be_misread_as_wheel_dimensions():
+    from wheelcam.text_wheel import specs_in_text
+    spec, form = specs_in_text("只知道孔型 15X32X60，轮毂尺寸还没量")
+    assert spec == {} and form == "15X32X60"

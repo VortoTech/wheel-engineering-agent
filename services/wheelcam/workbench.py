@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -33,6 +34,7 @@ class TextIn(BaseModel):
 def create_app(runs: Path) -> FastAPI:
     runs = Path(runs).resolve()
     app = FastAPI(title="WheelCAM workbench", docs_url=None, redoc_url=None)
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
     def run_dir(name: str) -> Path:
         if not NAME.match(name) or not (runs / name / "chain.json").exists():
@@ -71,7 +73,7 @@ def create_app(runs: Path) -> FastAPI:
             raise HTTPException(502, (detail[-1] if detail else "文字生成失败")[:300])
         chain = read(runs / name / "chain.json")
         if not chain["steps"] or not chain["steps"][0]["ok"]:
-            raise HTTPException(502, chain["steps"][0].get("error", "重建失败"))
+            raise HTTPException(502, chain["steps"][0].get("error", "重建失败") if chain["steps"] else "没有重建结果")
         return {"name": name, "chain": chain}
 
     @app.get("/api/runs/{name}")
@@ -79,10 +81,15 @@ def create_app(runs: Path) -> FastAPI:
         d = run_dir(name)
         history, current = chat_state(d)
         package = read(d / "package" / "process_plan.json") or {}
+        original = read(d / "reconstruct" / "engineering_report.json") or {}
+        current_report = read(current / "report.json") if current else None
         return {"name": name, "chain": read(d / "chain.json"), "compare": read(d / "compare.json"),
                 "machining": read(d / "machining" / "machining_report.json"),
-                "reconstruct": {k: v for k, v in (read(d / "reconstruct" / "engineering_report.json") or {}).items()
-                                if k in ("readiness", "readiness_limits", "checks", "questions", "unknown")},
+                "reconstruct": {k: v for k, v in original.items()
+                                if k in ("readiness", "readiness_limits", "checks", "questions", "unknown", "engineering_understanding")},
+                "current_preview": {"revision": f"chat/{current.name}" if current else "reconstruct",
+                                    "checks": (current_report or original).get("checks", {}),
+                                    "readiness": "L0", "downstream_stale": current is not None},
                 "simulation": package.get("simulation") or package.get("simulation_3d"),
                 "glb": (f"chat/{current.name}/wheel.glb" if current else
                         "reconstruct/wheel.glb" if (d / "reconstruct" / "wheel.glb").exists() else
@@ -90,6 +97,7 @@ def create_app(runs: Path) -> FastAPI:
                 "text_report": read(d / "reconstruct" / "engineering_report.json") if
                                (read(d / "chain.json") or {}).get("text") else None,
                 "style_agent": read(d / "reconstruct" / "style" / "style_agent.json"),
+                "style_comparison": read(d / "style_comparison.json"),
                 "references": sorted(p.name for p in (d / "reference").glob("*.jpg")),
                 "history": history}
 
@@ -106,7 +114,8 @@ def create_app(runs: Path) -> FastAPI:
         from .recipe_chat import turn
         d = run_dir(name)
         history, current = chat_state(d)
-        recipe = read((current or d / "machining") / "recipe.json")
+        recipe = read(current / "recipe.json") if current else (
+            read(d / "reconstruct" / "recipe.json") or read(d / "machining" / "recipe.json"))
         spec = (read(d / "chain.json") or {}).get("spec")
         n = len(history) + 1
         convo = [m for h in history[-4:] for m in ({"role": "user", "content": h["message"]},
@@ -115,9 +124,12 @@ def create_app(runs: Path) -> FastAPI:
             result = turn(recipe, body.message, d / "chat" / f"{n:02d}", spec, history=convo)
         except Exception as e:                   # noqa: BLE001 - the model or the build; say which
             raise HTTPException(502, f"{type(e).__name__}: {e}"[:300])
+        passed = (result["built"] or {}).get("passed") is True
         entry = {"message": body.message, "summary": result["summary"], "changed": result.get("changed"),
                  "refused": result["refused"], "passed": (result["built"] or {}).get("passed"),
-                 "dir": f"{n:02d}" if result["built"] else None}
+                 "dir": f"{n:02d}" if passed else None}
+        if result["built"] and not passed:
+            entry["summary"] += " 本次修改未采用，继续显示上一版通过校验的模型。"
         history.append(entry)
         (d / "chat").mkdir(exist_ok=True)
         (d / "chat" / "history.json").write_text(json.dumps(history, ensure_ascii=False, indent=1))
@@ -129,7 +141,7 @@ def create_app(runs: Path) -> FastAPI:
         history, _ = chat_state(d)
         history.append({"message": "（恢复到重建结果）", "summary": "已恢复到重建结果。", "reset": True, "dir": None})
         (d / "chat").mkdir(exist_ok=True)
-        # a reset entry ends the edit chain: later turns start from the machining recipe again
+        # A reset ends the edit chain; later turns start from the original visual recipe.
         (d / "chat" / "history.json").write_text(json.dumps(
             [{**h, "dir": None} if h.get("dir") else h for h in history], ensure_ascii=False, indent=1))
         return {"ok": True}

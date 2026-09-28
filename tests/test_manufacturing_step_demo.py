@@ -41,3 +41,16 @@ def test_m59_step_pair_drives_simulation_and_reference_nc(tmp_path):
 def test_missing_step_pair_is_rejected(tmp_path):
     with pytest.raises(FileNotFoundError, match="Missing machining STEP inputs"):
         create_step_package(tmp_path, tmp_path / "out")
+
+
+def test_21_inch_text_step_refines_mesh_without_relaxing_containment(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    case = root / 'runs/competition-eval-20260928/workbench/text-aca0f0c9eb51/machining'
+    if not (case / 'machining.step').is_file():
+        pytest.skip('Local Spark 21-inch STEP regression artifact unavailable')
+    plan = create_step_package(case, tmp_path / 'refined')
+    geometry = plan['geometry']
+    assert geometry['tessellation']['refined']
+    assert geometry['tessellation']['exact_outside_mm3'] < 1
+    assert plan['simulation']['step_pair_mesh_baseline_mismatch_mm3'] < geometry['machining_mesh_volume_mm3'] * .001
+    assert plan['status'] == 'not_released'

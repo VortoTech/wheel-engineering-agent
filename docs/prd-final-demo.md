@@ -49,6 +49,7 @@
     其余 4 个确认单未给孔型，仍是 22 mm 模板孔（+7 mm）。总宽 −4.9…+1.4 mm。
   - 轮辋截面中位误差 0.94–3.03 mm（中位 1.98 mm）；M59 从 3.84 降到 1.98 mm。
   - 标准轮辋截面、轮缘高度和宽度附加量都由这同一批 13 个 CAD 标定，以上是同批残差，不是泛化精度。
+  - 冻结配置的造型 Agent 对照：M59 正面边缘距离 4.10→2.18 mm（下降 46.83%），case-01 保持 1.36 mm、未改配方；两款窗口 IoU 均未变，锁定工程参数未变，前后网格检查通过。此为同图拟合指标，详见 [参赛优化证据](competition-optimization-evidence.md)。
 
 ## 6. 隐私
 
@@ -62,8 +63,10 @@
 Mac ──SSH 隧道──▶ DGX Spark（只绑定 127.0.0.1）
                  ├─ wheelcam-app：Python 3.12 + cadquery-ocp 8.0.1 + manifold3d（均有 ARM64 包）
                  │                批量评测、全链路、网页工作台
-                 └─ wc-qwen：eugr/spark-vllm 镜像 + Qwen（端口 8011，关闭思考，输出 JSON）
+                 └─ 现有本地 vLLM：step3-vl-10b-fp8（回环接口）
 ```
+
+实际全链容器验收为 M59 5/5 步、400.2 s；工程图产出 SVG，本次无 PDF 转换器。见 [Spark 全链证据](spark-full-chain-evidence.md)。工作台渲染依赖随应用提供，不依赖外部 CDN。
 
 遵守节点手册：不动 `lp-vllm`，不改系统配置，长任务放 tmux，不传大于 1 GB 的文件，不开放公网端口，
 不上传未授权数据（Vossen 评测照片不上传）。B-rep 建模是单线程 CPU 运算，Spark 的收益在于 20 核并行。

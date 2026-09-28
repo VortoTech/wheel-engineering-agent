@@ -1,0 +1,612 @@
+{
+  "scope": "Spark application container plus existing local model; browser via SSH loopback; preserves failed pre-fix runs",
+  "base_image": "sha256:668410682ed48c24e6c93b3f9876c9a8ea783f7426fd8d09b47def975f9afcaf",
+  "runtime": "Existing image with read-only application source mounts; CPU limit 6, memory 16 GiB",
+  "model": "step3-vl-10b-fp8",
+  "final_source_sha256": {
+    "services/wheelcam/workbench.py": "4580596bb7e0dc8d73d45885c39db3767cd8d7808e9a7a895f59b2b87702be7e",
+    "services/wheelcam/workbench.html": "166b2ef3026a3847ca5286456ae0a2a1999d954c80caa21d9ce337142ee5bbe3",
+    "services/wheelcam/text_wheel.py": "adcc9cbd90a06c1354d9b5ec97dd60d65a2aa5a31bbaaeab4482ca0e36361c00",
+    "services/wheelcam/manufacturing_step_demo.py": "107590ee78792939c68102d5340976f9ae06af69ff1534c3687534b4726c6885"
+  },
+  "runs": [
+    {
+      "run": "text-153b24c42e2e",
+      "phase": "after_parser_fix_complete_spec",
+      "text": "20×10.5 ET15，5×112，中心孔66.6，孔型15X32X60。做5辐直辐，外圈加15个盲窗。",
+      "seconds": 33.1,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 10.8,
+          "readiness": "L0",
+          "spokes": 5,
+          "checks_failed": [],
+          "questions": [],
+          "source": "text"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 18.3,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": true,
+          "seconds": 3.7,
+          "simulation": "sampled_no_gouge",
+          "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.488 L 留待工厂 CAM。"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.3,
+          "pdf": false
+        }
+      ],
+      "hole_form": "15X32X60",
+      "spec": {
+        "diameter_in": 20.0,
+        "width_in": 10.5,
+        "pcd_mm": 112.0,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 15.0
+      },
+      "unknown": [],
+      "parameters": {
+        "diameter_in": {
+          "value": 20.0,
+          "source": "user"
+        },
+        "width_in": {
+          "value": 10.5,
+          "source": "user"
+        },
+        "pcd_mm": {
+          "value": 112.0,
+          "source": "user"
+        },
+        "bolts": {
+          "value": 5,
+          "source": "user"
+        },
+        "center_bore_mm": {
+          "value": 66.6,
+          "source": "user"
+        },
+        "et_mm": {
+          "value": 15.0,
+          "source": "user"
+        },
+        "hole_form": {
+          "value": "15X32X60",
+          "source": "user"
+        },
+        "spokes": {
+          "value": 5,
+          "source": "user"
+        },
+        "family": {
+          "value": "single",
+          "source": "user"
+        },
+        "preset": {
+          "value": "work6-tapered",
+          "source": "model_choice"
+        },
+        "stem_w_hub": {
+          "value": 48.0,
+          "source": "model_choice"
+        },
+        "lip_pockets": {
+          "value": 15,
+          "source": "user"
+        }
+      },
+      "chain_sha256": "f5dc95b8f446af95f5b4fafdd822b6593b30094c71c73679ade9447df6234436"
+    },
+    {
+      "run": "text-4100f3e8af14",
+      "phase": "before_parser_fix_hole_form_lost",
+      "text": "20×10.5 ET15，5×112，中心孔66.6，孔型15X32X60。做5辐直辐，外圈加15个盲窗。",
+      "seconds": 32.3,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 10.8,
+          "readiness": "L0",
+          "spokes": 5,
+          "checks_failed": [],
+          "questions": [
+            "请确认螺栓孔型；当前使用模板孔型，仅作草案。"
+          ],
+          "source": "text"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 17.8,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": true,
+          "seconds": 3.4,
+          "simulation": "sampled_no_gouge",
+          "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.507 L 留待工厂 CAM。"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.3,
+          "pdf": false
+        }
+      ],
+      "hole_form": null,
+      "spec": {
+        "diameter_in": 20.0,
+        "width_in": 10.5,
+        "pcd_mm": 112.0,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 15.0
+      },
+      "unknown": [
+        "hole_form"
+      ],
+      "parameters": {
+        "diameter_in": {
+          "value": 20.0,
+          "source": "user"
+        },
+        "width_in": {
+          "value": 10.5,
+          "source": "user"
+        },
+        "pcd_mm": {
+          "value": 112.0,
+          "source": "user"
+        },
+        "bolts": {
+          "value": 5,
+          "source": "user"
+        },
+        "center_bore_mm": {
+          "value": 66.6,
+          "source": "user"
+        },
+        "et_mm": {
+          "value": 15.0,
+          "source": "user"
+        },
+        "hole_form": {
+          "value": null,
+          "source": "default"
+        },
+        "spokes": {
+          "value": 5,
+          "source": "user"
+        },
+        "family": {
+          "value": "single",
+          "source": "user"
+        },
+        "preset": {
+          "value": "work6-tapered",
+          "source": "model_choice"
+        },
+        "stem_w_hub": {
+          "value": 48.0,
+          "source": "model_choice"
+        },
+        "lip_pockets": {
+          "value": 15,
+          "source": "user"
+        }
+      },
+      "chain_sha256": "d68905a209b574687789d3c41cd86d3688031f1a4141d027cd806d609bf080bf"
+    },
+    {
+      "run": "text-a0269ea504fb",
+      "phase": "before_parser_fix_diameter_lost",
+      "text": "做一个21寸的6辐Y形轮毂",
+      "seconds": 51.0,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 9.5,
+          "readiness": "L0",
+          "spokes": 6,
+          "checks_failed": [],
+          "questions": [
+            "请确认 diameter_in；当前仅用默认值 20 建立视觉草案。",
+            "请确认 width_in；当前仅用默认值 9.5 建立视觉草案。",
+            "请确认 pcd_mm；当前仅用默认值 112 建立视觉草案。",
+            "请确认 bolts；当前仅用默认值 5 建立视觉草案。",
+            "请确认 center_bore_mm；当前仅用默认值 66.6 建立视觉草案。",
+            "请确认 et_mm；当前仅用默认值 35 建立视觉草案。",
+            "请确认螺栓孔型；当前使用模板孔型，仅作草案。"
+          ],
+          "source": "text"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 36.3,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": true,
+          "seconds": 4.9,
+          "simulation": "sampled_no_gouge",
+          "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.537 L 留待工厂 CAM。"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.2,
+          "pdf": false
+        }
+      ],
+      "hole_form": null,
+      "spec": {
+        "diameter_in": 20,
+        "width_in": 9.5,
+        "pcd_mm": 112,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 35
+      },
+      "unknown": [
+        "diameter_in",
+        "width_in",
+        "pcd_mm",
+        "bolts",
+        "center_bore_mm",
+        "et_mm",
+        "hole_form"
+      ],
+      "parameters": {
+        "diameter_in": {
+          "value": 20,
+          "source": "default"
+        },
+        "width_in": {
+          "value": 9.5,
+          "source": "default"
+        },
+        "pcd_mm": {
+          "value": 112,
+          "source": "default"
+        },
+        "bolts": {
+          "value": 5,
+          "source": "default"
+        },
+        "center_bore_mm": {
+          "value": 66.6,
+          "source": "default"
+        },
+        "et_mm": {
+          "value": 35,
+          "source": "default"
+        },
+        "hole_form": {
+          "value": null,
+          "source": "default"
+        },
+        "spokes": {
+          "value": 6,
+          "source": "user"
+        },
+        "family": {
+          "value": "y_split",
+          "source": "model_choice"
+        },
+        "preset": {
+          "value": "hf6-y-split",
+          "source": "model_choice"
+        },
+        "arm_angle_deg": {
+          "value": 24.73,
+          "source": "model_choice"
+        }
+      },
+      "chain_sha256": "2b1dafbbcb64f37d5d5b59be4bc1c03dd35e3bc93a2db56e77e2b70138c75173"
+    },
+    {
+      "run": "text-aca0f0c9eb51",
+      "phase": "after_parser_fix_package_rejected",
+      "text": "做一个21寸的6辐Y形轮毂",
+      "seconds": 50.9,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 9.4,
+          "readiness": "L0",
+          "spokes": 6,
+          "checks_failed": [],
+          "questions": [
+            "请确认 width_in；当前仅用默认值 9.5 建立视觉草案。",
+            "请确认 pcd_mm；当前仅用默认值 112 建立视觉草案。",
+            "请确认 bolts；当前仅用默认值 5 建立视觉草案。",
+            "请确认 center_bore_mm；当前仅用默认值 66.6 建立视觉草案。",
+            "请确认 et_mm；当前仅用默认值 35 建立视觉草案。",
+            "请确认螺栓孔型；当前使用模板孔型，仅作草案。"
+          ],
+          "source": "text"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 38.7,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": false,
+          "seconds": 2.7,
+          "error": "RuntimeError: ValueError: Machining STEP must lie within stock STEP"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.2,
+          "pdf": false
+        }
+      ],
+      "hole_form": null,
+      "spec": {
+        "diameter_in": 21.0,
+        "width_in": 9.5,
+        "pcd_mm": 112,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 35
+      },
+      "unknown": [
+        "width_in",
+        "pcd_mm",
+        "bolts",
+        "center_bore_mm",
+        "et_mm",
+        "hole_form"
+      ],
+      "parameters": {
+        "diameter_in": {
+          "value": 21.0,
+          "source": "user"
+        },
+        "width_in": {
+          "value": 9.5,
+          "source": "default"
+        },
+        "pcd_mm": {
+          "value": 112,
+          "source": "default"
+        },
+        "bolts": {
+          "value": 5,
+          "source": "default"
+        },
+        "center_bore_mm": {
+          "value": 66.6,
+          "source": "default"
+        },
+        "et_mm": {
+          "value": 35,
+          "source": "default"
+        },
+        "hole_form": {
+          "value": null,
+          "source": "default"
+        },
+        "spokes": {
+          "value": 6,
+          "source": "user"
+        },
+        "family": {
+          "value": "y_split",
+          "source": "model_choice"
+        },
+        "preset": {
+          "value": "hf6-y-split",
+          "source": "model_choice"
+        },
+        "arm_angle_deg": {
+          "value": 24.73,
+          "source": "model_choice"
+        }
+      },
+      "chain_sha256": "dfec5b55305ab273333ae8a8a36c36d565001280732317a0be86b849f4cf5fa2"
+    },
+    {
+      "run": "text-f8c383c9937d",
+      "phase": "after_refinement_new_model_proposal_rejected",
+      "text": "做一个21寸的6辐Y形轮毂",
+      "seconds": 88.7,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 9.3,
+          "readiness": "L0",
+          "spokes": 6,
+          "checks_failed": [],
+          "questions": [
+            "请确认 width_in；当前仅用默认值 9.5 建立视觉草案。",
+            "请确认 pcd_mm；当前仅用默认值 112 建立视觉草案。",
+            "请确认 bolts；当前仅用默认值 5 建立视觉草案。",
+            "请确认 center_bore_mm；当前仅用默认值 66.6 建立视觉草案。",
+            "请确认 et_mm；当前仅用默认值 35 建立视觉草案。",
+            "请确认螺栓孔型；当前使用模板孔型，仅作草案。"
+          ],
+          "source": "text"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 40.2,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": false,
+          "seconds": 38.9,
+          "error": "RuntimeError: ValueError: Machining STEP lies outside stock STEP by 7277787.307 mm3"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.2,
+          "pdf": false
+        }
+      ],
+      "hole_form": null,
+      "spec": {
+        "diameter_in": 21.0,
+        "width_in": 9.5,
+        "pcd_mm": 112,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 35
+      },
+      "unknown": [
+        "width_in",
+        "pcd_mm",
+        "bolts",
+        "center_bore_mm",
+        "et_mm",
+        "hole_form"
+      ],
+      "parameters": {
+        "diameter_in": {
+          "value": 21.0,
+          "source": "user"
+        },
+        "width_in": {
+          "value": 9.5,
+          "source": "default"
+        },
+        "pcd_mm": {
+          "value": 112,
+          "source": "default"
+        },
+        "bolts": {
+          "value": 5,
+          "source": "default"
+        },
+        "center_bore_mm": {
+          "value": 66.6,
+          "source": "default"
+        },
+        "et_mm": {
+          "value": 35,
+          "source": "default"
+        },
+        "hole_form": {
+          "value": null,
+          "source": "default"
+        },
+        "spokes": {
+          "value": 6,
+          "source": "user"
+        },
+        "family": {
+          "value": "y_split",
+          "source": "model_choice"
+        },
+        "preset": {
+          "value": "hf6-y-split",
+          "source": "model_choice"
+        }
+      },
+      "chain_sha256": "ddfa5148804613f2aa0205985f9ca8e952d5f530c150ef7dcb2ac5a4214b5d7a"
+    }
+  ],
+  "chat_history": [
+    {
+      "message": "把 PCD 改成 114.3",
+      "summary": "未修改：PCD（PCD 来自确认单）。",
+      "changed": null,
+      "refused": [
+        {
+          "param": "pcd",
+          "reason": "PCD 来自确认单"
+        }
+      ],
+      "passed": null,
+      "dir": null
+    },
+    {
+      "message": "窗口斜面宽度改成 2 毫米，其他参数不变",
+      "summary": "已修改：窗口侧斜面宽度 4 → 2。重建后检查全部通过。",
+      "changed": {
+        "flank_w": {
+          "from": 4.0,
+          "to": 2.0
+        }
+      },
+      "refused": [],
+      "passed": true,
+      "dir": null
+    },
+    {
+      "message": "（恢复到重建结果）",
+      "summary": "已恢复到重建结果。",
+      "reset": true,
+      "dir": null
+    }
+  ],
+  "same_step_retry": {
+    "original_run": "text-aca0f0c9eb51",
+    "output": "refined-21inch",
+    "input_sha256": {
+      "stock.step": "09906aa01a8bbdbe93860b8769987cd5a7100ee9a977022f73fd570682fe8dea",
+      "machining.step": "acf7869169a1bbeac2c207c787d5db74b100fc40a6ceb90db059126a5854222c",
+      "recipe.json": "bda073b7d80bfba90adc688b528c8992f2008e5fa7593d9543210867481d48cf",
+      "machining_report.json": "2c4074bf70f66326e9267659e22a808fb7022eb32ef8c44904259bf701fb0723"
+    },
+    "geometry": {
+      "stock_step_valid": true,
+      "machining_step_valid": true,
+      "tessellation": {
+        "linear_tolerance_mm": 0.03,
+        "angular_tolerance_rad": 0.05,
+        "refined": true,
+        "exact_outside_mm3": 0.0
+      },
+      "initial_mesh_baseline_mismatch_mm3": 9532.987,
+      "stock_mesh_volume_mm3": 10415745.5,
+      "machining_mesh_volume_mm3": 7369341.3,
+      "stock_mesh_vs_step_volume_fraction": 0.0002,
+      "machining_mesh_vs_report_volume_fraction": 0.0
+    },
+    "simulation": {
+      "type": "sampled_2_5d_mesh_boolean_from_step_pair",
+      "grid_mm": 1.5,
+      "source_removed_mm3": 3048725.4,
+      "sampled_overcut_area_mm2": 0.0,
+      "step_pair_mesh_baseline_mismatch_mm3": 2321.2,
+      "raw_mesh_intrusion_mm3": 2321.2,
+      "gouge_vs_machining_step_mm3": 0.0,
+      "remaining_vs_machining_step_mm3": 567576.9,
+      "status": "sampled_no_gouge",
+      "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.568 L 留待工厂 CAM。"
+    },
+    "note": "Separate repair run, not a new all-passing end-to-end chain. Original failed chain is retained."
+  },
+  "browser_evidence": "DOM states and real WebGL frame saved; full-page screenshot protocol failed; no finished video."
+}

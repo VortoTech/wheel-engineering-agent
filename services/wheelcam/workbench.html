@@ -9,7 +9,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1d1d1b;--ink:#ecebe7;--mute:#9b9a95;--line:#34332f;--ok:#6fc28f;--bad:#f08a80;--warn:#e0b050;--accent:#8fb0ff}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif}
-header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
 header h1{font-size:16px;margin:0;font-weight:600}
 header .chip{font-size:12px;padding:2px 8px;border:1px solid var(--bad);color:var(--bad);border-radius:10px}
 header button{font:inherit;padding:5px 10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;cursor:pointer}
@@ -25,7 +25,7 @@ main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(360px,1fr);height
 #chain span{font-size:12px;padding:3px 8px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
 #chain span.ok::before{content:"✓ ";color:var(--ok)}#chain span.bad::before{content:"✗ ";color:var(--bad)}
 aside{display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);min-height:0}
-nav{display:flex;border-bottom:1px solid var(--line);overflow-x:auto}
+nav{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--line)}
 nav button{flex:none;font:inherit;background:none;border:0;border-bottom:2px solid transparent;padding:10px 14px;color:var(--mute);cursor:pointer}
 nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
 .tab{display:none;padding:14px 16px;overflow:auto;flex:1;min-height:0}.tab.on{display:block}
@@ -55,6 +55,7 @@ form button:disabled{opacity:.5}
   <h1>WheelCAM 工作台</h1>
   <select id="run"></select>
   <button id="new-text">用文字新建</button>
+  <button id="reset-preview" hidden>恢复原始预览</button>
   <span class="chip">未发布 · 需工程师审核</span>
 </header>
 <dialog id="text-dialog"><h2>用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
@@ -86,7 +87,7 @@ form button:disabled{opacity:.5}
     </div>
   </aside>
 </main>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"/static/three/build/three.module.js","three/addons/":"/static/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from "three";
 import {OrbitControls} from "three/addons/controls/OrbitControls.js";
@@ -119,18 +120,22 @@ function loadGlb(url){
     scene.add(model);
     const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3()).length();
     model.position.sub(c);
-    if (!controls.userMoved) { camera.position.set(s * .15, s * 1.3, s * .78); controls.target.set(0, 0, 0); }
+    if (!controls.userMoved) {
+      const vertical = THREE.MathUtils.degToRad(camera.fov), horizontal = 2 * Math.atan(Math.tan(vertical / 2) * camera.aspect);
+      const distance = (s / 2) / Math.sin(Math.min(vertical, horizontal) / 2) * 1.08;
+      camera.position.set(.15, 1.3, .78).normalize().multiplyScalar(distance); controls.target.set(0, 0, 0);
+    }
   });
 }
 controls.addEventListener("start", () => controls.userMoved = true);
 
 // tabs
-$("#tabs").onclick = e => {
-  const t = e.target.dataset.t; if (!t) return;
+function selectTab(t){
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
   document.querySelectorAll(".tab").forEach(d => d.classList.toggle("on", d.id === t));
   $("#chat").classList.toggle("on", t === "chat");
-};
+}
+$("#tabs").onclick = e => { if (e.target.dataset.t) selectTab(e.target.dataset.t); };
 
 const LABEL = {single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
   offset_et:"ET", rotational_symmetry:"旋转对称", valid_single_solid:"单一有效实体", step_roundtrip:"STEP 回读",
@@ -144,8 +149,12 @@ const checksTable = c => `<table>${Object.entries(c || {}).map(([k, v]) =>
 
 function render(){
   const ch = data.chain, sp = ch.spec, m = data.machining || {}, cmp = data.compare;
+  const preview = data.current_preview || {}, stale = preview.downstream_stale;
+  const versionNote = stale ? `<p class="note" role="status">当前预览为对话修改版 ${esc(preview.revision)}。下列 STEP、工程图、加工包和工厂 CAD 对照属于原始版本，尚未按本次修改重新生成。</p>` : "";
+  $("#reset-preview").hidden = !stale;
   $("#chain").innerHTML = ch.steps.map(s => `<span class="${s.ok ? "ok" : "bad"}" title="${esc(s.error || "")}">${STEP[s.step] || s.step} ${s.seconds}s</span>`).join("");
   $("#spec").innerHTML = `
+    ${versionNote}
     <table><tr><th>规格（${ch.text ? "用户文字 / 默认值" : "确认单"}）</th><th></th></tr>
     <tr><td>尺寸</td><td>${sp.diameter_in}×${sp.width_in}J  ET${sp.et_mm}</td></tr>
     <tr><td>孔系</td><td>${sp.bolts}×${sp.pcd_mm}  中心孔 ${sp.center_bore_mm}</td></tr>
@@ -153,27 +162,29 @@ function render(){
     ${ch.text ? `<p>${esc(ch.text)}</p><h3>输入来源与待确认</h3>
       <table>${Object.entries(data.text_report?.parameters || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.value)}</td><td>${esc(v.source)}</td></tr>`).join("")}</table>
       ${(data.text_report?.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}` : ""}
-    <h3>网格重建校验（${esc(data.reconstruct.readiness || "")}）</h3>${checksTable(data.reconstruct.checks)}
+    ${!ch.text ? understandingPanel(data.reconstruct) : ""}
+    <h3>当前网格预览校验（L0 · ${esc(preview.revision || "reconstruct")}）</h3>${checksTable(preview.checks || data.reconstruct.checks)}
     ${agentPanel(data.style_agent)}
-    <h3>加工级 STEP 校验</h3>${checksTable(m.checks)}
+    <h3>加工级 STEP 校验${stale ? "（原始版本）" : ""}</h3>${checksTable(m.checks)}
     ${(m.adjustments || []).map(a => `<p class="note">⚠ ${esc(a)}</p>`).join("")}
     <h3>STEP 中包含 / 不包含</h3><p>${esc((m.in_step || []).join("；"))}</p><p class="note">${esc((m.not_in_step || []).join("；"))}</p>
     <p><a href="${f("machining/machining.step")}">下载 machining.step</a> · <a href="${f("machining/stock.step")}">stock.step</a> · <a href="${f(data.glb)}">wheel.glb</a></p>`;
   $("#ref").innerHTML = (data.references || []).length ? `<p>订单渲染图（已脱敏）。左侧三维模型可拖动到相同视角对照。</p>` +
     data.references.map(n => `<img class="fig" style="margin-bottom:10px" src="${f("reference/" + n)}" alt="${esc(n)}">`).join("")
     : "<p>这次运行没有保存订单原图。</p>";
-  $("#cad").innerHTML = cmp ? `
+  $("#cad").innerHTML = cmp ? `${versionNote}
     <table><tr><th>尺寸</th><th>重建</th><th>工厂 CAD</th><th>误差</th></tr>
     ${Object.entries(cmp.dimensions).map(([k, v]) => `<tr><td>${LABEL[k] || k}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td>
       <td class="${v.error != null && Math.abs(v.error) > 1 ? "note" : ""}">${num(v.error)}</td></tr>`).join("")}</table>
     <h3>截面：轮辋中位误差 ${num(cmp.section_rim.median_mm)} mm（P90 ${num(cmp.section_rim.p90_mm)}），轮毂 ${num(cmp.section_hub.median_mm)} mm</h3>
     <img class="fig" src="${f("compare_section.png")}" alt="截面对照">
-    <p class="note">工厂 CAD 只作对照真值，不作输入。辐条曲面为 B 样条，截面对照不含辐条。</p>` : "<p>没有工厂 CAD。</p>";
+    <p class="note">工厂 CAD 只作对照真值，不作输入。截面对照不含辐条。本批 CAD 曾用于模板标定，以上为同批残差，不代表新款精度。</p>` : "<p>没有工厂 CAD。</p>";
   const pdf = (ch.steps.find(s => s.step === "drawing") || {}).pdf;
-  $("#drawing").innerHTML = `<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
+  $("#drawing").innerHTML = `${versionNote}<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
     <img class="fig" src="${f("drawing.svg")}" alt="工程图">`;
   const sim = data.simulation || {};
-  $("#cam").innerHTML = `<p><b>${esc(sim.conclusion || sim.status || "")}</b></p>
+  const packageStep = ch.steps.find(s => s.step === "package");
+  $("#cam").innerHTML = packageStep?.ok !== true ? `${versionNote}<h3>加工准备未完成</h3><p class="fail">${esc(packageStep?.error || "本次运行没有加工包结果。")}</p><p>当前预览与 STEP 仍可单独检查；加工包未通过，不能作为加工依据。</p>` : `${versionNote}<p><b>${esc(sim.conclusion || sim.status || "")}</b></p>
     <img class="fig" src="${f("package/simulation_3d.png")}" alt="加工仿真">
     <p><a href="${f("package/process_plan.json")}" target="_blank">工序单</a> · <a href="${f("package/tool_list.csv")}">刀具表</a> ·
     <a href="${f("package/reference.nc")}" target="_blank">参考轨迹 reference.nc</a></p>
@@ -181,6 +192,14 @@ function render(){
   $("#log").innerHTML = data.history.map(bubble).join("");
   $("#log").scrollTop = 1e9;
   loadGlb(f(data.glb));
+}
+function understandingPanel(report){
+  const groups = report.engineering_understanding?.evidence_groups || {};
+  const titles = {supplied:"已提供",observed:"图上观察候选",estimated:"规则估计",defaulted:"模板默认",unknown:"仍未知"};
+  return `<h3>工程理解与来源</h3>${Object.entries(titles).map(([group,title]) => {
+    const entries = Object.entries(groups[group] || {});
+    return entries.length ? `<details${["supplied","unknown"].includes(group) ? " open" : ""}><summary>${title} · ${entries.length} 项</summary><table>${entries.map(([key,v]) => `<tr><td>${LABEL[key] || esc(key)}</td><td>${num(v.value)}</td><td>${esc(v.source)}${v.reason ? " · " + esc(v.reason) : ""}</td></tr>`).join("")}</table></details>` : "";
+  }).join("")}${(report.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}`;
 }
 function agentPanel(a){
   if (!a) return "";
@@ -190,7 +209,9 @@ function agentPanel(a){
       ? `<tr><td>搜</td><td>${esc(s.param)}：${s.scores.map(r => `${r.flank_w} mm → ${r.edge_mm}`).join("，")}${s.chosen ? `；选 ${s.chosen.flank_w} mm` : "；不改"}</td></tr>`
       : `<tr><td>验</td><td>${esc(s.result)}${s.checks_failed.length ? "：" + esc(s.checks_failed.join("、")) : ""}</td></tr>`).join("");
   const ch = Object.entries(a.changed || {}).filter(([k]) => k !== "lip_pocket_r").map(([k, v]) => `${k} ${v.from} → ${v.to}`).join("；");
-  return `<h3>造型 agent（照片对照修正预设造型）</h3><table>${rows}</table><p>${ch ? "已修改：" + esc(ch) : "未修改"}</p>
+  const comparison = data.style_comparison;
+  const scores = comparison ? `<p>冻结配置复测：最终边缘距离 ${num(comparison.baseline.scores.edge_mm)} → ${num(comparison.candidate.scores.edge_mm)} mm；窗口 IoU ${num(comparison.baseline.scores.window_iou)} → ${num(comparison.candidate.scores.window_iou)}。</p><p class="note">同一输入图的拟合指标；不代表独立新款精度或制造精度。</p>` : "";
+  return `<h3>造型 agent（原始重建的照片对照修正）</h3><table>${rows}</table><p>${ch ? "已修改：" + esc(ch) : "未修改"}</p>${scores}
     <p><img class="fig" style="width:49%" src="${f("reconstruct/style/before_render.png")}" alt="修正前"> <img class="fig" style="width:49%" src="${f("reconstruct/style/after_render.png")}" alt="修正后"></p>`;
 }
 function bubble(h){
@@ -209,11 +230,15 @@ $("#text-submit").onclick = async () => {
     const response = await fetch("/api/runs/text", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({message})});
     const result = await response.json(); if (!response.ok) throw new Error(result.detail || "生成失败");
     const option = document.createElement("option"); option.textContent = result.name; $("#run").prepend(option); $("#run").value = result.name;
-    $("#text-dialog").close(); await open(result.name);
+    $("#text-dialog").close(); controls.userMoved = false; selectTab("spec"); await open(result.name);
   } catch (error) { $("#text-status").textContent = "出错：" + error.message; }
   button.disabled = false;
 };
 $("#run").onchange = e => { controls.userMoved = false; open(e.target.value); };
+$("#reset-preview").onclick = async () => {
+  const response = await fetch(`/api/runs/${run}/chat/reset`, {method:"POST"});
+  if (response.ok) await open(run);
+};
 document.querySelector(".chips").onclick = e => { if (e.target.tagName === "BUTTON") { $("#q").value = e.target.textContent; $("#ask").requestSubmit(); } };
 $("#ask").onsubmit = async e => {
   e.preventDefault();

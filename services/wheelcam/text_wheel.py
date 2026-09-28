@@ -22,25 +22,29 @@ DEFAULT_SPEC = {"diameter_in": 20, "width_in": 9.5, "pcd_mm": 112, "bolts": 5,
                 "center_bore_mm": 66.6, "et_mm": 35}
 SHAPE = {"stem_w_hub", "stem_w_split", "split_r", "arm_angle_deg", "arm_w", "arm_bow", "spoke_sweep_deg"}
 SPEC_PATTERNS = {
-    "et_mm": r"(?:\bET\s*\+?\s*|偏距\s*)(-?\d+(?:\.\d+)?)",
-    "pcd_mm": r"(?:\bPCD\s*[:：]?\s*|\b[3-9]\s*[×xX*]\s*)(\d{2,3}(?:\.\d+)?)",
-    "center_bore_mm": r"(?:\bCB\s*[:：]?\s*|中心孔\s*(?:直径|Ø|φ)?\s*)(\d+(?:\.\d+)?)",
-    "diameter_in": r"(?:\b)(\d{2}(?:\.\d+)?)\s*(?:[×xX*]\s*\d+(?:\.\d+)?\s*(?:J\b)?|寸|英寸|[\"″])",
-    "width_in": r"\b\d{2}(?:\.\d+)?\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*J?\b",
-    "bolts": r"\b([3-9])\s*[×xX*]\s*\d{2,3}(?:\.\d+)?\b",
+    "et_mm": r"(?:(?<![A-Za-z0-9_])ET\s*\+?\s*|偏距\s*)(-?\d+(?:\.\d+)?)",
+    "pcd_mm": r"(?:(?<![A-Za-z0-9_])PCD\s*[:：]?\s*|(?<![A-Za-z0-9.])[3-9]\s*[×xX*]\s*)(\d{2,3}(?:\.\d+)?)(?![0-9.])",
+    "center_bore_mm": r"(?:(?<![A-Za-z0-9_])CB\s*[:：]?\s*|中心孔\s*(?:直径|Ø|φ)?\s*)(\d+(?:\.\d+)?)",
+    "diameter_in": r"(?<![A-Za-z0-9.])(\d{2}(?:\.\d+)?)\s*(?:[×xX*]\s*\d+(?:\.\d+)?\s*J?|寸|英寸|[\"″])",
+    "width_in": r"(?<![A-Za-z0-9.])\d{2}(?:\.\d+)?\s*[×xX*]\s*(\d+(?:\.\d+)?)(?![0-9.])\s*J?",
+    "bolts": r"(?<![A-Za-z0-9.])([3-9])\s*[×xX*]\s*\d{2,3}(?:\.\d+)?(?![0-9.])",
 }
 
 
 def specs_in_text(message: str) -> tuple[dict, str | None]:
     """Only explicit, labelled dimensions; no model value can enter this result."""
+    # Chinese characters and digits are both Unicode word characters: \b loses dimensions in
+    # phrases such as “做一个21寸” and “孔型15X32X60”. Mask the triple first so it cannot become
+    # a spurious diameter × width pair when no wheel size was supplied.
+    m = re.search(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)?\s*[Xx×*]\s*\d+(?:\.\d+)?\s*[Xx×*]\s*\d+(?:\.\d+)?(?![0-9.])", message)
+    form = re.sub(r"\s+", "", m.group(0)).replace("×", "X").replace("*", "X").upper() if m else None
+    dimensions = message[:m.start()] + " " * (m.end() - m.start()) + message[m.end():] if m else message
     spec = {}
     for key, pattern in SPEC_PATTERNS.items():
-        m = re.search(pattern, message, re.I)
-        if m:
-            value = float(m.group(1))
+        match = re.search(pattern, dimensions, re.I)
+        if match:
+            value = float(match.group(1))
             spec[key] = int(value) if key == "bolts" else value
-    m = re.search(r"\b\d+(?:\.\d+)?\s*[Xx×*]\s*\d+(?:\.\d+)?\s*[Xx×*]\s*\d+(?:\.\d+)?\b", message)
-    form = m.group(0).replace("×", "X").replace("*", "X").upper().replace(" ", "") if m else None
     return spec, form if form and hole_form(form) else None
 
 
