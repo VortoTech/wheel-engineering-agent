@@ -511,6 +511,9 @@ def run(front, spec, out, oblique=None, build=True, kernel="mesh", style=None, u
             except Exception as exc:
                 agent_status = "failed"
                 questions.append(f"造型 agent 调用失败（{type(exc).__name__}）；保留预设造型，请检查视觉模型和日志。")
+    if recipe.lip_pockets == 0:
+        questions.append("外圈盲窗当前未建（数量为 0），不等于已确认照片没有该特征；请对照参考图确认是否需要补建。")
+        prov.setdefault("lip_pockets", _record(0, "default", None, "未启用的造型默认值；须对照照片确认"))
     (out / "recipe.json").write_text(json.dumps(asdict(recipe), ensure_ascii=False, indent=1))
     checks, report, mass, visual = {}, {}, None, {"status": "not_run"}
     if build and kernel == "mesh":

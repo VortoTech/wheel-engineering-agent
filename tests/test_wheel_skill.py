@@ -266,6 +266,7 @@ def test_style_agent_falls_back_without_config_or_on_failure(tmp_path, front_pho
     unconfigured = run(front, SPEC, tmp_path / "unconfigured", build=False, style_agent=True)
     assert unconfigured["style_agent_status"] == "not_configured"
     assert any("WHEELCAM_VLM_BASE_URL" in q for q in unconfigured["questions"])
+    assert any("外圈盲窗当前未建" in q for q in unconfigured["questions"])
 
     monkeypatch.setenv("WHEELCAM_VLM_BASE_URL", "http://local-vlm.invalid/v1")
     def failing_agent(*args):

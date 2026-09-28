@@ -70,7 +70,7 @@ body{background:#0c0f13;font-size:13px}button{border-radius:7px;transition:backg
   <section class="center-panel" aria-label="三维模型预览">
     <div class="viewbar"><strong>参数化轮毂预览</strong><span id="view-status">等待输入</span></div>
     <div class="view-tools" role="group" aria-label="模型视图"><button data-camera="perspective" aria-pressed="true">透视</button><button data-camera="front" aria-pressed="false">正面</button><button data-camera="side" aria-pressed="false">侧面</button><button id="fit-view">适应窗口</button><button id="open-drawing">工程图</button><button id="wireframe" aria-pressed="false">线框</button><label class="material-label">材质<select id="material-mode" aria-label="预览材质"><option value="metal">缎面金属</option><option value="clay">灰模检查</option></select></label><button id="focus-view" aria-pressed="false">专注模型</button></div>
-    <div class="style-summary" id="style-summary"></div><div id="view"><div id="viewport-state" class="viewport-state"><div class="eyebrow">WHEEL ENGINEERING SKILL</div><h2>让参考变成可调整的轮毂</h2><p>导入图片或描述尺寸与造型，生成初稿后继续调整，再生成当前版本交付包。</p><div class="actions"><button data-start="image" class="primary">导入轮毂图片</button><button data-start="text">输入文字描述</button></div></div><div class="hint">拖动旋转 · 滚轮缩放 · 仅视觉草案</div></div>
+    <div class="style-summary" id="style-summary"></div><div id="feature-review" hidden class="note" style="margin:0 16px 8px!important"></div><div id="view"><div id="viewport-state" class="viewport-state"><div class="eyebrow">WHEEL ENGINEERING SKILL</div><h2>让参考变成可调整的轮毂</h2><p>导入图片或描述尺寸与造型，生成初稿后继续调整，再生成当前版本交付包。</p><div class="actions"><button data-start="image" class="primary">导入轮毂图片</button><button data-start="text">输入文字描述</button></div></div><div class="hint">拖动旋转 · 滚轮缩放 · 仅视觉草案</div></div>
     <div class="workflow"><div class="workflow-label"><span>本版本构建记录</span><span id="chain-time">尚无运行记录</span></div><div id="chain"></div><p class="scope-note">GLB 为造型预览；加工级 STEP 不包含完整造型曲面。</p></div>
   </section>
   <aside class="inspector" aria-label="Agent 与交付检查">
@@ -189,6 +189,7 @@ function render(){
   $('#project-title').textContent=sp.diameter_in&&sp.width_in?`${num(sp.diameter_in)} × ${num(sp.width_in)} J · 轮毂设计`:'轮毂设计工作台';
   const styling=data.style_parameters||{};
   $('#lip-pockets').value=styling.lip_pockets??0;
+  const featureReview=$('#feature-review');featureReview.hidden=!(data.references.length&&!(styling.lip_pockets>0));featureReview.textContent='外圈盲窗尚未建模，请对照参考图确认。若照片中有盲窗，可在 Agent 面板的手动调整中补建。';
   $('#style-summary').innerHTML=`<span>${num(styling.spokes)} 组辐条</span><span class="${styling.lip_pockets?'':'missing'}">外圈盲窗目标：${num(styling.lip_pockets??0)}${styling.lip_pockets?'':' · 未建'}</span><span>斜面 ${num(styling.flank_w)} mm</span>`;
   $('#pocket-note').textContent='0 表示未建；按主窗口分配，实际数量需核对。深度采用模板，不是贯穿孔。';
   const known=Object.keys(FIELDS).filter(k=>sp[k]!=null&&['user','drawing','measurement'].includes(specSource(k)));
@@ -215,7 +216,7 @@ function render(){
     <details><summary>工程参数来源与未知项</summary>${ch.text?`<table>${Object.entries(data.text_report?.parameters||{}).map(([k,v])=>`<tr><td>${esc(FIELDS[k]||k)}</td><td>${esc(v.value)}</td><td>${esc(SOURCE[v.source]||v.source)}</td></tr>`).join('')}</table>`:understandingPanel(data.reconstruct)}</details>
     <details><summary>重建假设与待确认事项</summary>${(data.engineering_report?.questions||[]).map(q=>`<p class="note">${esc(q)}</p>`).join('')||'<p class="muted">未记录额外问题。</p>'}</details>${agentPanel(data.style_agent)}
     <p class="panel-note">几何检查通过不等于结构仿真或制造批准。</p>`;
-  $('#ref').innerHTML=`<h2>参考与对照</h2><p class="muted">调整中间模型的视角，对照本次输入。</p>${data.references.map(n=>`<img class="fig" src="${f('reference/'+n)}" alt="${esc(n)}">`).join('')||'<p class="note">当前为文字输入，没有参考图片。</p>'}<div class="subnav"><button data-t="cad">查看工厂 CAD 对照</button></div>`;
+  $('#ref').innerHTML=`<h2>参考与对照</h2>${revisionComparison(data)}<p class="muted">调整中间模型的视角，对照本次输入。</p>${data.references.map(n=>`<img class="fig" src="${f('reference/'+n)}" alt="${esc(n)}">`).join('')||'<p class="note">当前为文字输入，没有参考图片。</p>'}<div class="subnav"><button data-t="cad">查看工厂 CAD 对照</button></div>`;
   $('#cad').innerHTML=`<div class="subnav"><button data-t="ref">返回参考图</button></div>`+(cmp?`${versionNote}<h3>工厂 CAD 尺寸对照</h3><table><tr><th>尺寸</th><th>重建</th><th>CAD</th><th>误差</th></tr>${Object.entries(cmp.dimensions).map(([k,v])=>`<tr><td>${esc(LABEL[k]||k)}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td><td>${num(v.error)}</td></tr>`).join('')}</table><img class="fig" src="${f('compare_section.png')}" alt="截面对照"><p class="note">本批 CAD 曾用于模板标定，截面不含辐条；这些残差不代表新款精度。</p>`:'<h3>本版本没有工厂 CAD 对照</h3><p class="muted">历史对照不会自动沿用到新版本。</p>');
   $('#deliverables').innerHTML=`<h2>当前版本交付</h2><p class="muted">${esc(run)}</p>${versionNote}
     <div class="download-card"><h3>造型预览 <span class="badge">L0</span></h3><p>当前显示的轮毂外观；可继续对话调整。</p><div class="links"><a href="${f(data.glb)}" download>下载 GLB</a><a href="${f(preview.revision+'/recipe.json')}" download>参数配方</a></div></div>
@@ -250,6 +251,15 @@ function agentPanel(a){
   const scores = comparison ? `<p>冻结配置复测：最终边缘距离 ${num(comparison.baseline.scores.edge_mm)} → ${num(comparison.candidate.scores.edge_mm)} mm；窗口 IoU ${num(comparison.baseline.scores.window_iou)} → ${num(comparison.candidate.scores.window_iou)}。</p><p class="note">同一输入图的拟合指标；不代表独立新款精度或制造精度。</p>` : "";
   return `<h3>造型 agent（原始重建的照片对照修正）</h3><table>${rows}</table><p>${ch ? "已修改：" + esc(ch) : "未修改"}</p>${scores}
     <p><img class="fig" style="width:49%" src="${f("reconstruct/style/before_render.png")}" alt="修正前"> <img class="fig" style="width:49%" src="${f("reconstruct/style/after_render.png")}" alt="修正后"></p>`;
+}
+function revisionComparison(d){
+  const records=[];
+  const labels={lip_pockets:'外圈盲窗数量',flank_w:'窗口斜面 mm',spoke_pad_depth:'辐条脊高 mm',dish_depth:'凹度 mm',lip_pocket_r:'盲窗径向范围 mm'};
+  const parent=d.chain.parent;
+  if(parent?.style_changes) records.push({label:'版本修改',changed:parent.style_changes,status:'已创建子版本'});
+  (d.history||[]).forEach((h,i)=>{if(h.changed&&Object.keys(h.changed).length)records.push({label:`对话 ${i+1}`,changed:h.changed,status:h.passed===true?(h.dir?'校验通过':'历史记录'):'未采用'});});
+  if(!records.length)return '<p class="muted">还没有造型修改记录；调整后会显示参数前后对照。</p>';
+  return `<details open><summary>造型修改前后 · ${records.length} 次</summary><table><tr><th>参数</th><th>修改前</th><th>修改后</th></tr>${records.map(r=>`<tr><th colspan="3">${esc(r.label)} · ${esc(r.status)}</th></tr>${Object.entries(r.changed).map(([k,v])=>`<tr><td>${esc(labels[k]||k)}</td><td>${esc(Array.isArray(v.from)?v.from.join('–'):v.from)}</td><td>${esc(Array.isArray(v.to)?v.to.join('–'):v.to)}</td></tr>`).join('')}`).join('')}</table><p class="muted">这是造型参数修改记录，不代表尺寸精度或准备等级提升。</p></details>`;
 }
 function bubble(h){
   if (h.reset) return `<div class="msg bot">${esc(h.summary)}</div>`;
