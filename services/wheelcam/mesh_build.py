@@ -154,30 +154,33 @@ LIP_WINDOW_DEPTH = 18.0  # lip window floor below the face at its inner radius, 
 
 
 def lip_window_tools(p):
-    """Blind windows round the lip face, `lip_pockets` in all, set out over the through windows: each
-    window's angular span at its outer end is split into equal pockets with lip_rib_w ribs, so the
-    spokes run on to the lip as in the order renders (M59: 3 over each of 5 windows, 2026-09-27)."""
+    """Blind windows round the lip face, `lip_pockets` in all, set out over the through windows: the
+    count is shared among the windows in proportion to each one's angular span at its outer end, and
+    each span is split into equal pockets with lip_rib_w ribs, so the spokes run on to the lip as in
+    the order renders (M59: 3 over each of 5 windows; case-04: 15 over 10 windows, 2026-09-28)."""
     if p.lip_pockets <= 0:
         return []
     m3 = _m3()
-    wins = [np.asarray(w, float) for w in outlines(p)]
-    per = p.lip_pockets // len(wins) if wins else 0
-    if per < 1:
-        return []
     r0, r1 = p.lip_pocket_r
     # beyond the bead seat radius only the ~13 mm front flange is left under the face (rim_points):
     # a window out there opened daylight into the tyre side (M59, 2026-09-27)
     r1 = min(r1, p.lip_r - FLANGE_H - 1)
     floor = face_z(p, r0) - min(p.lip_pocket_depth, LIP_WINDOW_DEPTH)
-    tools = []
-    for w in wins:
+    spans = []
+    for w in (np.asarray(w, float) for w in outlines(p)):
         rr = np.hypot(w[:, 0], w[:, 1])
         end = w[(rr > r0 - 16) & (rr < r0 - 2)]          # the window just inside the lip windows
         if len(end) < 4:
             continue
         c = math.atan2(end[:, 1].mean(), end[:, 0].mean())
         rel = (np.arctan2(end[:, 1], end[:, 0]) - c + math.pi) % (2 * math.pi) - math.pi
-        a0, a1 = c + rel.min(), c + rel.max()
+        spans.append((c + rel.min(), c + rel.max()))
+    if not spans:
+        return []
+    total = sum(a1 - a0 for a0, a1 in spans)
+    tools = []
+    for a0, a1 in spans:
+        per = max(1, round(p.lip_pockets * (a1 - a0) / total))
         step, gap = (a1 - a0) / per, p.lip_rib_w / 2 / ((r0 + r1) / 2)
         for i in range(per):
             b = np.linspace(a0 + i * step + gap, a0 + (i + 1) * step - gap, 10)
