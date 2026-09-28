@@ -1,0 +1,15 @@
+**
+!pyproject.toml
+!services
+!services/wheelcam
+!services/wheelcam/**
+!scripts
+!scripts/*.py
+!experiments
+!experiments/real-orders
+!experiments/real-orders/*.py
+!experiments/forged-blank
+!experiments/forged-blank/recipes
+!experiments/forged-blank/recipes/*.json
+**/__pycache__
+**/*.pyc
