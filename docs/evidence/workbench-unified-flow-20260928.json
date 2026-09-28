@@ -1,0 +1,243 @@
+{
+  "execution_host": "Mac",
+  "input_case": "case-03/d20w10.5",
+  "model_calls": false,
+  "image": {
+    "name": "image-41ae13f4dece",
+    "chain": {
+      "case": ".inputs/image-41ae13f4dece",
+      "text": null,
+      "spec": {
+        "diameter_in": 20.0,
+        "width_in": 10.5,
+        "pcd_mm": 112.0,
+        "bolts": 5,
+        "center_bore_mm": 66.6
+      },
+      "hole_form": "15X32X60",
+      "parent": null,
+      "recipe_sha256": "6ef080df3b7b81288d9b51882663194db89fb37fb2fcc12747e1765304718376",
+      "preview_only": true,
+      "seconds": 4.8,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 4.8,
+          "readiness": "L0",
+          "spokes": 5,
+          "style_agent": "disabled",
+          "style_changed": {},
+          "checks_failed": []
+        }
+      ],
+      "manufacturing_status": "not_released"
+    }
+  },
+  "revision": {
+    "name": "revision-5c7df14b66e2",
+    "chain": {
+      "case": null,
+      "text": null,
+      "spec": {
+        "diameter_in": 20.0,
+        "width_in": 10.5,
+        "pcd_mm": 112.0,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 15.0
+      },
+      "hole_form": "15X32X60",
+      "parent": {
+        "run": "image-41ae13f4dece",
+        "recipe_sha256": "6ef080df3b7b81288d9b51882663194db89fb37fb2fcc12747e1765304718376",
+        "changes": {
+          "et_mm": 15.0
+        },
+        "hole_form_confirmed": false
+      },
+      "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+      "preview_only": true,
+      "seconds": 3.7,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 3.7,
+          "source": "confirmed_snapshot",
+          "readiness": "L0",
+          "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae"
+        }
+      ],
+      "manufacturing_status": "not_released"
+    }
+  },
+  "delivery": {
+    "name": "delivery-b06ecf6d1355",
+    "chain": {
+      "case": null,
+      "text": null,
+      "spec": {
+        "diameter_in": 20.0,
+        "width_in": 10.5,
+        "pcd_mm": 112.0,
+        "bolts": 5,
+        "center_bore_mm": 66.6,
+        "et_mm": 15.0
+      },
+      "hole_form": "15X32X60",
+      "parent": {
+        "run": "revision-5c7df14b66e2",
+        "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+        "changes": {},
+        "hole_form_confirmed": false
+      },
+      "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+      "preview_only": false,
+      "seconds": 31.1,
+      "steps": [
+        {
+          "step": "reconstruct",
+          "ok": true,
+          "seconds": 3.6,
+          "source": "confirmed_snapshot",
+          "readiness": "L0",
+          "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae"
+        },
+        {
+          "step": "machining",
+          "ok": true,
+          "seconds": 21.2,
+          "checks_failed": [],
+          "adjustments": []
+        },
+        {
+          "step": "package",
+          "ok": true,
+          "seconds": 5.8,
+          "simulation": "sampled_no_gouge",
+          "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.467 L 留待工厂 CAM。"
+        },
+        {
+          "step": "drawing",
+          "ok": true,
+          "seconds": 0.5,
+          "pdf": false
+        }
+      ],
+      "manufacturing_status": "not_released"
+    }
+  },
+  "manifest": {
+    "source_recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+    "parent": {
+      "run": "revision-5c7df14b66e2",
+      "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+      "changes": {},
+      "hole_form_confirmed": false
+    },
+    "manufacturing_status": "not_released",
+    "preview_only": false,
+    "complete": true,
+    "geometry_scope": "GLB retains style; machining STEP is a derived machining preparation with adjustments, not full style CAD",
+    "artifacts": {
+      "chain.json": {
+        "sha256": "e61f206688b7ba77412c2e40f02bbfa308bfee6d2f06003264e4cbd7385b75da",
+        "bytes": 1190
+      },
+      "drawing.html": {
+        "sha256": "997340cc83c71343b3159460e4114b13d7b70c225017c765c34ebe9839bf341a",
+        "bytes": 150
+      },
+      "drawing.svg": {
+        "sha256": "f68c7bafc6cdab648ac7bf9db1841f4fb48a9866a0ac87acde14ba4ae0d638d4",
+        "bytes": 67487
+      },
+      "input_spec.json": {
+        "sha256": "ca603f6d759f9426e74f8e7eea3a78c45ee6081ee0c95d7ed45a15d5a52b73ec",
+        "bytes": 142
+      },
+      "machining/machining.step": {
+        "sha256": "5e9e52f9305493655c88b9dd3fa3292ebc7add150f3d4a8ebec10840515f039b",
+        "bytes": 5459463
+      },
+      "machining/machining_report.json": {
+        "sha256": "1b286e0b9c98b86cd1230f83bbf0c63cc5e19a3049a0b3170bd399cd990a12b6",
+        "bytes": 1313
+      },
+      "machining/recipe.json": {
+        "sha256": "3d524d871df1c9be770f5e8f0ba05e0c770eb0bf7e522038db9aec78c2d83f00",
+        "bytes": 6745
+      },
+      "machining/stock.step": {
+        "sha256": "6b7edbfb8231e86f6080f861dbbe8190c68314afd695d78c0bd69d61174bcba9",
+        "bytes": 85666
+      },
+      "package/drawing.html": {
+        "sha256": "c43afdee8db759690b0b552f764b0408b68a6a3c1b4bae7257013ca79a33f5c1",
+        "bytes": 241
+      },
+      "package/drawing.svg": {
+        "sha256": "57a5530eeb1ae83451cacd7e68cbf59c77c0070c25259d8f19da41eb160e09b0",
+        "bytes": 31334
+      },
+      "package/machining_step.glb": {
+        "sha256": "ad0576165539b985f8ddb8fea2199f635e2b3ba2e546bc0218d4e82e6fc19089",
+        "bytes": 1035632
+      },
+      "package/process_plan.json": {
+        "sha256": "ceef4f118fdf591bc058ecfa335ef5ebff898024691d7c9df7b680fecb62b4c7",
+        "bytes": 3594
+      },
+      "package/reference.nc": {
+        "sha256": "729ad8d91b532c8351866079daaeed9ba2adea484568d444ef9ed9e3ae16ce05",
+        "bytes": 309280
+      },
+      "package/simulation_3d.png": {
+        "sha256": "537b683d0417431c982fc59f571843cc3cc153fe5c0f698cb44aedcd59442e1a",
+        "bytes": 114004
+      },
+      "package/stock_after_roughing.glb": {
+        "sha256": "da1c689b2887e8a356b8fc56da64500deafddcf5c7d6e62683c86370d80715ad",
+        "bytes": 928876
+      },
+      "package/stock_step.glb": {
+        "sha256": "c065a7c3562858d2f4e7b950fbe59822eba7762a6ba04a53801e6da3761870fb",
+        "bytes": 392168
+      },
+      "package/tool_list.csv": {
+        "sha256": "8e09221518e77b2293de0919b3b87a37567c288c5cecf7fd465ba471dd7fea10",
+        "bytes": 438
+      },
+      "reconstruct/engineering_report.json": {
+        "sha256": "44a14834ce6f25e325b9473e1e30d6c24e4f0ba135826ea8c0a8fd960c0a4919",
+        "bytes": 14177
+      },
+      "reconstruct/recipe.json": {
+        "sha256": "3d524d871df1c9be770f5e8f0ba05e0c770eb0bf7e522038db9aec78c2d83f00",
+        "bytes": 6745
+      },
+      "reconstruct/report.json": {
+        "sha256": "2a284ec90f952c195cdca21c3c265268fa3c7da65176344b8758b357e7660218",
+        "bytes": 628
+      },
+      "reconstruct/wheel.glb": {
+        "sha256": "d9b367472f8212f5319df2d6ee7ff5f52e73ec6998d7de7a0d54020d545ed3fe",
+        "bytes": 3666940
+      },
+      "reference/front.jpg": {
+        "sha256": "d40c3c631ef7f918268e18c62845b6f110f53eef4672ae4aecf95519237778cc",
+        "bytes": 208761
+      }
+    }
+  },
+  "scope": "Mac integration acceptance on existing calibrated M59; not Spark evidence or holdout generalization",
+  "browser_acceptance": {
+    "run": "runs/workbench-flow-20260928/delivery-36d4a74620e6",
+    "steps_passed": 4,
+    "total_seconds": 37.9,
+    "dom_record": "runs/workbench-flow-20260928/browser.txt",
+    "webgl_frame": "runs/workbench-flow-20260928/preview.png",
+    "whole_page_screenshot": "CDP timeout; not captured"
+  }
+}

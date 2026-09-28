@@ -44,6 +44,7 @@ def test_workbench_text_entry_creates_a_run(tmp_path, monkeypatch):
     from wheelcam.workbench import create_app
 
     def fake_chain(command, **kwargs):
+        assert "--preview-only" in command
         out = Path(command[command.index("--out") + 1])
         out.mkdir()
         (out / "chain.json").write_text(json.dumps({"text": "做一个轮毂", "spec": {},

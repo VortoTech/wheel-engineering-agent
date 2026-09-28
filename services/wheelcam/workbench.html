@@ -55,12 +55,28 @@ form button:disabled{opacity:.5}
   <h1>WheelCAM 工作台</h1>
   <select id="run"></select>
   <button id="new-text">用文字新建</button>
+  <button id="new-image">用图片新建</button>
+  <button id="confirm-spec" disabled>确认工程尺寸</button>
+  <button id="deliver" disabled>生成当前版本交付包</button>
+  <span id="task-status" role="status"></span>
   <button id="reset-preview" hidden>恢复原始预览</button>
   <span class="chip">未发布 · 需工程师审核</span>
 </header>
 <dialog id="text-dialog"><h2>用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
   <textarea id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
   <p id="text-status" role="status"></p><div class="actions"><button id="text-cancel">取消</button><button id="text-submit">生成草案</button></div></dialog>
+<dialog id="engineering-dialog">
+  <h2 id="engineering-title">确认工程尺寸</h2>
+  <p>只填写已知尺寸；空白项保留为未知或沿用原值。修改后生成新版本，重新校验。</p>
+  <div id="image-fields"><label>正面图（必填） <input id="front-file" type="file" accept="image/jpeg,image/png,image/webp"></label><br>
+    <label>斜视图（可选） <input id="oblique-file" type="file" accept="image/jpeg,image/png,image/webp"></label></div>
+  <div id="engineering-fields"></div>
+  <label>孔型 <input id="hole-form" placeholder="15X32X60"></label>
+  <p id="dimension-diff"></p>
+  <label><input id="engineering-confirmed" type="checkbox">我确认填写的工程尺寸来自本次设计要求或测量</label>
+  <p id="engineering-status" role="status"></p>
+  <div class="actions"><button id="engineering-cancel">取消</button><button id="engineering-submit">确认并重建</button></div>
+</dialog>
 <main>
   <section id="view"><div id="chain"></div><div class="hint">拖动旋转 · 滚轮缩放</div></section>
   <aside>
@@ -97,7 +113,8 @@ import {RoomEnvironment} from "three/addons/environments/RoomEnvironment.js";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const num = v => v == null ? "—" : (typeof v === "number" ? (Math.round(v * 100) / 100).toString() : esc(v));
-let run = null, data = null;
+let run = null, data = null, busy = false;
+function setBusy(value){ busy = value; document.querySelectorAll("header button, #run, #ask button, .chips button").forEach(b => b.disabled = value || (!data && ["confirm-spec", "deliver"].includes(b.id))); }
 
 // 3D view
 const view = $("#view"), renderer = new THREE.WebGLRenderer({antialias: true});
@@ -150,14 +167,16 @@ const checksTable = c => `<table>${Object.entries(c || {}).map(([k, v]) =>
 function render(){
   const ch = data.chain, sp = ch.spec, m = data.machining || {}, cmp = data.compare;
   const preview = data.current_preview || {}, stale = preview.downstream_stale;
-  const versionNote = stale ? `<p class="note" role="status">当前预览为对话修改版 ${esc(preview.revision)}。下列 STEP、工程图、加工包和工厂 CAD 对照属于原始版本，尚未按本次修改重新生成。</p>` : "";
-  $("#reset-preview").hidden = !stale;
+  const versionNote = stale ? `<p class="note" role="status">当前版本 ${esc(preview.revision)} 的交付包尚未生成。${preview.revision?.startsWith("chat/") ? "下列已有文件对应修改前版本。" : ""}请点击“生成当前版本交付包”。</p>` : "";
+  $("#reset-preview").hidden = !preview.revision?.startsWith("chat/");
+  $("#confirm-spec").disabled = busy; $("#deliver").disabled = busy;
   $("#chain").innerHTML = ch.steps.map(s => `<span class="${s.ok ? "ok" : "bad"}" title="${esc(s.error || "")}">${STEP[s.step] || s.step} ${s.seconds}s</span>`).join("");
   $("#spec").innerHTML = `
     ${versionNote}
-    <table><tr><th>规格（${ch.text ? "用户文字 / 默认值" : "确认单"}）</th><th></th></tr>
-    <tr><td>尺寸</td><td>${sp.diameter_in}×${sp.width_in}J  ET${sp.et_mm}</td></tr>
-    <tr><td>孔系</td><td>${sp.bolts}×${sp.pcd_mm}  中心孔 ${sp.center_bore_mm}</td></tr>
+    ${ch.parent ? `<p>基于 ${esc(ch.parent.run)} 创建的新版本；历史版本可从顶部列表打开。</p>` : ""}
+    <table><tr><th>规格（${ch.text ? "用户文字 / 已确认值 / 默认值" : "输入值；来源见下方"}）</th><th></th></tr>
+    <tr><td>尺寸</td><td>${num(sp.diameter_in)}×${num(sp.width_in)}J  ET${num(sp.et_mm)}</td></tr>
+    <tr><td>孔系</td><td>${num(sp.bolts)}×${num(sp.pcd_mm)}  中心孔 ${num(sp.center_bore_mm)}</td></tr>
     <tr><td>孔型</td><td>${esc(ch.hole_form || "确认单未给出")}</td></tr></table>
     ${ch.text ? `<p>${esc(ch.text)}</p><h3>输入来源与待确认</h3>
       <table>${Object.entries(data.text_report?.parameters || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.value)}</td><td>${esc(v.source)}</td></tr>`).join("")}</table>
@@ -168,11 +187,12 @@ function render(){
     <h3>加工级 STEP 校验${stale ? "（原始版本）" : ""}</h3>${checksTable(m.checks)}
     ${(m.adjustments || []).map(a => `<p class="note">⚠ ${esc(a)}</p>`).join("")}
     <h3>STEP 中包含 / 不包含</h3><p>${esc((m.in_step || []).join("；"))}</p><p class="note">${esc((m.not_in_step || []).join("；"))}</p>
-    <p><a href="${f("machining/machining.step")}">下载 machining.step</a> · <a href="${f("machining/stock.step")}">stock.step</a> · <a href="${f(data.glb)}">wheel.glb</a></p>`;
-  $("#ref").innerHTML = (data.references || []).length ? `<p>订单渲染图（已脱敏）。左侧三维模型可拖动到相同视角对照。</p>` +
+    <p>${ch.steps.some(s => s.step === "machining" && s.ok) ? `<a href="${f("machining/machining.step")}">下载 machining.step</a> · <a href="${f("machining/stock.step")}">stock.step</a> · ` : ""}<a href="${f(data.glb)}">wheel.glb</a></p>`;
+  $("#ref").innerHTML = (data.references || []).length ? `<p>本次输入参考图。左侧三维模型可拖动到相同视角对照。</p>` +
     data.references.map(n => `<img class="fig" style="margin-bottom:10px" src="${f("reference/" + n)}" alt="${esc(n)}">`).join("")
-    : "<p>这次运行没有保存订单原图。</p>";
+    : "<p>这次运行没有保存参考图。</p>";
   $("#cad").innerHTML = cmp ? `${versionNote}
+    ${ch.parent ? `<p>基于 ${esc(ch.parent.run)} 创建的新版本；历史版本可从顶部列表打开。</p>` : ""}
     <table><tr><th>尺寸</th><th>重建</th><th>工厂 CAD</th><th>误差</th></tr>
     ${Object.entries(cmp.dimensions).map(([k, v]) => `<tr><td>${LABEL[k] || k}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td>
       <td class="${v.error != null && Math.abs(v.error) > 1 ? "note" : ""}">${num(v.error)}</td></tr>`).join("")}</table>
@@ -180,7 +200,7 @@ function render(){
     <img class="fig" src="${f("compare_section.png")}" alt="截面对照">
     <p class="note">工厂 CAD 只作对照真值，不作输入。截面对照不含辐条。本批 CAD 曾用于模板标定，以上为同批残差，不代表新款精度。</p>` : "<p>没有工厂 CAD。</p>";
   const pdf = (ch.steps.find(s => s.step === "drawing") || {}).pdf;
-  $("#drawing").innerHTML = `${versionNote}<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
+  $("#drawing").innerHTML = !ch.steps.some(s => s.step === "drawing" && s.ok) ? `${versionNote}<p>当前版本尚无通过的工程图，请生成交付包。</p>` : `${versionNote}<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
     <img class="fig" src="${f("drawing.svg")}" alt="工程图">`;
   const sim = data.simulation || {};
   const packageStep = ch.steps.find(s => s.step === "package");
@@ -221,10 +241,75 @@ function bubble(h){
 }
 
 async function open(name){ run = name; data = await (await fetch(`/api/runs/${name}`)).json(); render(); }
+const FIELDS = {diameter_in:"直径 inch",width_in:"宽度 J",et_mm:"ET mm",bolts:"螺栓孔数",pcd_mm:"PCD mm",center_bore_mm:"中心孔 mm"};
+let imageMode = false, specRun = null, specHash = null;
+function showEngineering(image){
+  imageMode = image; specRun = run; specHash = data?.current_preview.recipe_sha256;
+  $("#engineering-title").textContent = image ? "用图片新建轮毂" : "确认工程尺寸";
+  $("#image-fields").hidden = !image;
+  $("#engineering-fields").innerHTML = Object.entries(FIELDS).map(([k,label]) => `<p><label>${label} <input data-spec="${k}" type="number" step="${k === 'bolts' ? '1' : 'any'}" placeholder="${!image && data?.chain.spec[k] != null ? '当前 ' + data.chain.spec[k] + '；留空不确认' : '未知，可留空'}"></label></p>`).join("");
+  $("#hole-form").value = ""; $("#engineering-confirmed").checked = false;
+  $("#engineering-status").textContent = ""; $("#dimension-diff").textContent = "";
+  $("#engineering-dialog").showModal();
+}
+function dimensionChanges(){
+  return Object.fromEntries([...document.querySelectorAll('[data-spec]')].filter(e => e.value !== '').map(e => [e.dataset.spec, Number(e.value)]));
+}
+$("#engineering-fields").oninput = () => {
+  $("#dimension-diff").textContent = Object.entries(dimensionChanges()).map(([k,v]) => `${FIELDS[k]}：${imageMode ? '未知' : data.chain.spec[k] ?? '未知'} → ${v}`).join('；');
+};
+$("#new-image").onclick = () => showEngineering(true);
+$("#confirm-spec").onclick = () => showEngineering(false);
+$("#engineering-cancel").onclick = () => $("#engineering-dialog").close();
+async function acceptRun(result){
+  const option = document.createElement('option'); option.textContent = result.name;
+  $("#run").prepend(option); $("#run").value = result.name;
+  controls.userMoved = false; selectTab('spec'); await open(result.name);
+}
+$("#engineering-submit").onclick = async () => {
+  if (busy) return;
+  const spec = dimensionChanges(), form = $("#hole-form").value.trim();
+  if ((Object.keys(spec).length || form || !imageMode) && !$("#engineering-confirmed").checked){
+    $("#engineering-status").textContent = "请勾选确认工程尺寸来源"; return;
+  }
+  if (imageMode && !$("#front-file").files[0]) { $("#engineering-status").textContent = "请选择正面图"; return; }
+  setBusy(true); $("#engineering-submit").disabled = true;
+  $("#engineering-status").textContent = "正在重建并校验，新版本完成后自动打开…";
+  try {
+    let url, options;
+    if (imageMode){
+      const body = new FormData(); body.append('front', $("#front-file").files[0]);
+      if ($("#oblique-file").files[0]) body.append('oblique', $("#oblique-file").files[0]);
+      body.append('spec_json', JSON.stringify(spec)); body.append('hole_form', form);
+      url = '/api/runs/image'; options = {method:'POST',body};
+    } else {
+      url = `/api/runs/${specRun}/spec`;
+      options = {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({expected_recipe_sha256:specHash,confirmed:true,spec,...(form ? {hole_form:form} : {})})};
+    }
+    const response = await fetch(url, options), result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail));
+    await acceptRun(result); $("#engineering-dialog").close();
+  } catch(e){ $("#engineering-status").textContent = '未采用：' + e.message; }
+  finally { setBusy(false); $("#engineering-submit").disabled = false; }
+};
+$("#deliver").onclick = async () => {
+  if (busy || !data) return;
+  const name = run, hash = data.current_preview.recipe_sha256;
+  setBusy(true); $("#task-status").textContent = '正在生成当前配方的 STEP、图纸和加工包…';
+  try {
+    const response = await fetch(`/api/runs/${name}/deliver`, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({expected_recipe_sha256:hash})});
+    const result = await response.json(); if (!response.ok) throw new Error(result.detail);
+    await acceptRun(result);
+    const failed = result.chain.steps.filter(s => !s.ok);
+    $("#task-status").textContent = failed.length ? '生成结束，部分步骤未通过，请查看校验结果' : '当前版本交付包已生成（工程草案）';
+  } catch(e){ $("#task-status").textContent = '生成失败：' + e.message; }
+  finally { setBusy(false); }
+};
 $("#new-text").onclick = () => $("#text-dialog").showModal();
 $("#text-cancel").onclick = () => $("#text-dialog").close();
 $("#text-submit").onclick = async () => {
   const message = $("#text-input").value.trim(); if (!message) return;
+  if (busy) return; setBusy(true);
   const button = $("#text-submit"); button.disabled = true; $("#text-status").textContent = "理解、建模、校验中…";
   try {
     const response = await fetch("/api/runs/text", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({message})});
@@ -232,7 +317,7 @@ $("#text-submit").onclick = async () => {
     const option = document.createElement("option"); option.textContent = result.name; $("#run").prepend(option); $("#run").value = result.name;
     $("#text-dialog").close(); controls.userMoved = false; selectTab("spec"); await open(result.name);
   } catch (error) { $("#text-status").textContent = "出错：" + error.message; }
-  button.disabled = false;
+  button.disabled = false; setBusy(false);
 };
 $("#run").onchange = e => { controls.userMoved = false; open(e.target.value); };
 $("#reset-preview").onclick = async () => {
@@ -242,7 +327,9 @@ $("#reset-preview").onclick = async () => {
 document.querySelector(".chips").onclick = e => { if (e.target.tagName === "BUTTON") { $("#q").value = e.target.textContent; $("#ask").requestSubmit(); } };
 $("#ask").onsubmit = async e => {
   e.preventDefault();
+  if (!data) return;
   const q = $("#q").value.trim(); if (!q) return;
+  if (busy) return; setBusy(true);
   const btn = $("#ask button"); btn.disabled = true; $("#q").value = "";
   $("#log").insertAdjacentHTML("beforeend", `<div class="msg me">${esc(q)}</div><div class="msg bot" id="wait">理解中，重建并校验…</div>`);
   $("#log").scrollTop = 1e9;
@@ -251,7 +338,7 @@ $("#ask").onsubmit = async e => {
     if (!r.ok) throw new Error((await r.json()).detail);
     await open(run);
   } catch (err) { $("#wait").textContent = "出错：" + err.message; $("#wait").id = ""; }
-  btn.disabled = false;
+  btn.disabled = false; setBusy(false);
 };
 const runs = await (await fetch("/api/runs")).json();
 $("#run").innerHTML = runs.map(r => `<option>${esc(r)}</option>`).join("");
