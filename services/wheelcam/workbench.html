@@ -5,67 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WheelCAM 工作台</title>
 <style>
-:root{--bg:#f4f3f0;--panel:#fff;--ink:#1d1d1b;--mute:#6b6a66;--line:#e2e0da;--ok:#2f7d4f;--bad:#b3261e;--warn:#9a6700;--accent:#1f4fbf}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1d1d1b;--ink:#ecebe7;--mute:#9b9a95;--line:#34332f;--ok:#6fc28f;--bad:#f08a80;--warn:#e0b050;--accent:#8fb0ff}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif}
-header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-header h1{font-size:16px;margin:0;font-weight:600}
-header .chip{font-size:12px;padding:2px 8px;border:1px solid var(--bad);color:var(--bad);border-radius:10px}
-header button{font:inherit;padding:5px 10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;cursor:pointer}
-dialog{max-width:min(650px,92vw);width:100%;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:18px}
-dialog::backdrop{background:#0008}dialog textarea{font:inherit;width:100%;height:110px;padding:10px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px}
-dialog .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}dialog button{font:inherit;padding:7px 12px;cursor:pointer}
-select{font:inherit;padding:4px 6px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px}
-main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(360px,1fr);height:calc(100vh - 49px)}
-#view{position:relative;min-height:320px}
-#view canvas{display:block;width:100%;height:100%}
-#view .hint{position:absolute;left:12px;bottom:10px;color:var(--mute);font-size:12px}
-#chain{position:absolute;left:12px;top:10px;display:flex;flex-wrap:wrap;gap:6px}
-#chain span{font-size:12px;padding:3px 8px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
-#chain span.ok::before{content:"✓ ";color:var(--ok)}#chain span.bad::before{content:"✗ ";color:var(--bad)}
-aside{display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);min-height:0}
-nav{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--line)}
-nav button{flex:none;font:inherit;background:none;border:0;border-bottom:2px solid transparent;padding:10px 14px;color:var(--mute);cursor:pointer}
-nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
-.tab{display:none;padding:14px 16px;overflow:auto;flex:1;min-height:0}.tab.on{display:block}
-table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
-td,th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--mute);font-weight:500}
-.pass{color:var(--ok)}.fail{color:var(--bad)}.note{color:var(--warn)}
-img.fig{width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
-h3{font-size:13px;margin:16px 0 6px;color:var(--mute);font-weight:500}
-a{color:var(--accent)}
-#chat{display:none;flex-direction:column;flex:1;min-height:0}#chat.on{display:flex}
-#log{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
-.msg{max-width:92%;padding:8px 10px;border-radius:8px}
-.me{align-self:flex-end;background:var(--accent);color:#fff}
-.bot{align-self:flex-start;background:var(--bg);border:1px solid var(--line)}
-.bot .x{font-size:12px;color:var(--mute);margin-top:4px}
-form{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
-form input{flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
-form button{font:inherit;padding:8px 14px;border:0;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}
-form button:disabled{opacity:.5}
-.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px}
-.chips button{font:inherit;font-size:12px;padding:3px 8px;border:1px solid var(--line);border-radius:12px;background:none;color:var(--ink);cursor:pointer}
-@media (max-width:820px){main{grid-template-columns:1fr;height:auto}#view{height:55vh}aside{min-height:70vh}}
+:root{color-scheme:dark;--bg:#11161d;--panel:#181e27;--panel-dark:#141a22;--ink:#dce2eb;--mute:#9ba8b8;--line:#2b333e;--ok:#8ac8aa;--bad:#ffaaa1;--warn:#efab56;--accent:#efab56}
+*{box-sizing:border-box}body{margin:0;font:13px/1.6 Inter,-apple-system,"PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit}button,a,input,select,textarea{outline-offset:3px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent)}
+button{cursor:pointer;color:inherit;background:#202934;border:1px solid #3b4552;border-radius:5px;padding:8px 12px}button:hover:not(:disabled){background:#303b49;border-color:#727e8d}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:var(--accent);border-color:var(--accent);color:#151a21;font-weight:650}.primary:hover:not(:disabled){background:#ffc680;border-color:#ffc680}
+a{color:#a7c6f5;text-underline-offset:3px}h1,h2,h3,p{margin:0}h2{font-size:18px}h3{font-size:13px;font-weight:600;margin:18px 0 8px}p+p{margin-top:9px}small,.muted{color:var(--mute)}[hidden]{display:none!important}
+header{height:66px;display:flex;align-items:center;gap:22px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--bg)}header h1{font-size:21px;font-weight:650;letter-spacing:-.5px}header h1 span{font-weight:400;color:var(--accent)}.brand-caption{color:var(--mute);font-size:12px;border-left:1px solid var(--line);padding-left:20px}.header-actions{margin-left:auto;display:flex;align-items:center;gap:8px}.chip,.badge{font-size:11px;display:inline-block;padding:3px 7px;border:1px solid var(--line);border-radius:4px;white-space:nowrap}.chip{color:var(--warn);border-color:#665039;background:#342a1e55}.badge.ok{color:var(--ok)}.badge.warn{color:var(--warn)}
+.projectbar{min-height:66px;display:flex;gap:20px;align-items:center;padding:10px 22px;background:var(--panel-dark);border-bottom:1px solid var(--line)}.project-identity{display:flex;align-items:center;gap:12px;min-width:0}.project-identity label{font-size:12px;color:var(--mute)}select{max-width:310px;min-width:180px;background:#202934;color:var(--ink);border:1px solid #3b4552;border-radius:5px;padding:7px 10px}.projectbar .actions{margin-left:auto;display:flex;gap:10px;align-items:center}.projectbar .meta{color:var(--mute);font-size:12px}#task-status:not(:empty){padding:10px 22px;border-bottom:1px solid #665039;background:#342a1e;color:#f4c68d}.workspace{display:grid;grid-template-columns:258px minmax(320px,1fr) 380px;height:calc(100dvh - 133px);min-height:570px}.input-panel{background:var(--panel-dark);border-right:1px solid var(--line);overflow:auto;min-width:0}.panel-title{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:600}.section{padding:17px 18px;border-bottom:1px solid var(--line)}.section h3{margin:0 0 10px}.eyebrow{font-size:10px;color:var(--mute);letter-spacing:1.6px;text-transform:uppercase;margin-bottom:6px}.reference-thumb{display:block;padding:0;overflow:hidden;width:100%;background:#eef0f3;border-color:var(--line);margin-top:10px}.reference-thumb img{display:block;object-fit:contain;width:100%;height:128px}.reference-thumb span{display:block;padding:7px;background:var(--panel);font-size:11px;color:var(--mute)}.text-brief{font-size:12px;color:var(--mute);line-height:1.8;overflow-wrap:anywhere}.parameter-list{margin:0}.parameter-row{display:grid;grid-template-columns:1fr auto;gap:4px;padding:8px 0;border-bottom:1px solid var(--line)}.parameter-row dt{color:var(--mute);font-size:12px}.parameter-row dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.parameter-row small{display:block;font-size:10px}.parameter-row .unknown{color:var(--warn)}.full-width{width:100%;margin-top:14px}.panel-note{font-size:11px;line-height:1.8;color:var(--mute);margin-top:10px}
+.center-panel{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}.viewbar{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}.viewbar strong{font-size:12px}.viewbar span{margin-left:auto;color:var(--mute);font-size:11px}.view-tools{display:flex;flex-wrap:wrap;gap:5px;padding:10px 15px}.view-tools button{padding:5px 10px;font-size:12px;background:transparent}.view-tools button[aria-pressed=true]{background:#3a3022;color:var(--accent);border-color:#6b5536}
+#view{position:relative;flex:1;min-height:260px;overflow:hidden}#view canvas{display:block;width:100%;height:100%;outline:none}#view .hint{position:absolute;bottom:12px;left:16px;color:var(--mute);font-size:11px;pointer-events:none}.viewport-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:25px;text-align:center;background:var(--bg);z-index:1}.viewport-state h2{font-size:19px}.viewport-state p{max-width:360px;color:var(--mute)}.viewport-state .actions{display:flex;gap:8px;margin-top:8px}.viewport-state.loading{background:#11161dd9}.workflow{border-top:1px solid var(--line);padding:15px 18px;background:var(--panel-dark)}.workflow-label{display:flex;justify-content:space-between;color:var(--mute);font-size:11px;margin-bottom:10px}#chain{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}#chain span{padding:8px;border:1px solid var(--line);border-radius:5px;font-size:11px;color:var(--mute)}#chain span b{display:block;color:var(--ink);font-weight:500;margin-bottom:2px}#chain span.ok{border-top:2px solid var(--ok)}#chain span.bad{border-top:2px solid var(--bad)}.scope-note{font-size:11px;color:var(--mute);margin-top:9px}
+.inspector{display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);background:var(--panel)}#tabs{display:flex;border-bottom:1px solid var(--line);padding:0 9px;flex-shrink:0}#tabs button{flex:1;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:14px 5px;color:var(--mute);font-size:12px}#tabs button.on{border-color:var(--accent);color:var(--ink)}.tab{display:none;padding:18px;overflow:auto;flex:1;min-height:0}.tab.on{display:block}.tab>p{font-size:12px;color:var(--mute)}table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}td,th{text-align:left;padding:7px 5px;border-bottom:1px solid var(--line)}th{color:var(--mute);font-weight:500}.pass{color:var(--ok)}.fail{color:var(--bad)}.note{color:var(--warn)!important;font-size:12px;padding:10px;background:#372c1e55;border-left:2px solid #987544;margin:10px 0!important}details{margin-top:12px}summary{cursor:pointer;font-size:12px;color:var(--mute)}details table{margin-top:6px}.fig{display:block;width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;margin:12px 0}.check-overview{display:flex;gap:12px;align-items:center;padding:13px;background:var(--panel-dark);border:1px solid var(--line);border-radius:6px;margin-bottom:16px}.check-overview strong{font-size:24px;color:var(--ok);font-variant-numeric:tabular-nums}.check-overview p{font-size:12px}.check-overview small{font-size:11px}.download-card{border:1px solid var(--line);border-radius:6px;margin-top:10px;padding:13px}.download-card h3{margin:0;font-size:13px}.download-card p{font-size:11px;color:var(--mute);margin:5px 0 10px}.download-card .links{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}.subnav{display:flex;gap:7px;margin:12px 0}.subnav button{font-size:12px;padding:6px 9px}
+#chat{display:none;flex-direction:column;flex:1;min-height:0}#chat.on{display:flex}.agent-intro{padding:18px;border-bottom:1px solid var(--line)}.agent-label{color:var(--accent);font-size:10px;letter-spacing:1.4px;margin-bottom:8px}.agent-intro h2{font-size:15px;margin-bottom:6px}.agent-intro p{font-size:12px;color:var(--mute)}#next-action{margin-top:12px;width:100%;text-align:left;font-size:12px}#log{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;min-height:70px}.msg{max-width:96%;padding:11px 12px;border-radius:7px;font-size:12px;overflow-wrap:anywhere}.me{align-self:flex-end;background:#354153;color:#f0f3f8}.bot{align-self:flex-start;background:var(--panel-dark);border:1px solid var(--line)}.msg .x{font-size:11px;color:var(--mute);margin-top:7px}.empty-log{color:var(--mute);font-size:12px;line-height:1.9}.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}.chips button{font-size:11px;padding:5px 8px;background:transparent}#ask{display:flex;gap:8px;padding:0 16px 14px}#q{min-width:0;flex:1;font:inherit;padding:10px;background:var(--panel-dark);color:var(--ink);border:1px solid #445062;border-radius:5px}#ask button{padding:7px 13px;background:var(--accent);color:var(--bg);font-weight:600}#agent-footnote{font-size:10px;padding:0 16px 13px;color:var(--mute)}
+dialog{width:620px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);overflow:auto;background:var(--panel);color:var(--ink);border:1px solid #485362;border-radius:10px;padding:25px;box-shadow:0 24px 80px #0007}dialog::backdrop{background:#060b13b0}dialog>p{font-size:12px;color:var(--mute);margin:10px 0 16px}dialog textarea{width:100%;height:140px;padding:12px;resize:vertical;background:var(--panel-dark);color:var(--ink);border:1px solid #445062;border-radius:6px;margin-top:5px}dialog .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}dialog input:not([type=checkbox]){width:100%;padding:9px;background:var(--panel-dark);color:var(--ink);border:1px solid #445062;border-radius:5px;margin-top:5px}dialog label{font-size:12px;color:var(--mute)}#engineering-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;margin:18px 0}#engineering-fields p{margin:0}#image-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--panel-dark);padding:14px;border:1px dashed #485362;border-radius:6px;margin-top:16px}#image-fields br{display:none}#dimension-diff:not(:empty){background:#372c1e;padding:12px;color:var(--warn)}#engineering-status,#text-status{color:var(--warn)}.source-note{color:var(--mute);font-size:11px}#view-status{font-size:11px}
+@media(max-width:1200px){.workspace{grid-template-columns:226px minmax(260px,1fr) 330px}.brand-caption{display:none}.projectbar .meta{display:none}.section{padding:14px}.projectbar{gap:8px}#chain{gap:4px}#chain span{padding:6px 4px}}
+@media(max-width:950px){.workspace{grid-template-columns:220px minmax(0,1fr);height:auto;min-height:0}.center-panel{height:590px}.inspector{grid-column:1/-1;border-top:1px solid var(--line);height:540px}.input-panel{max-height:590px}.projectbar{flex-wrap:wrap}.projectbar .actions{margin-left:0}.chip{display:none}header{padding:0 14px;height:auto;min-height:62px;gap:8px}.header-actions{gap:5px}header button{font-size:12px;padding:7px}.agent-intro{padding:14px 18px}#chain{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:560px){header h1{font-size:18px}.projectbar{padding:10px 12px}.project-identity{width:100%}.project-identity select{flex:1;max-width:100%;min-width:0}.projectbar .actions{width:100%}.projectbar .actions .primary{flex:1}.workspace{grid-template-columns:1fr}.center-panel{grid-row:1;height:500px}.input-panel{grid-row:2;max-height:none;border-top:1px solid var(--line)}.inspector{grid-row:3;height:620px}.input-panel .section{padding:16px}.parameter-list{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}.reference-thumb img{height:170px}.header-actions button{padding:6px;font-size:11px}#image-fields,#engineering-fields{grid-template-columns:1fr}.viewbar{padding:10px}.view-tools{padding:8px 10px}.workflow{padding:12px}.project-identity label{white-space:nowrap}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
 <header>
-  <h1>WheelCAM 工作台</h1>
-  <select id="run"></select>
-  <button id="new-text">用文字新建</button>
-  <button id="new-image">用图片新建</button>
-  <button id="confirm-spec" disabled>确认工程尺寸</button>
-  <button id="deliver" disabled>生成当前版本交付包</button>
-  <span id="task-status" role="status"></span>
-  <button id="reset-preview" hidden>恢复原始预览</button>
-  <span class="chip">未发布 · 需工程师审核</span>
+  <h1>Wheel<span>CAM</span></h1><span class="brand-caption">Engineering Reconstruction Workspace</span>
+  <div class="header-actions"><button id="new-image">用图片新建</button><button id="new-text">用文字新建</button></div>
+  <span class="chip">工程草案 · 未经制造审核</span>
 </header>
-<dialog id="text-dialog"><h2>用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
-  <textarea id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
-  <p id="text-status" role="status"></p><div class="actions"><button id="text-cancel">取消</button><button id="text-submit">生成草案</button></div></dialog>
-<dialog id="engineering-dialog">
+<div class="projectbar">
+  <div class="project-identity"><label for="run">当前版本</label><select id="run" aria-label="选择轮毂版本"></select><span class="meta" id="version-state">尚未选择模型</span></div>
+  <div class="actions"><button id="reset-preview" hidden>恢复原始预览</button><button id="deliver" class="primary" disabled>生成当前版本交付包</button></div>
+</div>
+<div id="task-status" role="status" aria-live="polite"></div>
+<dialog id="text-dialog" aria-labelledby="text-title"><h2 id="text-title">用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
+  <textarea aria-label="轮毂尺寸与造型描述" id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
+  <p id="text-status" role="status"></p><div class="actions"><button id="text-cancel">取消</button><button class="primary" id="text-submit">生成草案</button></div></dialog>
+<dialog id="engineering-dialog" aria-labelledby="engineering-title">
   <h2 id="engineering-title">确认工程尺寸</h2>
   <p>只填写已知尺寸；空白项保留为未知或沿用原值。修改后生成新版本，重新校验。</p>
   <div id="image-fields"><label>正面图（必填） <input id="front-file" type="file" accept="image/jpeg,image/png,image/webp"></label><br>
@@ -75,31 +47,29 @@ form button:disabled{opacity:.5}
   <p id="dimension-diff"></p>
   <label><input id="engineering-confirmed" type="checkbox">我确认填写的工程尺寸来自本次设计要求或测量</label>
   <p id="engineering-status" role="status"></p>
-  <div class="actions"><button id="engineering-cancel">取消</button><button id="engineering-submit">确认并重建</button></div>
+  <div class="actions"><button id="engineering-cancel">取消</button><button class="primary" id="engineering-submit">确认并重建</button></div>
 </dialog>
-<main>
-  <section id="view"><div id="chain"></div><div class="hint">拖动旋转 · 滚轮缩放</div></section>
-  <aside>
-    <nav id="tabs">
-      <button data-t="spec" class="on">规格与校验</button>
-      <button data-t="ref">对照原图</button>
-      <button data-t="cad">对照工厂 CAD</button>
-      <button data-t="drawing">工程图</button>
-      <button data-t="cam">加工</button>
-      <button data-t="chat">对话修改</button>
-    </nav>
-    <div class="tab on" id="spec"></div>
-    <div class="tab" id="ref"></div>
-    <div class="tab" id="cad"></div>
-    <div class="tab" id="drawing"></div>
-    <div class="tab" id="cam"></div>
-    <div id="chat">
-      <div id="log"></div>
-      <div class="chips">
-        <button>辐条中间的脊再高一点</button><button>窗口斜面窄一些</button>
-        <button>中心凹谷浅一点</button><button>把 PCD 改成 114.3</button>
-      </div>
-      <form id="ask"><input id="q" placeholder="描述想要的造型变化，例如：凹度再深 5 毫米" autocomplete="off"><button>发送</button></form>
+<main class="workspace">
+  <aside class="input-panel" aria-label="输入与工程参数">
+    <div class="panel-title">输入与约束 <span class="badge" id="input-count">未开始</span></div>
+    <section class="section"><div class="eyebrow">REFERENCE</div><h3>重建依据</h3><div id="input-summary"><p class="muted">从轮毂照片或一段描述开始。</p></div></section>
+    <section class="section"><div class="eyebrow">ENGINEERING SPECS</div><h3>工程参数 <span class="badge" id="spec-count">0 / 6 已确认</span></h3><dl class="parameter-list" id="parameter-list"></dl><button id="confirm-spec" class="full-width" disabled>确认工程尺寸</button><p class="panel-note">未知尺寸保持待确认。造型对话不会修改这些工程约束。</p></section>
+    <section class="section"><div class="eyebrow">VERSION</div><div id="version-summary" class="text-brief">每次尺寸确认与交付都会保存新版本。</div></section>
+  </aside>
+  <section class="center-panel" aria-label="三维模型预览">
+    <div class="viewbar"><strong>参数化轮毂预览</strong><span id="view-status">等待输入</span></div>
+    <div class="view-tools" role="group" aria-label="模型视图"><button data-camera="perspective" aria-pressed="true">透视</button><button data-camera="front" aria-pressed="false">正面</button><button data-camera="side" aria-pressed="false">侧面</button><button id="fit-view">适应窗口</button><button id="wireframe" aria-pressed="false">线框</button></div>
+    <div id="view"><div id="viewport-state" class="viewport-state"><div class="eyebrow">WHEEL ENGINEERING SKILL</div><h2>让参考变成可调整的轮毂</h2><p>导入图片或描述尺寸与造型，生成初稿后继续调整，再生成当前版本交付包。</p><div class="actions"><button data-start="image" class="primary">导入轮毂图片</button><button data-start="text">输入文字描述</button></div></div><div class="hint">拖动旋转 · 滚轮缩放 · 仅视觉草案</div></div>
+    <div class="workflow"><div class="workflow-label"><span>本版本构建记录</span><span id="chain-time">尚无运行记录</span></div><div id="chain"></div><p class="scope-note">GLB 为造型预览；加工级 STEP 不包含完整造型曲面。</p></div>
+  </section>
+  <aside class="inspector" aria-label="Agent 与交付检查">
+    <nav id="tabs" role="tablist" aria-label="工作区面板"><button data-t="chat" class="on" role="tab" aria-selected="true">造型 Agent</button><button data-t="spec" role="tab" aria-selected="false">校验</button><button data-t="deliverables" role="tab" aria-selected="false">交付</button><button data-t="ref" role="tab" aria-selected="false">对照</button></nav>
+    <div class="tab" id="spec" role="tabpanel"></div><div class="tab" id="ref" role="tabpanel"></div><div class="tab" id="cad" role="tabpanel"></div><div class="tab" id="deliverables" role="tabpanel"></div><div class="tab" id="drawing" role="tabpanel"></div><div class="tab" id="cam" role="tabpanel"></div>
+    <div id="chat" class="on" role="tabpanel">
+      <div class="agent-intro"><div class="agent-label">WHEEL ENGINEERING SKILL</div><h2 id="agent-title">把想法说出来，逐步完善</h2><p id="agent-summary">先创建一个轮毂，再描述想调整的造型。每轮修改都会重建并校验。</p><button id="next-action" hidden></button></div>
+      <div id="log" aria-live="polite"><p class="empty-log">造型修改与校验记录会显示在这里。</p></div>
+      <div class="chips"><button>窗口斜面窄一些</button><button>辐条中间的脊再高一点</button><button>中心凹谷浅一点</button></div>
+      <form id="ask"><input id="q" aria-label="造型修改要求" placeholder="描述造型变化，例如：斜面窄一些" autocomplete="off"><button>发送</button></form><p id="agent-footnote">工程尺寸请在左侧明确确认；修改后需重新生成交付包。</p>
     </div>
   </aside>
 </main>
@@ -113,46 +83,72 @@ import {RoomEnvironment} from "three/addons/environments/RoomEnvironment.js";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const num = v => v == null ? "—" : (typeof v === "number" ? (Math.round(v * 100) / 100).toString() : esc(v));
-let run = null, data = null, busy = false;
-function setBusy(value){ busy = value; document.querySelectorAll("header button, #run, #ask button, .chips button").forEach(b => b.disabled = value || (!data && ["confirm-spec", "deliver"].includes(b.id))); }
-
-// 3D view
-const view = $("#view"), renderer = new THREE.WebGLRenderer({antialias: true});
-renderer.setPixelRatio(devicePixelRatio); renderer.toneMapping = THREE.ACESFilmicToneMapping;
-view.prepend(renderer.domElement);
-const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(30, 1, 10, 10000);
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;
-const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
-let model = null;
-function resize(){ const r = view.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
-addEventListener("resize", resize); resize();
-(function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
-function bg(){ scene.background = new THREE.Color(getComputedStyle(document.body).getPropertyValue("--bg").trim()); }
-bg(); matchMedia("(prefers-color-scheme:dark)").addEventListener("change", bg);
-function loadGlb(url){
-  new GLTFLoader().load(url, g => {
-    if (model) scene.remove(model);
-    model = g.scene;
-    model.traverse(o => { if (o.isMesh) o.material = new THREE.MeshStandardMaterial({color: 0xb9bcc0, metalness: .85, roughness: .32}); });
-    scene.add(model);
-    const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3()).length();
-    model.position.sub(c);
-    if (!controls.userMoved) {
-      const vertical = THREE.MathUtils.degToRad(camera.fov), horizontal = 2 * Math.atan(Math.tan(vertical / 2) * camera.aspect);
-      const distance = (s / 2) / Math.sin(Math.min(vertical, horizontal) / 2) * 1.08;
-      camera.position.set(.15, 1.3, .78).normalize().multiplyScalar(distance); controls.target.set(0, 0, 0);
-    }
-  });
+let run = null, data = null, busy = false, busyTimer = null;
+function setBusy(value){
+  busy = value; clearInterval(busyTimer); document.querySelector('.workspace').setAttribute('aria-busy', String(value));
+  document.querySelectorAll('header button, .projectbar button, #run, #confirm-spec, #next-action, #ask button, .chips button, [data-start]').forEach(b => b.disabled = value || (!data && ['confirm-spec','deliver','next-action'].includes(b.id)));
+  $('#q').disabled = value || !data;
+  if (value){
+    const started = Date.now(); $('#task-status').textContent = '正在处理请求。当前模型保留，完成后显示新版本。';
+    busyTimer = setInterval(() => $('#version-state').textContent = `处理中 · ${Math.floor((Date.now()-started)/1000)} s`, 1000);
+  } else if (data) $('#version-state').textContent = data.current_preview.downstream_stale ? '交付包待生成' : data.chain.steps.some(s=>!s.ok) ? '部分步骤未通过' : '已保存 · 工程草案';
 }
-controls.addEventListener("start", () => controls.userMoved = true);
+
+// Three.js remains local. Dispose superseded models and ignore late responses.
+const view = $('#view'), renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.domElement.setAttribute('aria-label','轮毂三维预览，可拖动旋转'); view.prepend(renderer.domElement);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(30,1,1,10000);
+scene.background = new THREE.Color('#11161d');
+const environment = new THREE.PMREMGenerator(renderer); scene.environment = environment.fromScene(new RoomEnvironment(),.04).texture;
+const controls = new OrbitControls(camera,renderer.domElement); controls.enableDamping = true;
+let model = null, modelRadius = 250, loadSequence = 0, loadedUrl = '', cameraView = 'perspective', wireframe = false;
+function disposeModel(object){
+  const materials = new Set(); object.traverse(o => { if(o.isMesh){o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m=>materials.add(m));} });
+  materials.forEach(m=>m.dispose()); scene.remove(object);
+}
+function fitCamera(direction = cameraView){
+  cameraView = direction;
+  const v = THREE.MathUtils.degToRad(camera.fov), h = 2*Math.atan(Math.tan(v/2)*camera.aspect);
+  const distance = modelRadius / Math.sin(Math.min(v,h)/2)*1.12;
+  const target = direction === 'front' ? [0,1,.0001] : direction === 'side' ? [1,0,0] : [.15,1.3,.78];
+  camera.up.set(...(direction === 'front' ? [0,0,-1] : [0,1,0]));
+  camera.position.set(...target).normalize().multiplyScalar(distance); controls.target.set(0,0,0); controls.update();
+  document.querySelectorAll('[data-camera]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.camera===direction)));
+}
+function resize(){const r=view.getBoundingClientRect();if(!r.width || !r.height)return;renderer.setSize(r.width,r.height);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();if(model&&!controls.userMoved)fitCamera();}
+new ResizeObserver(resize).observe(view); resize();
+(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera);})();
+function viewMessage(title,body,error=false){
+  const el=$('#viewport-state');el.hidden=false;el.classList.add('loading');
+  el.innerHTML=`<h2>${esc(title)}</h2><p>${esc(body)}</p>${error?'<button id="retry-model">重新加载模型</button>':''}`;
+  if(error)$('#retry-model').onclick=()=>loadGlb(f(data.glb),true);
+}
+function loadGlb(url,force=false){
+  if(url===loadedUrl&&!force)return;
+  const sequence=++loadSequence;viewMessage('正在加载三维模型','校验与交付信息已经就绪，正在读取预览文件。');
+  $('#view-status').textContent='加载中';
+  new GLTFLoader().load(url,g=>{
+    if(sequence!==loadSequence){disposeModel(g.scene);return;}
+    if(model)disposeModel(model);model=g.scene;
+    model.traverse(o=>{if(o.isMesh){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());o.material=new THREE.MeshStandardMaterial({color:0xb9bcc0,metalness:.85,roughness:.32,wireframe});}});
+    scene.add(model);const box=new THREE.Box3().setFromObject(model),center=box.getCenter(new THREE.Vector3());const size=box.getSize(new THREE.Vector3());modelRadius=Math.hypot(Math.max(size.x,size.z),size.y)/2;model.position.sub(center);
+    if(!controls.userMoved)fitCamera();loadedUrl=url;$('#viewport-state').hidden=true;$('#view-status').textContent='GLB · L0 视觉草案';
+  },undefined,()=>{if(sequence!==loadSequence)return;if(model){disposeModel(model);model=null;}loadedUrl='';$('#view-status').textContent='预览加载失败';viewMessage('模型暂时无法显示','请重试加载，或到交付面板检查模型文件。',true);});
+}
+controls.addEventListener('start',()=>{controls.userMoved=true;document.querySelectorAll('[data-camera]').forEach(b=>b.setAttribute('aria-pressed','false'));});
+document.querySelectorAll('[data-camera]').forEach(b=>b.onclick=()=>{controls.userMoved=false;fitCamera(b.dataset.camera);});
+$('#fit-view').onclick=()=>{controls.userMoved=false;fitCamera();};
+$('#wireframe').onclick=()=>{wireframe=!wireframe;$('#wireframe').setAttribute('aria-pressed',String(wireframe));model?.traverse(o=>{if(o.isMesh)o.material.wireframe=wireframe;});};
 
 // tabs
 function selectTab(t){
-  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  document.querySelectorAll('#tabs button').forEach(b=>{const selected=b.dataset.t===t || (b.dataset.t==='deliverables'&&['drawing','cam'].includes(t)) || (b.dataset.t==='ref'&&t==='cad');b.classList.toggle('on',selected);b.setAttribute('aria-selected',String(selected));});
   document.querySelectorAll(".tab").forEach(d => d.classList.toggle("on", d.id === t));
   $("#chat").classList.toggle("on", t === "chat");
 }
-$("#tabs").onclick = e => { if (e.target.dataset.t) selectTab(e.target.dataset.t); };
+document.addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)selectTab(b.dataset.t);const start=e.target.closest('[data-start]');if(start&&!busy){if(start.dataset.start==='image')showEngineering(true);else $('#text-dialog').showModal();}});
+$('#tabs').onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const buttons=[...document.querySelectorAll('#tabs button')];const i=buttons.indexOf(document.activeElement);const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;buttons[next].focus();selectTab(buttons[next].dataset.t);};
 
 const LABEL = {single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
   offset_et:"ET", rotational_symmetry:"旋转对称", valid_single_solid:"单一有效实体", step_roundtrip:"STEP 回读",
@@ -164,61 +160,54 @@ const checksTable = c => `<table>${Object.entries(c || {}).map(([k, v]) =>
   `<tr><td>${LABEL[k] || esc(k)}</td><td class="${v.pass === false ? "fail" : v.pass ? "pass" : ""}">${v.pass === false ? "未通过" : v.pass ? "通过" : "—"}</td>
    <td>${num(v.measured_mm ?? v.derived_mm ?? v.holes_found ?? v.faces_under_5mm2 ?? "")}</td></tr>`).join("")}</table>`;
 
+const SOURCE = {user:'用户提供',drawing:'图纸提供',measurement:'测量提供',default:'默认值 · 待确认',unspecified:'来源待确认',catalog:'目录参考',rule:'规则推导',estimate:'估计',agent:'Agent 修改',spec:'输入规格',photo:'照片候选',model_choice:'模型选择'};
+function specSource(key){return data.engineering_report?.engineering_understanding?.spec_evidence?.[key]?.source || data.engineering_report?.parameters?.[key]?.source || 'unspecified';}
 function render(){
-  const ch = data.chain, sp = ch.spec, m = data.machining || {}, cmp = data.compare;
-  const preview = data.current_preview || {}, stale = preview.downstream_stale;
-  const versionNote = stale ? `<p class="note" role="status">当前版本 ${esc(preview.revision)} 的交付包尚未生成。${preview.revision?.startsWith("chat/") ? "下列已有文件对应修改前版本。" : ""}请点击“生成当前版本交付包”。</p>` : "";
-  $("#reset-preview").hidden = !preview.revision?.startsWith("chat/");
-  $("#confirm-spec").disabled = busy; $("#deliver").disabled = busy;
-  $("#chain").innerHTML = ch.steps.map(s => `<span class="${s.ok ? "ok" : "bad"}" title="${esc(s.error || "")}">${STEP[s.step] || s.step} ${s.seconds}s</span>`).join("");
-  $("#spec").innerHTML = `
-    ${versionNote}
-    ${ch.parent ? `<p>基于 ${esc(ch.parent.run)} 创建的新版本；历史版本可从顶部列表打开。</p>` : ""}
-    <table><tr><th>规格（${ch.text ? "用户文字 / 已确认值 / 默认值" : "输入值；来源见下方"}）</th><th></th></tr>
-    <tr><td>尺寸</td><td>${num(sp.diameter_in)}×${num(sp.width_in)}J  ET${num(sp.et_mm)}</td></tr>
-    <tr><td>孔系</td><td>${num(sp.bolts)}×${num(sp.pcd_mm)}  中心孔 ${num(sp.center_bore_mm)}</td></tr>
-    <tr><td>孔型</td><td>${esc(ch.hole_form || "确认单未给出")}</td></tr></table>
-    ${ch.text ? `<p>${esc(ch.text)}</p><h3>输入来源与待确认</h3>
-      <table>${Object.entries(data.text_report?.parameters || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.value)}</td><td>${esc(v.source)}</td></tr>`).join("")}</table>
-      ${(data.text_report?.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}` : ""}
-    ${!ch.text ? understandingPanel(data.reconstruct) : ""}
-    <h3>当前网格预览校验（L0 · ${esc(preview.revision || "reconstruct")}）</h3>${checksTable(preview.checks || data.reconstruct.checks)}
-    ${agentPanel(data.style_agent)}
-    <h3>加工级 STEP 校验${stale ? "（原始版本）" : ""}</h3>${checksTable(m.checks)}
-    ${(m.adjustments || []).map(a => `<p class="note">⚠ ${esc(a)}</p>`).join("")}
-    <h3>STEP 中包含 / 不包含</h3><p>${esc((m.in_step || []).join("；"))}</p><p class="note">${esc((m.not_in_step || []).join("；"))}</p>
-    <p>${ch.steps.some(s => s.step === "machining" && s.ok) ? `<a href="${f("machining/machining.step")}">下载 machining.step</a> · <a href="${f("machining/stock.step")}">stock.step</a> · ` : ""}<a href="${f(data.glb)}">wheel.glb</a></p>`;
-  $("#ref").innerHTML = (data.references || []).length ? `<p>本次输入参考图。左侧三维模型可拖动到相同视角对照。</p>` +
-    data.references.map(n => `<img class="fig" style="margin-bottom:10px" src="${f("reference/" + n)}" alt="${esc(n)}">`).join("")
-    : "<p>这次运行没有保存参考图。</p>";
-  $("#cad").innerHTML = cmp ? `${versionNote}
-    ${ch.parent ? `<p>基于 ${esc(ch.parent.run)} 创建的新版本；历史版本可从顶部列表打开。</p>` : ""}
-    <table><tr><th>尺寸</th><th>重建</th><th>工厂 CAD</th><th>误差</th></tr>
-    ${Object.entries(cmp.dimensions).map(([k, v]) => `<tr><td>${LABEL[k] || k}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td>
-      <td class="${v.error != null && Math.abs(v.error) > 1 ? "note" : ""}">${num(v.error)}</td></tr>`).join("")}</table>
-    <h3>截面：轮辋中位误差 ${num(cmp.section_rim.median_mm)} mm（P90 ${num(cmp.section_rim.p90_mm)}），轮毂 ${num(cmp.section_hub.median_mm)} mm</h3>
-    <img class="fig" src="${f("compare_section.png")}" alt="截面对照">
-    <p class="note">工厂 CAD 只作对照真值，不作输入。截面对照不含辐条。本批 CAD 曾用于模板标定，以上为同批残差，不代表新款精度。</p>` : "<p>没有工厂 CAD。</p>";
-  const pdf = (ch.steps.find(s => s.step === "drawing") || {}).pdf;
-  $("#drawing").innerHTML = !ch.steps.some(s => s.step === "drawing" && s.ok) ? `${versionNote}<p>当前版本尚无通过的工程图，请生成交付包。</p>` : `${versionNote}<p>${pdf ? `<a href="${f("drawing.pdf")}" target="_blank">打开 A3 PDF</a> · ` : ""}<a href="${f("drawing.svg")}" target="_blank">SVG（A3，可直接打印）</a></p>
-    <img class="fig" src="${f("drawing.svg")}" alt="工程图">`;
-  const sim = data.simulation || {};
-  const packageStep = ch.steps.find(s => s.step === "package");
-  $("#cam").innerHTML = packageStep?.ok !== true ? `${versionNote}<h3>加工准备未完成</h3><p class="fail">${esc(packageStep?.error || "本次运行没有加工包结果。")}</p><p>当前预览与 STEP 仍可单独检查；加工包未通过，不能作为加工依据。</p>` : `${versionNote}<p><b>${esc(sim.conclusion || sim.status || "")}</b></p>
-    <img class="fig" src="${f("package/simulation_3d.png")}" alt="加工仿真">
-    <p><a href="${f("package/process_plan.json")}" target="_blank">工序单</a> · <a href="${f("package/tool_list.csv")}">刀具表</a> ·
-    <a href="${f("package/reference.nc")}" target="_blank">参考轨迹 reference.nc</a></p>
-    <p class="note">参考轨迹的运动行均为注释，不能上机；曲面精加工、夹具、切削参数交工厂 CAM。</p>`;
-  $("#log").innerHTML = data.history.map(bubble).join("");
-  $("#log").scrollTop = 1e9;
-  loadGlb(f(data.glb));
+  const ch=data.chain,sp=ch.spec||{},m=data.machining||{},cmp=data.compare,preview=data.current_preview||{},stale=preview.downstream_stale;
+  const known=Object.keys(FIELDS).filter(k=>sp[k]!=null&&['user','drawing','measurement'].includes(specSource(k)));
+  const missing=Object.keys(FIELDS).filter(k=>!known.includes(k));
+  const currentChecks=preview.checks||{},passed=Object.values(currentChecks).filter(c=>c.pass===true).length,total=Object.keys(currentChecks).length;
+  const step=n=>ch.steps.find(s=>s.step===n), ready=n=>step(n)?.ok===true;
+  const versionNote=stale?`<p class="note">${preview.revision?.startsWith('chat/')?'造型已更新；已有交付文件不能代表当前造型。':'当前是预览版本，尚未生成交付包。'}请生成当前版本交付包。</p>`:'';
+  $('#reset-preview').hidden=!preview.revision?.startsWith('chat/');
+  $('#version-state').textContent=stale?'交付包待生成':ch.steps.some(s=>!s.ok)?'部分步骤未通过':'已保存 · 工程草案';
+  $('#input-count').textContent=ch.text?'文字输入':`${data.references.length} 张参考图`;
+  $('#spec-count').textContent=`${known.length} / 6 已确认`;$('#spec-count').className='badge '+(missing.length?'warn':'ok');
+  $('#parameter-list').innerHTML=Object.entries(FIELDS).map(([k,label])=>`<div class="parameter-row"><dt>${label}</dt><dd class="${known.includes(k)?'':'unknown'}">${num(sp[k])}<small>${sp[k]==null?'未知 · 待补充':SOURCE[specSource(k)]||'待确认'}</small></dd></div>`).join('');
+  $('#input-summary').innerHTML=ch.text?`<p class="text-brief">${esc(ch.text)}</p>`:data.references.length?data.references.slice(0,2).map(n=>`<button class="reference-thumb" data-t="ref" aria-label="查看${n==='front.jpg'?'正面':'斜视'}参考图"><img src="${f('reference/'+n)}" alt="轮毂${n==='front.jpg'?'正面':'斜视'}参考"><span>${n==='front.jpg'?'正面参考':'斜视参考'} · 点击对照</span></button>`).join(''):'<p class="text-brief">本版本没有参考图片，可从顶部新建任务。</p>';
+  $('#version-summary').innerHTML=`<p>${esc(run)}</p><p>预览：${esc(preview.revision)}</p>${ch.parent?`<p>基于 ${esc(ch.parent.run)}</p>`:''}<p class="panel-note">参数配方可重建；STEP 不包含原生特征树。</p>`;
+  $('#chain-time').textContent=`${ch.seconds??'—'} s · ${preview.revision?.startsWith('chat/')?'原始构建记录':'本版本'}`;
+  $('#chain').innerHTML=['reconstruct','machining','package','drawing'].map(k=>{const s=step(k);return `<span class="${s?s.ok?'ok':'bad':''}" title="${esc(s?.error||'')}"><b>${STEP[k]}</b>${s?s.ok?`${s.seconds} s · 完成`:'未通过':'待生成'}</span>`;}).join('');
+  $('#agent-title').textContent=missing.length?`还有 ${missing.length} 项工程尺寸待确认`:'继续调整轮毂造型';
+  $('#agent-summary').textContent=missing.length?'可以先调整外观；关键尺寸补齐后再检查交付结果。':'描述你希望改变的斜面、脊线或凹度。每次接受的修改都会重建并校验。';
+  const next=$('#next-action');next.hidden=false;next.textContent=missing.length?'下一步：确认 '+missing.map(k=>FIELDS[k].split(' ')[0]).join('、'):stale?'下一步：生成当前版本交付包':'查看当前交付文件';
+  next.onclick=()=>missing.length?showEngineering(false):stale?$('#deliver').click():selectTab('deliverables');
+  $('#spec').innerHTML=`<div class="check-overview"><strong>${passed}/${total}</strong><div><p>当前预览检查通过</p><small>L0 视觉草案 · ${esc(preview.revision)}</small></div></div>${checksTable(currentChecks)}
+    <h3>加工级 STEP 校验${stale?' · 修改前版本':''}</h3>${versionNote}${ready('machining')?checksTable(m.checks):'<p class="muted">生成交付包后查看 STEP 实体与回读检查。</p>'}
+    ${(m.adjustments||[]).map(a=>`<p class="note">${esc(a)}</p>`).join('')}
+    <details><summary>工程参数来源与未知项</summary>${ch.text?`<table>${Object.entries(data.text_report?.parameters||{}).map(([k,v])=>`<tr><td>${esc(FIELDS[k]||k)}</td><td>${esc(v.value)}</td><td>${esc(SOURCE[v.source]||v.source)}</td></tr>`).join('')}</table>`:understandingPanel(data.reconstruct)}</details>
+    <details><summary>重建假设与待确认事项</summary>${(data.engineering_report?.questions||[]).map(q=>`<p class="note">${esc(q)}</p>`).join('')||'<p class="muted">未记录额外问题。</p>'}</details>${agentPanel(data.style_agent)}
+    <p class="panel-note">几何检查通过不等于结构仿真或制造批准。</p>`;
+  $('#ref').innerHTML=`<h2>参考与对照</h2><p class="muted">调整中间模型的视角，对照本次输入。</p>${data.references.map(n=>`<img class="fig" src="${f('reference/'+n)}" alt="${esc(n)}">`).join('')||'<p class="note">当前为文字输入，没有参考图片。</p>'}<div class="subnav"><button data-t="cad">查看工厂 CAD 对照</button></div>`;
+  $('#cad').innerHTML=`<div class="subnav"><button data-t="ref">返回参考图</button></div>`+(cmp?`${versionNote}<h3>工厂 CAD 尺寸对照</h3><table><tr><th>尺寸</th><th>重建</th><th>CAD</th><th>误差</th></tr>${Object.entries(cmp.dimensions).map(([k,v])=>`<tr><td>${esc(LABEL[k]||k)}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td><td>${num(v.error)}</td></tr>`).join('')}</table><img class="fig" src="${f('compare_section.png')}" alt="截面对照"><p class="note">本批 CAD 曾用于模板标定，截面不含辐条；这些残差不代表新款精度。</p>`:'<h3>本版本没有工厂 CAD 对照</h3><p class="muted">历史对照不会自动沿用到新版本。</p>');
+  $('#deliverables').innerHTML=`<h2>当前版本交付</h2><p class="muted">${esc(run)}</p>${versionNote}
+    <div class="download-card"><h3>造型预览 <span class="badge">L0</span></h3><p>当前显示的轮毂外观；可继续对话调整。</p><div class="links"><a href="${f(data.glb)}" download>下载 GLB</a><a href="${f(preview.revision+'/recipe.json')}" download>参数配方</a></div></div>
+    <div class="download-card"><h3>加工级 STEP <span class="badge ${ready('machining')?'ok':'warn'}">${ready('machining')?stale?'修改前版本':'已校验':'未生成'}</span></h3><p>回转体、通窗和孔系；不包含完整造型曲面。</p>${ready('machining')?`<div class="links"><a href="${f('machining/machining.step')}" download>零件 STEP</a><a href="${f('machining/stock.step')}" download>毛坯 STEP</a></div>`:''}</div>
+    <div class="download-card"><h3>工程图 <span class="badge">${ready('drawing')?stale?'修改前版本':'已生成':'未生成'}</span></h3><p>尺寸与加工调整说明，需工程师审核。</p><button data-t="drawing">查看工程图</button></div>
+    <div class="download-card"><h3>加工准备 <span class="badge ${ready('package')?'ok':'warn'}">${ready('package')?stale?'修改前版本':'已生成':step('package')?'未通过':'未生成'}</span></h3><p>工序、刀具表与采样仿真。参考轨迹不可上机。</p><button data-t="cam">查看加工包</button></div>
+    <details><summary>STEP 包含内容与限制</summary><p>${esc((m.in_step||[]).join('；'))}</p><p class="note">${esc((m.not_in_step||[]).join('；')||'完整造型曲面、结构仿真与制造审核未完成。')}</p></details>`;
+  const back='<div class="subnav"><button data-t="deliverables">返回交付文件</button></div>';
+  $('#drawing').innerHTML=back+versionNote+(ready('drawing')?`<h2>工程图</h2><p><a href="${f('drawing.svg')}" target="_blank">打开 SVG</a>${step('drawing').pdf?` · <a href="${f('drawing.pdf')}" target="_blank">打开 PDF</a>`:''}</p><img class="fig" src="${f('drawing.svg')}" alt="轮毂工程图">`:'<h3>工程图尚未生成</h3><p class="muted">生成当前版本交付包后，工程图会出现在这里。</p>');
+  const sim=data.simulation||{};$('#cam').innerHTML=back+versionNote+(ready('package')?`<h2>加工准备</h2><p class="note">${esc(sim.conclusion||sim.status||'')}</p><img class="fig" src="${f('package/simulation_3d.png')}" alt="加工采样仿真"><div class="download-card"><div class="links"><a href="${f('package/process_plan.json')}">工序单</a><a href="${f('package/tool_list.csv')}">刀具表</a><a href="${f('package/reference.nc')}">注释参考轨迹</a></div></div><p class="panel-note">未验证刀柄、夹具或机床碰撞。参考轨迹不能上机。</p>`:`<h3>加工准备${step('package')?'未通过':'尚未生成'}</h3><p class="${step('package')?'fail':'muted'}">${esc(step('package')?.error||'先确认参数，再生成当前版本交付包。')}</p>`);
+  $('#log').innerHTML=data.history.length?data.history.map(bubble).join(''):'<p class="empty-log">可以试试：<br>“窗口斜面窄一些”<br>“辐条中间的脊再高一点”<br><br>每轮会保留修改前后的参数和校验结果。</p>';
+  $('#log').scrollTop=1e9;loadGlb(f(data.glb));setBusy(busy);
 }
 function understandingPanel(report){
   const groups = report.engineering_understanding?.evidence_groups || {};
   const titles = {supplied:"已提供",observed:"图上观察候选",estimated:"规则估计",defaulted:"模板默认",unknown:"仍未知"};
   return `<h3>工程理解与来源</h3>${Object.entries(titles).map(([group,title]) => {
     const entries = Object.entries(groups[group] || {});
-    return entries.length ? `<details${["supplied","unknown"].includes(group) ? " open" : ""}><summary>${title} · ${entries.length} 项</summary><table>${entries.map(([key,v]) => `<tr><td>${LABEL[key] || esc(key)}</td><td>${num(v.value)}</td><td>${esc(v.source)}${v.reason ? " · " + esc(v.reason) : ""}</td></tr>`).join("")}</table></details>` : "";
+    return entries.length ? `<details${["supplied","unknown"].includes(group) ? " open" : ""}><summary>${title} · ${entries.length} 项</summary><table>${entries.map(([key,v]) => `<tr><td>${LABEL[key] || esc(key)}</td><td>${num(v.value)}</td><td>${esc(SOURCE[v.source]||v.source)}${v.reason ? " · " + esc(v.reason) : ""}</td></tr>`).join("")}</table></details>` : "";
   }).join("")}${(report.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}`;
 }
 function agentPanel(a){
@@ -240,7 +229,12 @@ function bubble(h){
   return `<div class="msg me">${esc(h.message)}</div><div class="msg bot">${esc(h.summary)}${ch ? `<div class="x">${esc(ch)}</div>` : ""}</div>`;
 }
 
-async function open(name){ run = name; data = await (await fetch(`/api/runs/${name}`)).json(); render(); }
+let openSequence=0;
+async function open(name){
+  const sequence=++openSequence;
+  try{const response=await fetch(`/api/runs/${encodeURIComponent(name)}`);if(!response.ok)throw new Error('版本读取失败');const result=await response.json();if(sequence!==openSequence)return;run=name;data=result;$('#run').value=name;render();}
+  catch(e){if(sequence===openSequence)$('#task-status').textContent='无法打开版本：'+e.message;}
+}
 const FIELDS = {diameter_in:"直径 inch",width_in:"宽度 J",et_mm:"ET mm",bolts:"螺栓孔数",pcd_mm:"PCD mm",center_bore_mm:"中心孔 mm"};
 let imageMode = false, specRun = null, specHash = null;
 function showEngineering(image){
@@ -262,9 +256,9 @@ $("#new-image").onclick = () => showEngineering(true);
 $("#confirm-spec").onclick = () => showEngineering(false);
 $("#engineering-cancel").onclick = () => $("#engineering-dialog").close();
 async function acceptRun(result){
-  const option = document.createElement('option'); option.textContent = result.name;
+  const option = document.createElement('option'); option.value=result.name; option.textContent=versionLabel(result.name);
   $("#run").prepend(option); $("#run").value = result.name;
-  controls.userMoved = false; selectTab('spec'); await open(result.name);
+  controls.userMoved = false; selectTab('chat'); await open(result.name);
 }
 $("#engineering-submit").onclick = async () => {
   if (busy) return;
@@ -288,7 +282,7 @@ $("#engineering-submit").onclick = async () => {
     }
     const response = await fetch(url, options), result = await response.json();
     if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail));
-    await acceptRun(result); $("#engineering-dialog").close();
+    await acceptRun(result); $("#engineering-dialog").close(); $("#task-status").textContent="新版本已保存，可继续调整造型或生成交付包。";
   } catch(e){ $("#engineering-status").textContent = '未采用：' + e.message; }
   finally { setBusy(false); $("#engineering-submit").disabled = false; }
 };
@@ -314,16 +308,13 @@ $("#text-submit").onclick = async () => {
   try {
     const response = await fetch("/api/runs/text", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({message})});
     const result = await response.json(); if (!response.ok) throw new Error(result.detail || "生成失败");
-    const option = document.createElement("option"); option.textContent = result.name; $("#run").prepend(option); $("#run").value = result.name;
-    $("#text-dialog").close(); controls.userMoved = false; selectTab("spec"); await open(result.name);
+    const option = document.createElement("option"); option.value=result.name; option.textContent=versionLabel(result.name); $("#run").prepend(option); $("#run").value = result.name;
+    $("#text-dialog").close(); $("#task-status").textContent="文字草案已生成。请查看工程尺寸与默认项。"; controls.userMoved = false; selectTab("chat"); await open(result.name);
   } catch (error) { $("#text-status").textContent = "出错：" + error.message; }
   button.disabled = false; setBusy(false);
 };
 $("#run").onchange = e => { controls.userMoved = false; open(e.target.value); };
-$("#reset-preview").onclick = async () => {
-  const response = await fetch(`/api/runs/${run}/chat/reset`, {method:"POST"});
-  if (response.ok) await open(run);
-};
+$('#reset-preview').onclick=async()=>{if(busy)return;setBusy(true);try{const response=await fetch(`/api/runs/${run}/chat/reset`,{method:'POST'});if(!response.ok)throw new Error('恢复失败');await open(run);$('#task-status').textContent='已恢复该版本的原始预览。';}catch(e){$('#task-status').textContent=e.message;}finally{setBusy(false);}};
 document.querySelector(".chips").onclick = e => { if (e.target.tagName === "BUTTON") { $("#q").value = e.target.textContent; $("#ask").requestSubmit(); } };
 $("#ask").onsubmit = async e => {
   e.preventDefault();
@@ -336,13 +327,16 @@ $("#ask").onsubmit = async e => {
   try {
     const r = await fetch(`/api/runs/${run}/chat`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({message: q})});
     if (!r.ok) throw new Error((await r.json()).detail);
-    await open(run);
-  } catch (err) { $("#wait").textContent = "出错：" + err.message; $("#wait").id = ""; }
+    await open(run); $("#task-status").textContent="本轮处理完成，结果见 Agent 记录。";
+  } catch (err) { $("#task-status").textContent="修改未完成，当前模型保留。"; $("#wait").textContent = "出错：" + err.message; $("#wait").id = ""; }
   btn.disabled = false; setBusy(false);
 };
-const runs = await (await fetch("/api/runs")).json();
-$("#run").innerHTML = runs.map(r => `<option>${esc(r)}</option>`).join("");
-if (runs.length) open(runs[0]);
+function versionLabel(name){const prefix={image:'图片草案',text:'文字草案',revision:'尺寸确认',delivery:'交付版本'}[name.split('-')[0]];return prefix?`${prefix} · ${name.split('-').slice(1).join('-').slice(0,8)}`:name;}
+try{
+  const response=await fetch('/api/runs');if(!response.ok)throw new Error('无法读取版本列表');const runs=await response.json();
+  $('#run').innerHTML=runs.length?runs.map(r=>`<option value="${esc(r)}">${esc(versionLabel(r))}</option>`).join(''):'<option>尚无模型 · 从新建开始</option>';
+  if(runs.length)await open(runs[0]);else setBusy(false);
+}catch(e){$('#task-status').textContent='工作台暂时无法连接服务：'+e.message;setBusy(false);}
 </script>
 </body>
 </html>
