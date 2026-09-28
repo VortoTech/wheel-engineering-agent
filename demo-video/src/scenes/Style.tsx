@@ -1,0 +1,4 @@
+import {Layout,Picture,gold} from '../Layout';
+export const Style=()=> <Layout chapter="03 / RECONSTRUCT" title="用照片修正造型，锁定工程尺寸" subtitle="本次 Agent 将外圈盲窗从 0 补至 15，侧斜面宽度从 16 调至 4 mm；随后重建并校验。">
+ <div style={{display:'flex',gap:40,height:'100%',alignItems:'center'}}>{[['before.png','修正前 · 预设造型'],['after.png','修正后 · Agent 提案']].map(([src,label])=><div key={src} style={{flex:1,display:'flex',alignItems:'center',flexDirection:'column',gap:16}}><div style={{height:490,width:490,background:'#fff',borderRadius:20,overflow:'hidden'}}><Picture src={src}/></div><div style={{fontSize:30,color:gold}}>{label}</div></div>)}<div style={{width:290,fontSize:32,lineHeight:1.8,borderLeft:'1px solid #ffffff30',paddingLeft:32}}>最终同图评分<div style={{fontSize:62,color:gold}}>2.18 mm</div>边缘距离<div style={{fontSize:56,color:gold}}>0.959</div>窗口 IoU<div style={{fontSize:22,color:'#9eafb9',marginTop:20}}>不是三维制造精度<br/>不覆盖全部外圈盲窗</div></div></div>
+ </Layout>;
