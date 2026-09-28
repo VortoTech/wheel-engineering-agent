@@ -50,14 +50,14 @@ def test_manual_pockets_reject_stale_or_non_style_inputs(tmp_path):
 
 
 def test_model_configuration_is_explicit_without_exposing_endpoint(tmp_path, monkeypatch):
-    for prefix in ('CHAT', 'AGENT'):
+    for prefix in ('CHAT', 'AGENT', 'VLM'):
         for key in ('BASE_URL', 'MODEL'):
             monkeypatch.delenv(f'WHEELCAM_{prefix}_{key}', raising=False)
     c = TestClient(create_app(tmp_path))
-    assert c.get('/api/capabilities').json() == {'chat_configured': False, 'manual_style': True}
+    assert c.get('/api/capabilities').json() == {'chat_configured': False, 'manual_style': True, 'style_agent_configured': False}
     monkeypatch.setenv('WHEELCAM_CHAT_BASE_URL', 'http://private-host/v1')
     monkeypatch.setenv('WHEELCAM_CHAT_MODEL', 'local-model')
-    assert c.get('/api/capabilities').json() == {'chat_configured': True, 'manual_style': True}
+    assert c.get('/api/capabilities').json() == {'chat_configured': True, 'manual_style': True, 'style_agent_configured': False}
 
 
 def test_failed_manual_build_keeps_parent_and_hides_failed_run(tmp_path, monkeypatch):

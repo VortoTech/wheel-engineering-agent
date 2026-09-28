@@ -100,6 +100,7 @@ def main():
         oblique = case / "oblique.jpg"
         r = run(case / "front.jpg", spec, out / "reconstruct", oblique if oblique.exists() else None,
                 kernel="mesh", spec_evidence=order.get("spec_evidence", {k: {"source": "drawing"} for k in spec}), hole_form=order.get("hole_form"),
+                visual_check=order.get("visual_check", False),
                 style_agent=order.get("style_agent", bool(os.getenv("WHEELCAM_VLM_BASE_URL"))))
         if order.get("hole_form_source") == "user" and order.get("hole_form"):
             for key in ("bolt_d", "seat_d", "seat_cone_deg"):

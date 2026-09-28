@@ -14,11 +14,15 @@ trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
 ready=false
 for attempt in {1..15}; do
   kill -0 "$tunnel_pid" 2>/dev/null || { echo 'Spark tunnel failed' >&2; exit 1; }
-  if curl -fsS --max-time 2 "http://127.0.0.1:${model_port}/v1/models" >/dev/null; then ready=true; break; fi
+  if curl --noproxy 127.0.0.1 -fsS --max-time 2 "http://127.0.0.1:${model_port}/v1/models" >/dev/null; then ready=true; break; fi
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Spark model is unavailable' >&2; exit 1; }
 echo "Workbench: http://127.0.0.1:${web_port} (model on Spark, CAD on this Mac)"
+NO_PROXY="127.0.0.1,localhost,${NO_PROXY:-}" \
+no_proxy="127.0.0.1,localhost,${no_proxy:-}" \
 WHEELCAM_CHAT_BASE_URL="http://127.0.0.1:${model_port}/v1" \
-WHEELCAM_CHAT_MODEL=step3-vl-10b-fp8 PYTHONPATH=services \
+WHEELCAM_CHAT_MODEL=step3-vl-10b-fp8 \
+WHEELCAM_VLM_BASE_URL="http://127.0.0.1:${model_port}/v1" \
+WHEELCAM_VLM_MODEL=step3-vl-10b-fp8 PYTHONPATH=services \
   .venv/bin/python -m wheelcam.workbench --runs "$run_root" --port "$web_port"

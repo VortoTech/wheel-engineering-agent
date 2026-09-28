@@ -53,6 +53,7 @@ body{background:#0c0f13;font-size:13px}button{border-radius:7px;transition:backg
   <p>只填写已知尺寸；空白项保留为未知或沿用原值。修改后生成新版本，重新校验。</p>
   <div id="image-fields"><label>正面图（必填） <input id="front-file" type="file" accept="image/jpeg,image/png,image/webp"></label><br>
     <label>斜视图（可选） <input id="oblique-file" type="file" accept="image/jpeg,image/png,image/webp"></label></div>
+  <p id="photo-style-options"><label><input id="photo-style-agent" type="checkbox">用视觉模型核对并修正造型</label><br><small id="photo-style-note">对照照片检查盲窗与辐条造型；尺寸保持锁定，耗时会增加。</small></p>
   <div id="engineering-fields"></div>
   <label>孔型 <input id="hole-form" placeholder="15X32X60"></label>
   <p id="dimension-diff"></p>
@@ -216,7 +217,7 @@ function render(){
     <details><summary>工程参数来源与未知项</summary>${ch.text?`<table>${Object.entries(data.text_report?.parameters||{}).map(([k,v])=>`<tr><td>${esc(FIELDS[k]||k)}</td><td>${esc(v.value)}</td><td>${esc(SOURCE[v.source]||v.source)}</td></tr>`).join('')}</table>`:understandingPanel(data.reconstruct)}</details>
     <details><summary>重建假设与待确认事项</summary>${(data.engineering_report?.questions||[]).map(q=>`<p class="note">${esc(q)}</p>`).join('')||'<p class="muted">未记录额外问题。</p>'}</details>${agentPanel(data.style_agent)}
     <p class="panel-note">几何检查通过不等于结构仿真或制造批准。</p>`;
-  $('#ref').innerHTML=`<h2>参考与对照</h2>${revisionComparison(data)}<p class="muted">调整中间模型的视角，对照本次输入。</p>${data.references.map(n=>`<img class="fig" src="${f('reference/'+n)}" alt="${esc(n)}">`).join('')||'<p class="note">当前为文字输入，没有参考图片。</p>'}<div class="subnav"><button data-t="cad">查看工厂 CAD 对照</button></div>`;
+  $('#ref').innerHTML=`<h2>参考与对照</h2>${revisionComparison(data)}${photoQuality(data)}<p class="muted">调整中间模型的视角，对照本次输入。</p>${data.references.map(n=>`<img class="fig" src="${f('reference/'+n)}" alt="${esc(n)}">`).join('')||'<p class="note">当前为文字输入，没有参考图片。</p>'}<div class="subnav"><button data-t="cad">查看工厂 CAD 对照</button></div>`;
   $('#cad').innerHTML=`<div class="subnav"><button data-t="ref">返回参考图</button></div>`+(cmp?`${versionNote}<h3>工厂 CAD 尺寸对照</h3><table><tr><th>尺寸</th><th>重建</th><th>CAD</th><th>误差</th></tr>${Object.entries(cmp.dimensions).map(([k,v])=>`<tr><td>${esc(LABEL[k]||k)}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td><td>${num(v.error)}</td></tr>`).join('')}</table><img class="fig" src="${f('compare_section.png')}" alt="截面对照"><p class="note">本批 CAD 曾用于模板标定，截面不含辐条；这些残差不代表新款精度。</p>`:'<h3>本版本没有工厂 CAD 对照</h3><p class="muted">历史对照不会自动沿用到新版本。</p>');
   $('#deliverables').innerHTML=`<h2>当前版本交付</h2><p class="muted">${esc(run)}</p>${versionNote}
     <div class="download-card"><h3>造型预览 <span class="badge">L0</span></h3><p>当前显示的轮毂外观；可继续对话调整。</p><div class="links"><a href="${f(data.glb)}" download>下载 GLB</a><a href="${f(preview.revision+'/recipe.json')}" download>参数配方</a></div></div>
@@ -252,9 +253,17 @@ function agentPanel(a){
   return `<h3>造型 agent（原始重建的照片对照修正）</h3><table>${rows}</table><p>${ch ? "已修改：" + esc(ch) : "未修改"}</p>${scores}
     <p><img class="fig" style="width:49%" src="${f("reconstruct/style/before_render.png")}" alt="修正前"> <img class="fig" style="width:49%" src="${f("reconstruct/style/after_render.png")}" alt="修正后"></p>`;
 }
+function photoQuality(d){
+  const visual=d.engineering_report?.visual_check;
+  if(!visual||visual.status==='not_run')return '';
+  if(visual.status!=='measured')return '<p class="note">照片匹配评估未完成，请人工核对造型。</p>';
+  const stale=d.current_preview?.revision!=='reconstruct';
+  return `<details open><summary>照片匹配${stale?' · 原始重建版本':''}</summary>${stale?'<p class="note">对话已修改造型，以下评分与叠图不适用于当前预览。</p>':''}<p>正面边缘距离 ${num(visual.front?.edge_mm)} mm · 窗口 IoU ${num(visual.front?.window_iou)}</p><img class="fig" src="${f('reconstruct/cad/front_overlay.png')}" alt="原始重建与照片边缘叠图"><p class="muted">同一照片的拟合指标，评分区域不包含全部外圈盲窗；不代表三维尺寸精度。</p></details>`;
+}
 function revisionComparison(d){
   const records=[];
-  const labels={lip_pockets:'外圈盲窗数量',flank_w:'窗口斜面 mm',spoke_pad_depth:'辐条脊高 mm',dish_depth:'凹度 mm',lip_pocket_r:'盲窗径向范围 mm'};
+  const labels={lip_pockets:'外圈盲窗数量',flank_w:'窗口斜面 mm',flank_depth:'斜面深度 mm',spoke_pad_depth:'辐条脊高 mm',dish_depth:'凹度 mm',lip_pocket_r:'盲窗径向范围 mm'};
+  if(d.style_agent?.changed&&Object.keys(d.style_agent.changed).length)records.push({label:"照片造型修正",changed:d.style_agent.changed,status:"原始重建记录"});
   const parent=d.chain.parent;
   if(parent?.style_changes) records.push({label:'版本修改',changed:parent.style_changes,status:'已创建子版本'});
   (d.history||[]).forEach((h,i)=>{if(h.changed&&Object.keys(h.changed).length)records.push({label:`对话 ${i+1}`,changed:h.changed,status:h.passed===true?(h.dir?'校验通过':'历史记录'):'未采用'});});
@@ -299,6 +308,10 @@ function showEngineering(image){
   imageMode = image; specRun = run; specHash = data?.current_preview.recipe_sha256;
   $("#engineering-title").textContent = image ? "用图片新建轮毂" : "确认工程尺寸";
   $("#image-fields").hidden = !image;
+  $('#photo-style-options').hidden = !image;
+  $('#photo-style-agent').checked = false;
+  $('#photo-style-agent').disabled = !capabilities?.style_agent_configured;
+  $('#photo-style-note').textContent = capabilities?.style_agent_configured ? '检查盲窗与辐条造型，并生成照片叠图。尺寸保持锁定，耗时会增加。' : '未配置视觉造型模型，可先建草案，再手动调整。';
   $("#engineering-fields").innerHTML = Object.entries(FIELDS).map(([k,label]) => `<p><label>${label} <input data-spec="${k}" type="number" step="${k === 'bolts' ? '1' : 'any'}" placeholder="${!image && data?.chain.spec[k] != null ? '当前 ' + data.chain.spec[k] + '；留空不确认' : '未知，可留空'}"></label></p>`).join("");
   $("#hole-form").value = ""; $("#engineering-confirmed").checked = false;
   $("#engineering-status").textContent = ""; $("#dimension-diff").textContent = "";
@@ -332,7 +345,7 @@ $("#engineering-submit").onclick = async () => {
     if (imageMode){
       const body = new FormData(); body.append('front', $("#front-file").files[0]);
       if ($("#oblique-file").files[0]) body.append('oblique', $("#oblique-file").files[0]);
-      body.append('spec_json', JSON.stringify(spec)); body.append('hole_form', form);
+      body.append('style_agent', String($('#photo-style-agent').checked)); body.append('spec_json', JSON.stringify(spec)); body.append('hole_form', form);
       url = '/api/runs/image'; options = {method:'POST',body};
     } else {
       url = `/api/runs/${specRun}/spec`;
@@ -383,7 +396,7 @@ $("#ask").onsubmit = async e => {
   $("#log").insertAdjacentHTML("beforeend", `<div class="msg me">${esc(q)}</div><div class="msg bot" id="wait">理解中，重建并校验…</div>`);
   $("#log").scrollTop = 1e9;
   try {
-    const r = await fetch(`/api/runs/${run}/chat`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({message: q})});
+    const r = await fetch(`/api/runs/${run}/chat`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({message: q, expected_recipe_sha256:data.current_preview.recipe_sha256})});
     if (!r.ok) throw new Error((await r.json()).detail);
     await open(run); $('#model-state').textContent='对话模型已响应 · 本轮结果已保存';$('#model-state').classList.add('connected'); $("#task-status").textContent="本轮处理完成，结果见 Agent 记录。";
   } catch (err) { $("#task-status").textContent="修改未完成，当前模型保留。"; $("#wait").textContent = "出错：" + err.message; $("#wait").id = "";$("#q").value=q; }

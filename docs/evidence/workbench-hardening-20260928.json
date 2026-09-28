@@ -1,0 +1,176 @@
+{
+  "scope": "M59 development case, complete chain on Spark; local workbench UI checked separately",
+  "chain": {
+    "case": "orders/case",
+    "text": null,
+    "spec": {
+      "diameter_in": 20,
+      "width_in": 10.5,
+      "pcd_mm": 112.0,
+      "bolts": 5,
+      "center_bore_mm": 66.6,
+      "et_mm": 15.0
+    },
+    "hole_form": "15X32X60",
+    "parent": null,
+    "recipe_sha256": "4ef2b347886206d0886972399d8c43b3f1fd853fe783d9489ea7b57392427275",
+    "preview_only": false,
+    "seconds": 57.7,
+    "steps": [
+      {
+        "step": "reconstruct",
+        "ok": true,
+        "seconds": 31.1,
+        "readiness": "L0",
+        "spokes": 5,
+        "style_agent": "applied",
+        "style_changed": {
+          "flank_w": 4.0,
+          "flank_depth": 6.0,
+          "lip_pockets": 15
+        },
+        "checks_failed": []
+      },
+      {
+        "step": "machining",
+        "ok": true,
+        "seconds": 22.8,
+        "checks_failed": [],
+        "adjustments": []
+      },
+      {
+        "step": "package",
+        "ok": true,
+        "seconds": 3.3,
+        "simulation": "sampled_no_gouge",
+        "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.467 L 留待工厂 CAM。"
+      },
+      {
+        "step": "drawing",
+        "ok": true,
+        "seconds": 0.5,
+        "pdf": false
+      },
+      {
+        "step": "compare",
+        "ok": true,
+        "seconds": 0.0,
+        "section_rim_median_mm": 1.54,
+        "dim_errors": {
+          "lip_od_mm": 0.0,
+          "overall_width_mm": -0.26,
+          "et_mm": 0.0,
+          "pcd_mm": 0.0,
+          "bolts": 0.0,
+          "bolt_hole_d_mm": 0.0,
+          "center_bore_mm": 0.0
+        }
+      }
+    ],
+    "manufacturing_status": "not_released"
+  },
+  "style_agent": {
+    "flank_w": {
+      "from": 16.0,
+      "to": 4.0
+    },
+    "flank_depth": {
+      "from": 22.0,
+      "to": 6.0
+    },
+    "lip_pockets": {
+      "from": 0,
+      "to": 15
+    },
+    "lip_pocket_r": {
+      "from": [
+        228.0,
+        247.0
+      ],
+      "to": [
+        237.9,
+        256.9
+      ]
+    }
+  },
+  "visual_check": {
+    "status": "measured",
+    "front": {
+      "window_iou": 0.959,
+      "edge_mm": 2.18,
+      "edge_photo_to_cad_mm": 1.73,
+      "edge_cad_to_photo_mm": 2.63,
+      "phase_deg": -18.0,
+      "missing_open_mm2": 2043,
+      "extra_open_mm2": 1341
+    },
+    "scope": "same-photo appearance comparison; not dimensional or engineering verification"
+  },
+  "mesh_checks": {
+    "single_valid_solid": {
+      "pass": true
+    },
+    "outer_diameter": {
+      "pass": true,
+      "measured_mm": 547.8,
+      "expected_mm": 547.8
+    },
+    "overall_width": {
+      "pass": true,
+      "measured_mm": 294.0,
+      "expected_mm": 294.0
+    },
+    "bolt_pattern": {
+      "pass": true,
+      "holes_found": 5,
+      "expected": 5,
+      "pcd_mm": 112.0
+    },
+    "offset_et": {
+      "pass": true,
+      "measured_mm": 15.0,
+      "expected_mm": 15.0
+    },
+    "rotational_symmetry": {
+      "pass": true,
+      "sector_volume_spread": 0.0
+    }
+  },
+  "machining_checks": {
+    "valid_single_solid": {
+      "pass": true
+    },
+    "step_roundtrip": {
+      "pass": true,
+      "relative_volume_delta": 2.4973272111345194e-09
+    },
+    "no_sliver_faces": {
+      "pass": true,
+      "faces_under_5mm2": 0
+    },
+    "offset_et": {
+      "derived_mm": 15.0,
+      "expected_mm": 15.0,
+      "pass": true
+    }
+  },
+  "simulation": {
+    "type": "sampled_2_5d_mesh_boolean_from_step_pair",
+    "grid_mm": 1.5,
+    "source_removed_mm3": 3546638.2,
+    "sampled_overcut_area_mm2": 0.0,
+    "step_pair_mesh_baseline_mismatch_mm3": 3644.8,
+    "raw_mesh_intrusion_mm3": 3644.8,
+    "gouge_vs_machining_step_mm3": 0.0,
+    "remaining_vs_machining_step_mm3": 467116.6,
+    "status": "sampled_no_gouge",
+    "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.467 L 留待工厂 CAM。"
+  },
+  "source_input_sha256": [
+    "fd801c61918ff4e302a052ffc68f2a9a581cd52eb3e3e56b37a11d6f006a8fab  source/services/wheelcam/workbench.py",
+    "0482dbda2dbecc05762be85965f0f05b3c6dea0389ba29a7b6db438ec56a2535  source/scripts/demo_chain.py",
+    "fe7dae90727ef9cc6769528e0c012b0a175d809fac47b7ab0ced45bfcc91bdfe  input/front.jpg",
+    "e6c1974634fef6da8933356b6a8d109ca14fd7b85af326fa42ac8f3ccd5dc12b  input/spec.json"
+  ],
+  "manufacturing_status": "not_released"
+}

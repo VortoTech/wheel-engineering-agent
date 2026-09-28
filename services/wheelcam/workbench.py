@@ -31,6 +31,7 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=400)
+    expected_recipe_sha256: str | None = None
 
 
 class TextIn(BaseModel):
@@ -55,6 +56,17 @@ def create_app(runs: Path) -> FastAPI:
     app = FastAPI(title="WheelCAM workbench", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
+    build_gate = threading.RLock()
+
+    @contextmanager
+    def build_slot():
+        if not build_gate.acquire(blocking=False):
+            raise HTTPException(409, "已有建模或修改任务正在运行，请完成后重试")
+        try:
+            yield
+        finally:
+            build_gate.release()
+
     locks = {}
     locks_guard = threading.Lock()
 
@@ -65,20 +77,33 @@ def create_app(runs: Path) -> FastAPI:
         if not lock.acquire(blocking=False):
             raise HTTPException(409, "这个版本正在修改或导出，请完成后重试")
         try:
-            yield
+            with build_slot():
+                yield
         finally:
             lock.release()
 
     def execute(name, args):
+        with build_slot():
+            return execute_locked(name, args)
+
+    def execute_locked(name, args):
         root = Path(__file__).resolve().parents[2]
         cmd = [sys.executable, str(root / "scripts/demo_chain.py"), *args, "--out", str(runs / name)]
+        log_dir = runs / ".logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        def save_log(stdout, stderr):
+            def decode(value):
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+            (log_dir / f"{name}.log").write_text(decode(stdout) + "\n" + decode(stderr))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "任务超时，原版本保留；请检查运行日志")
+        except subprocess.TimeoutExpired as exc:
+            save_log(exc.stdout, exc.stderr)
+            raise HTTPException(504, f"任务超时，原版本保留；日志编号 {name}")
+        save_log(result.stdout, result.stderr)
         chain_path = runs / name / "chain.json"
         if result.returncode or not chain_path.exists():
-            raise HTTPException(502, "生成失败，原版本保留；请检查服务端日志")
+            raise HTTPException(502, f"生成失败，原版本保留；日志编号 {name}")
         chain = read(chain_path)
         first = (chain.get("steps") or [{}])[0]
         if not first.get("ok"):
@@ -112,7 +137,9 @@ def create_app(runs: Path) -> FastAPI:
     def capabilities():
         configured = all(os.getenv(f"WHEELCAM_CHAT_{key}") or os.getenv(f"WHEELCAM_AGENT_{key}")
                          for key in ("BASE_URL", "MODEL"))
-        return {"chat_configured": configured, "manual_style": True}
+        return {"chat_configured": configured, "manual_style": True,
+                "style_agent_configured": bool(os.getenv("WHEELCAM_VLM_BASE_URL") and
+                    (os.getenv("WHEELCAM_VLM_MODEL") or os.getenv("WHEELCAM_CHAT_MODEL")))}
 
     @app.get("/api/runs")
     def list_runs():
@@ -127,7 +154,8 @@ def create_app(runs: Path) -> FastAPI:
 
     @app.post("/api/runs/image")
     def create_from_image(front: UploadFile = File(...), oblique: UploadFile | None = File(None),
-                          spec_json: str = Form("{}"), hole_form: str = Form("")):
+                          spec_json: str = Form("{}"), hole_form: str = Form(""),
+                          style_agent: bool = Form(False)):
         from PIL import Image, ImageOps, UnidentifiedImageError
         from .forged_blank import hole_form as parse_form
         try:
@@ -136,6 +164,8 @@ def create_app(runs: Path) -> FastAPI:
                 raise ValueError("孔型应为例如 15X32X60")
         except ValueError as e:
             raise HTTPException(422, str(e)[:300])
+        if style_agent and not capabilities()["style_agent_configured"]:
+            raise HTTPException(422, "尚未配置视觉造型模型，请关闭照片造型修正后重试")
         name = f"image-{uuid.uuid4().hex[:12]}"
         source = runs / ".inputs" / name
         source.mkdir(parents=True)
@@ -155,7 +185,7 @@ def create_app(runs: Path) -> FastAPI:
             except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
                 raise HTTPException(422, "请选择有效的 JPG、PNG 或 WebP 图片（不超过 3000 万像素）")
         (source / "spec.json").write_text(json.dumps({"spec": spec, "hole_form": hole_form or None,
-            "spec_evidence": {k: {"source": "user"} for k in spec}, "style_agent": False, "hole_form_source": "user"}))
+            "spec_evidence": {k: {"source": "user"} for k in spec}, "style_agent": style_agent, "visual_check": style_agent, "hole_form_source": "user"}))
         return execute(name, [str(source), "--preview-only"])
 
     def revise(name, body, delivery, style=None):
@@ -268,6 +298,8 @@ def create_app(runs: Path) -> FastAPI:
             history, current = chat_state(d)
             recipe = read(current / "recipe.json") if current else (
                 read(d / "reconstruct" / "recipe.json") or read(d / "machining" / "recipe.json"))
+            if body.expected_recipe_sha256 is not None and digest(recipe) != body.expected_recipe_sha256:
+                raise HTTPException(409, "模型版本已改变，请刷新后重新发送")
             spec = (read(d / "chain.json") or {}).get("spec")
             n = len(history) + 1
             convo = [m for h in history[-4:] for m in ({"role": "user", "content": h["message"]},
