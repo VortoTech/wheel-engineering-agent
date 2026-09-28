@@ -27,20 +27,24 @@ sys.path.insert(0, str(ROOT / "experiments/real-orders"))
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("case", type=Path, help="runs/real-orders/case-XX/<size>")
+    ap.add_argument("case", nargs="?", type=Path, help="runs/real-orders/case-XX/<size>")
+    ap.add_argument("--text", help="从文字新建轮毂，替代订单目录")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
+    if bool(a.case) == bool(a.text):
+        ap.error("请选择一个订单目录，或使用 --text 描述")
     case, out = a.case, a.out
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} is not empty; use a new directory")
     out.mkdir(parents=True, exist_ok=True)
-    order = json.loads((case / "spec.json").read_text())
-    import shutil
-    (out / "reference").mkdir()
-    for name in ("front.jpg", "oblique.jpg", "back.jpg"):        # the scrubbed order renders, for the workbench
-        if (case / name).exists():
-            shutil.copy(case / name, out / "reference" / name)
-    spec = order["spec"]
+    order = json.loads((case / "spec.json").read_text()) if case else {}
+    if case:
+        import shutil
+        (out / "reference").mkdir()
+        for name in ("front.jpg", "oblique.jpg", "back.jpg"):
+            if (case / name).exists():
+                shutil.copy(case / name, out / "reference" / name)
+    spec = order.get("spec", {})
     steps, t0 = [], time.time()
 
     def step(name, fn):
@@ -55,6 +59,15 @@ def main():
         return steps[-1]["ok"]
 
     def reconstruct():
+        if a.text:
+            from wheelcam.text_wheel import run as run_text
+            r = run_text(a.text, out / "reconstruct")
+            spec.update(r["spec"])
+            order["hole_form"] = r["hole_form"]
+            (out / "input_spec.json").write_text(json.dumps({"spec": spec, "hole_form": r["hole_form"]}))
+            return {"readiness": r["readiness"], "spokes": r["parameters"]["spokes"]["value"],
+                    "checks_failed": [k for k, v in r["checks"].items() if not v["pass"]],
+                    "questions": r["questions"], "source": "text"}
         from wheelcam.wheel_skill import run
         oblique = case / "oblique.jpg"
         r = run(case / "front.jpg", spec, out / "reconstruct", oblique if oblique.exists() else None,
@@ -68,7 +81,7 @@ def main():
     def package():
         # the process plan, reference NC and simulation read the machining STEP pair (stock + part)
         done = subprocess.run([sys.executable, str(ROOT / "scripts/build_manufacturing_step_demo.py"),
-                               "--machining-dir", str(out / "machining"), "--spec", str(case / "spec.json"),
+                               "--machining-dir", str(out / "machining"), "--spec", str(case / "spec.json" if case else out / "input_spec.json"),
                                "--out", str(out / "package")], capture_output=True, text=True)
         if done.returncode:
             raise RuntimeError(done.stderr.strip().splitlines()[-1] if done.stderr.strip() else "package failed")
@@ -92,8 +105,9 @@ def main():
         from wheelcam.mesh_build import build
         recipe = json.loads((out / "machining/recipe.json").read_text())   # the order's hole form applied
         body, _ = build(recipe)
-        svg = drawing_svg(body, recipe_from_dict(recipe), spec=spec, order={}, drawing_no=case.parent.name.upper(),
-                          source="订单渲染图 + 确认单尺寸；重建几何")
+        svg = drawing_svg(body, recipe_from_dict(recipe), spec=spec, order={},
+                          drawing_no=case.parent.name.upper() if case else "TEXT-DRAFT",
+                          source="用户文字 + 默认尺寸；生成草案" if a.text else "订单渲染图 + 确认单尺寸；重建几何")
         (out / "drawing.svg").write_text(svg)
         chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
         if chrome.exists():                      # A3 PDF where a Chrome is at hand (the Mac)
@@ -116,9 +130,10 @@ def main():
     if step("reconstruct", reconstruct) and step("machining", machining):
         step("package", package)
         step("drawing", drawing)
-        if (case / "truth.json").exists():
+        if case and (case / "truth.json").exists():
             step("compare", compare_cad)
-    chain = {"case": f"{case.parent.name}/{case.name}", "spec": spec, "hole_form": order.get("hole_form"),
+    chain = {"case": f"{case.parent.name}/{case.name}" if case else None, "text": a.text,
+             "spec": spec, "hole_form": order.get("hole_form"),
              "seconds": round(time.time() - t0, 1), "steps": steps, "manufacturing_status": "not_released"}
     (out / "chain.json").write_text(json.dumps(chain, ensure_ascii=False, indent=1))
     print(f"chain: {sum(s['ok'] for s in steps)}/{len(steps)} steps ok in {chain['seconds']} s -> {out}")

@@ -10,6 +10,9 @@ its recipe, GLB and report are kept under <run>/chat/NN/.
 import argparse
 import json
 import re
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +24,10 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=400)
+
+
+class TextIn(BaseModel):
+    message: str = Field(min_length=1, max_length=800)
 
 
 def create_app(runs: Path) -> FastAPI:
@@ -48,6 +55,25 @@ def create_app(runs: Path) -> FastAPI:
     def list_runs():
         return [p.parent.name for p in sorted(runs.glob("*/chain.json"))]
 
+    @app.post("/api/runs/text")
+    def create_from_text(body: TextIn):
+        name = f"text-{uuid.uuid4().hex[:12]}"
+        runs.mkdir(parents=True, exist_ok=True)
+        root = Path(__file__).resolve().parents[2]
+        cmd = [sys.executable, str(root / "scripts/demo_chain.py"), "--text", body.message,
+               "--out", str(runs / name)]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "文字生成超时；请检查模型服务与运行日志")
+        if result.returncode or not (runs / name / "chain.json").exists():
+            detail = (result.stderr or result.stdout).strip().splitlines()
+            raise HTTPException(502, (detail[-1] if detail else "文字生成失败")[:300])
+        chain = read(runs / name / "chain.json")
+        if not chain["steps"] or not chain["steps"][0]["ok"]:
+            raise HTTPException(502, chain["steps"][0].get("error", "重建失败"))
+        return {"name": name, "chain": chain}
+
     @app.get("/api/runs/{name}")
     def get_run(name: str):
         d = run_dir(name)
@@ -59,7 +85,10 @@ def create_app(runs: Path) -> FastAPI:
                                 if k in ("readiness", "readiness_limits", "checks", "questions", "unknown")},
                 "simulation": package.get("simulation") or package.get("simulation_3d"),
                 "glb": (f"chat/{current.name}/wheel.glb" if current else
+                        "reconstruct/wheel.glb" if (d / "reconstruct" / "wheel.glb").exists() else
                         "reconstruct/cad/wheel.glb"),
+                "text_report": read(d / "reconstruct" / "engineering_report.json") if
+                               (read(d / "chain.json") or {}).get("text") else None,
                 "style_agent": read(d / "reconstruct" / "style" / "style_agent.json"),
                 "references": sorted(p.name for p in (d / "reference").glob("*.jpg")),
                 "history": history}

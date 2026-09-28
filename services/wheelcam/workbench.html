@@ -12,6 +12,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,
 header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
 header h1{font-size:16px;margin:0;font-weight:600}
 header .chip{font-size:12px;padding:2px 8px;border:1px solid var(--bad);color:var(--bad);border-radius:10px}
+header button{font:inherit;padding:5px 10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;cursor:pointer}
+dialog{max-width:min(650px,92vw);width:100%;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:18px}
+dialog::backdrop{background:#0008}dialog textarea{font:inherit;width:100%;height:110px;padding:10px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+dialog .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}dialog button{font:inherit;padding:7px 12px;cursor:pointer}
 select{font:inherit;padding:4px 6px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px}
 main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(360px,1fr);height:calc(100vh - 49px)}
 #view{position:relative;min-height:320px}
@@ -50,8 +54,12 @@ form button:disabled{opacity:.5}
 <header>
   <h1>WheelCAM 工作台</h1>
   <select id="run"></select>
+  <button id="new-text">用文字新建</button>
   <span class="chip">未发布 · 需工程师审核</span>
 </header>
+<dialog id="text-dialog"><h2>用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
+  <textarea id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
+  <p id="text-status" role="status"></p><div class="actions"><button id="text-cancel">取消</button><button id="text-submit">生成草案</button></div></dialog>
 <main>
   <section id="view"><div id="chain"></div><div class="hint">拖动旋转 · 滚轮缩放</div></section>
   <aside>
@@ -138,10 +146,13 @@ function render(){
   const ch = data.chain, sp = ch.spec, m = data.machining || {}, cmp = data.compare;
   $("#chain").innerHTML = ch.steps.map(s => `<span class="${s.ok ? "ok" : "bad"}" title="${esc(s.error || "")}">${STEP[s.step] || s.step} ${s.seconds}s</span>`).join("");
   $("#spec").innerHTML = `
-    <table><tr><th>规格（确认单）</th><th></th></tr>
+    <table><tr><th>规格（${ch.text ? "用户文字 / 默认值" : "确认单"}）</th><th></th></tr>
     <tr><td>尺寸</td><td>${sp.diameter_in}×${sp.width_in}J  ET${sp.et_mm}</td></tr>
     <tr><td>孔系</td><td>${sp.bolts}×${sp.pcd_mm}  中心孔 ${sp.center_bore_mm}</td></tr>
     <tr><td>孔型</td><td>${esc(ch.hole_form || "确认单未给出")}</td></tr></table>
+    ${ch.text ? `<p>${esc(ch.text)}</p><h3>输入来源与待确认</h3>
+      <table>${Object.entries(data.text_report?.parameters || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.value)}</td><td>${esc(v.source)}</td></tr>`).join("")}</table>
+      ${(data.text_report?.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}` : ""}
     <h3>网格重建校验（${esc(data.reconstruct.readiness || "")}）</h3>${checksTable(data.reconstruct.checks)}
     ${agentPanel(data.style_agent)}
     <h3>加工级 STEP 校验</h3>${checksTable(m.checks)}
@@ -189,6 +200,19 @@ function bubble(h){
 }
 
 async function open(name){ run = name; data = await (await fetch(`/api/runs/${name}`)).json(); render(); }
+$("#new-text").onclick = () => $("#text-dialog").showModal();
+$("#text-cancel").onclick = () => $("#text-dialog").close();
+$("#text-submit").onclick = async () => {
+  const message = $("#text-input").value.trim(); if (!message) return;
+  const button = $("#text-submit"); button.disabled = true; $("#text-status").textContent = "理解、建模、校验中…";
+  try {
+    const response = await fetch("/api/runs/text", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({message})});
+    const result = await response.json(); if (!response.ok) throw new Error(result.detail || "生成失败");
+    const option = document.createElement("option"); option.textContent = result.name; $("#run").prepend(option); $("#run").value = result.name;
+    $("#text-dialog").close(); await open(result.name);
+  } catch (error) { $("#text-status").textContent = "出错：" + error.message; }
+  button.disabled = false;
+};
 $("#run").onchange = e => { controls.userMoved = false; open(e.target.value); };
 document.querySelector(".chips").onclick = e => { if (e.target.tagName === "BUTTON") { $("#q").value = e.target.textContent; $("#ask").requestSubmit(); } };
 $("#ask").onsubmit = async e => {
