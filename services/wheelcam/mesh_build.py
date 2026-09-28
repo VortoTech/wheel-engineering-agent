@@ -192,6 +192,32 @@ def lip_window_tools(p):
     return tools
 
 
+HUB_RECESS_MARGIN = 0.0   # recess edge beyond the bosses' outer corners, mm: the bosses run into the
+#                           spoke roots at the recess edge, as on M59
+
+
+def hub_recess_tools(p):
+    """The hub centre sunk by hub_recess_depth, out to the lug seats plus a margin, leaving a hexagonal
+    boss round every lug at the hub face (M59: each lug stands in a raised collar, 2026-09-28). The
+    mounting side is not touched; the recess is refused where it would leave the hub web thinner
+    than the seats need."""
+    if p.hub_recess_depth <= 0 or p.pcd <= 0:
+        return []
+    m3 = _m3()
+    boss_r = p.lug_boss_r or p.seat_d / 2 + 4
+    r_out = p.pcd / 2 + boss_r + HUB_RECESS_MARGIN
+    bosses = []
+    for i in range(p.bolts):
+        a = math.radians(180 / p.spokes + i * 360 / p.bolts)
+        cx, cy = p.pcd / 2 * math.cos(a), p.pcd / 2 * math.sin(a)
+        hexagon = np.array([(cx + boss_r * math.cos(a + k * math.pi / 3), cy + boss_r * math.sin(a + k * math.pi / 3))
+                            for k in range(6)])                          # a corner pointing outward
+        bosses.append(m3.CrossSection([hexagon]).offset(-2, m3.JoinType.Round).offset(2, m3.JoinType.Round))
+    region = m3.CrossSection.circle(r_out, 180) - m3.CrossSection.batch_boolean(bosses, m3.OpType.Add)
+    floor = p.hub_z - p.hub_recess_depth
+    return [region.extrude(200).translate([0, 0, floor])]
+
+
 RIDGE_STEP = 1.5      # skeleton step of the ridge tents, mm
 RIDGE_SMOOTH_MM = 8.0  # smoothing of the measured spoke half width along the skeleton (steps showed as facets)
 RIDGE_MIN_RUN = 7.0   # least slope run of a ridge side (a 10 mm drop at 35 deg from vertical), mm
@@ -288,6 +314,7 @@ def build(recipe):
         above = revolve([(0.0, 80.0), *dish, (p.lip_r + 5, 80.0)])         # the pocket floor is the lowered dish
         apply('spoke_pads', _round(pads, p), trim=above)
     apply('lip_windows', lip_window_tools(p))
+    apply('hub_recess', hub_recess_tools(p))
     apply('hub_valleys', _round([to_manifold(t) for t in hub_valley_tools(p)], p))
     apply('lug_holes_and_seats', lug_tools(p))
     report = {'status': str(body.status()), 'genus': body.genus(), 'volume_mm3': round(body.volume(), 1),

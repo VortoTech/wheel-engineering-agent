@@ -47,3 +47,10 @@ def test_parse_answer_strips_thinking():
     from wheelcam.recipe_chat import parse_answer
     a = parse_answer('<think>hmm</think>\n```json\n{"changes": [], "reply": "请说具体一点"}\n```')
     assert a == {"changes": [], "reply": "请说具体一点", "refused": []}
+
+
+def test_hub_recess_is_refused_when_the_centre_plate_gets_too_thin():
+    from wheelcam.recipe_chat import turn
+    r = outline_recipe(web_thick_hub=30.0)
+    result = turn(r, "中心下沉 20", None, ask=fake([{"param": "hub_recess_depth", "value": 20}]))
+    assert result["built"] is None and result["refused"][0]["param"] == "hub_recess_depth"

@@ -32,6 +32,7 @@ STYLE = {
     "spoke_pad_depth": ("辐条脊线高度 mm", 0.0, 16.0, "脊两侧向辐条边缘下降的高度"),
     "hub_valley_depth": ("中心凹谷深度 mm", 0.0, 25.0, "轮毂中心辐条根部之间的凹谷"),
     "hub_arm_w": ("中心辐条根部宽度 mm", 12.0, 45.0, "中心凹谷之间留下的辐条根部宽度"),
+    "hub_recess_depth": ("中心凹台深度 mm", 0.0, 20.0, "中心整体下沉，每个螺栓孔周围留六边形塔座（0 = 平中心）"),
     # Not detected from the photo: the spokes crossing the lip band gave the same angular period
     # (12 thin spokes read as 12 lip windows, 2026-09-27), so the count is the user's word.
     "lip_pockets": ("外圈盲窗数量", 0, 40, "轮面外圈的盲窗总数，平均分到每个窗口上方（M59 为 15，每个间隙 3 个）"),
@@ -46,7 +47,7 @@ LOCKED = {
 }
 NAMES = {"pcd": "PCD", "bolts": "螺栓孔数", "center_bore_r": "中心孔", "lip_r": "轮辋直径", "width": "轮辋宽度",
          "web_thick_hub": "ET", "bolt_d": "孔型", "seat_d": "孔型", "seat_cone_deg": "孔型", "spokes": "辐条组数",
-         "outlines": "窗口轮廓", "hub_z": "凹度"}
+         "outlines": "窗口轮廓", "hub_z": "凹度", "hub_recess_depth": "中心凹台"}
 ALIASES = {"et": "web_thick_hub", "et_mm": "web_thick_hub", "pcd_mm": "pcd", "center_bore_mm": "center_bore_r",
            "diameter_in": "lip_r", "width_in": "width", "hole_form": "bolt_d"}
 
@@ -159,6 +160,9 @@ def apply_edit(recipe: dict, accepted: dict) -> dict:
         if new["web_thick_hub"] < need:
             raise ValueError(f"凹度 {new['hub_z']:g} 会让安装面处只剩 {new['web_thick_hub']:g} mm 厚，"
                              f"螺栓孔和锥座至少要 {need:.0f} mm，拒绝修改")
+    if new.get("hub_recess_depth", 0) > 0 and p.web_thick_hub - new["hub_recess_depth"] < 12:
+        raise ValueError(f"中心凹台 {new['hub_recess_depth']:g} mm 会让中心板只剩 "
+                         f"{p.web_thick_hub - new['hub_recess_depth']:g} mm 厚（至少 12 mm），拒绝修改")
     if "lip_pockets" in new:
         new["lip_pockets"] = int(round(new["lip_pockets"]))
         if new["lip_pockets"]:
@@ -195,9 +199,10 @@ def turn(recipe: dict, message: str, out, spec=None, history=(), ask=ask_model) 
     if decision["accepted"]:
         try:
             edited = apply_edit(recipe, decision["accepted"])
-        except ValueError as e:                  # only the dish depth can fail here: keep the rest
-            result["refused"].append({"param": "hub_z", "reason": str(e)})
-            result["accepted"] = {k: v for k, v in decision["accepted"].items() if k != "hub_z"}
+        except ValueError as e:                  # the dish depth or the hub recess: keep the rest
+            bad = "hub_recess_depth" if "中心凹台" in str(e) else "hub_z"
+            result["refused"].append({"param": bad, "reason": str(e)})
+            result["accepted"] = {k: v for k, v in decision["accepted"].items() if k != bad}
             if not result["accepted"]:
                 result["summary"] = summary(result)
                 return result

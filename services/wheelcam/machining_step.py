@@ -161,7 +161,7 @@ def export(recipe: dict, out, hole_form_text=None, et_mm=None) -> dict:
         "checks": checks, "stages": stages,
         "adjustments": [s["note"] for s in stages if s.get("note")],
         "in_step": ["车削回转体（成品凹面）", "直壁通窗（Ø6 立铣刀圆角）", "螺栓孔与锥座", "中心孔"],
-        "not_in_step": ["辐条正面曲面、脊线、槽和窗口斜面", "中心凹谷", "外圈盲槽", "倒角与圆角：交工厂 CAM"],
+        "not_in_step": ["辐条正面曲面、脊线、槽和窗口斜面", "中心凹谷", "中心凹台与螺栓塔座", "外圈盲槽", "倒角与圆角：交工厂 CAM"],
         "coordinates": "Z is the wheel axis, Z = 0 the rim-width mid-plane, +Z the face side; mm",
     }
     (out / "machining_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))

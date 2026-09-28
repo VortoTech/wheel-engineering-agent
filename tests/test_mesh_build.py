@@ -143,3 +143,22 @@ def test_lip_windows_sit_over_the_windows_and_do_not_break_through():
     stage = [s for s in report["stages"] if s["op"] == "lip_windows"][0]
     assert stage["tools"] == n and stage["removed_mm3"] > 0
     assert body.genus() == plain.genus()                               # blind: no new holes
+
+
+def test_hub_recess_leaves_a_boss_round_every_lug():
+    from wheelcam.mesh_build import build, verify
+    r = outline_recipe()
+    p = recipe_from_dict(r)
+    plain, _ = build(r)
+    body, report = build({**r, "hub_recess_depth": 10})
+    stage = [s for s in report["stages"] if s["op"] == "hub_recess"][0]
+    assert stage["removed_mm3"] > 0 and body.genus() == plain.genus()
+    assert verify(body, p, {})["bolt_pattern"]["pass"]
+    import manifold3d as m3, math
+    a = math.radians(180 / p.spokes)                    # at a lug, just outside its seat: the boss stands
+    probe = lambda x, y: m3.Manifold.cylinder(4, 1.5, 1.5, 16).translate([x, y, p.hub_z - 5])
+    x, y = (p.pcd / 2 + p.seat_d / 2 + 1.5) * math.cos(a), (p.pcd / 2 + p.seat_d / 2 + 1.5) * math.sin(a)
+    assert (body ^ probe(x, y)).volume() > 1
+    b = a + math.pi / p.bolts                            # between two lugs: sunk
+    x, y = (p.pcd / 2) * math.cos(b), (p.pcd / 2) * math.sin(b)
+    assert (body ^ probe(x, y)).volume() < 1e-6

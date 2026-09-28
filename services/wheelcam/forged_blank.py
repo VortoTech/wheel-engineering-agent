@@ -144,6 +144,9 @@ class ForgedWheel:
     # 'ridge': the pad's sides slope down to the spoke edges (mesh build); 'pocket': flat-floored
     # drafted pockets beside the pad (the B-Rep build always cuts pockets).
     spoke_pad_style: str = 'ridge'
+    # Recessed hub centre with a raised hexagonal boss round every lug (M59's castle lugs); mesh build.
+    hub_recess_depth: float = 0.0   # 0 = off; the centre disc sinks this far below the hub face, mm
+    lug_boss_r: float = 0.0         # boss corner radius about each lug (0 = seat_d / 2 + 4), mm
 
 
 def z_top(p, r):
