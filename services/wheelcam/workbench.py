@@ -59,6 +59,7 @@ def create_app(runs: Path) -> FastAPI:
                                 if k in ("readiness", "readiness_limits", "checks", "questions", "unknown")},
                 "simulation": package.get("simulation") or package.get("simulation_3d"),
                 "glb": f"chat/{current.name}/wheel.glb" if current else "reconstruct/cad/wheel.glb",
+                "references": sorted(p.name for p in (d / "reference").glob("*.jpg")),
                 "history": history}
 
     @app.get("/files/{name}/{path:path}")

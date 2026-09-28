@@ -57,12 +57,14 @@ form button:disabled{opacity:.5}
   <aside>
     <nav id="tabs">
       <button data-t="spec" class="on">规格与校验</button>
+      <button data-t="ref">对照原图</button>
       <button data-t="cad">对照工厂 CAD</button>
       <button data-t="drawing">工程图</button>
       <button data-t="cam">加工</button>
       <button data-t="chat">对话修改</button>
     </nav>
     <div class="tab on" id="spec"></div>
+    <div class="tab" id="ref"></div>
     <div class="tab" id="cad"></div>
     <div class="tab" id="drawing"></div>
     <div class="tab" id="cam"></div>
@@ -145,6 +147,9 @@ function render(){
     ${(m.adjustments || []).map(a => `<p class="note">⚠ ${esc(a)}</p>`).join("")}
     <h3>STEP 中包含 / 不包含</h3><p>${esc((m.in_step || []).join("；"))}</p><p class="note">${esc((m.not_in_step || []).join("；"))}</p>
     <p><a href="${f("machining/machining.step")}">下载 machining.step</a> · <a href="${f("machining/stock.step")}">stock.step</a> · <a href="${f(data.glb)}">wheel.glb</a></p>`;
+  $("#ref").innerHTML = (data.references || []).length ? `<p>订单渲染图（已脱敏）。左侧三维模型可拖动到相同视角对照。</p>` +
+    data.references.map(n => `<img class="fig" style="margin-bottom:10px" src="${f("reference/" + n)}" alt="${esc(n)}">`).join("")
+    : "<p>这次运行没有保存订单原图。</p>";
   $("#cad").innerHTML = cmp ? `
     <table><tr><th>尺寸</th><th>重建</th><th>工厂 CAD</th><th>误差</th></tr>
     ${Object.entries(cmp.dimensions).map(([k, v]) => `<tr><td>${LABEL[k] || k}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td>

@@ -33,6 +33,11 @@ def main():
         raise SystemExit(f"{out} is not empty; use a new directory")
     out.mkdir(parents=True, exist_ok=True)
     order = json.loads((case / "spec.json").read_text())
+    import shutil
+    (out / "reference").mkdir()
+    for name in ("front.jpg", "oblique.jpg", "back.jpg"):        # the scrubbed order renders, for the workbench
+        if (case / name).exists():
+            shutil.copy(case / name, out / "reference" / name)
     spec = order["spec"]
     steps, t0 = [], time.time()
 
