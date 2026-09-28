@@ -61,3 +61,7 @@ docker run --rm --network host --read-only --tmpfs /tmp:rw,size=2g \
 ```
 
 这是 F1–F7 的单命令容器运行证据。网页工作台需在节点回环地址启动并通过 SSH 隧道访问。生成物仍全部是 `not_released` 工程草案；未验证真实机床、刀具/夹具碰撞、完整辐条造型 STEP 或制造批准。
+
+## 新版工作台补充
+
+提交 `dfb00b7` 的图片入口、工程尺寸确认、连续造型修改与按当前版本导出，已完成 Spark 真实模型复测。三条场景全部通过，详见 [新版工作台全链证据](spark-workbench-flow-evidence.md)。

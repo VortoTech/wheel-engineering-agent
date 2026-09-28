@@ -1,0 +1,598 @@
+{
+  "revision": "dfb00b7c64f2054729b0101f7c99c5eb21667edd",
+  "platform": "Linux-6.11.0-1014-nvidia-aarch64-with-glibc2.41",
+  "machine": "aarch64",
+  "models": {
+    "object": "list",
+    "data": [
+      {
+        "id": "step3-vl-10b-fp8",
+        "object": "model",
+        "created": 1790605047,
+        "owned_by": "vllm",
+        "root": "/model",
+        "parent": null,
+        "max_model_len": 8192,
+        "permission": [
+          {
+            "id": "modelperm-980b07ec778b8a0a",
+            "object": "model_permission",
+            "created": 1790605047,
+            "allow_create_engine": false,
+            "allow_sampling": true,
+            "allow_logprobs": true,
+            "allow_search_indices": false,
+            "allow_view": true,
+            "allow_fine_tuning": false,
+            "organization": "*",
+            "group": null,
+            "is_blocking": false
+          }
+        ]
+      }
+    ]
+  },
+  "scope": "existing M59 development case; real model and CAD on target host; not holdout generalization",
+  "input_sha256": {
+    "front.jpg": "fe7dae90727ef9cc6769528e0c012b0a175d809fac47b7ab0ced45bfcc91bdfe",
+    "spec.json": "b7b34c3d55fdbcc0362463fdca7e6fc04768f959e07ce3cb7b212d2f65852828"
+  },
+  "scenarios": [
+    {
+      "name": "image_confirm_edit_deliver",
+      "image": {
+        "name": "image-07e3325045cf",
+        "chain": {
+          "case": ".inputs/image-07e3325045cf",
+          "text": null,
+          "spec": {
+            "diameter_in": 20.0,
+            "width_in": 10.5,
+            "pcd_mm": 112.0,
+            "bolts": 5,
+            "center_bore_mm": 66.6
+          },
+          "hole_form": "15X32X60",
+          "parent": null,
+          "recipe_sha256": "6ef080df3b7b81288d9b51882663194db89fb37fb2fcc12747e1765304718376",
+          "preview_only": true,
+          "seconds": 2.9,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 2.9,
+              "readiness": "L0",
+              "spokes": 5,
+              "style_agent": "disabled",
+              "style_changed": {},
+              "checks_failed": []
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "confirmation": {
+        "name": "revision-646dce472c99",
+        "chain": {
+          "case": null,
+          "text": null,
+          "spec": {
+            "diameter_in": 20.0,
+            "width_in": 10.5,
+            "pcd_mm": 112.0,
+            "bolts": 5,
+            "center_bore_mm": 66.6,
+            "et_mm": 15.0
+          },
+          "hole_form": "15X32X60",
+          "parent": {
+            "run": "image-07e3325045cf",
+            "recipe_sha256": "6ef080df3b7b81288d9b51882663194db89fb37fb2fcc12747e1765304718376",
+            "changes": {
+              "et_mm": 15.0
+            },
+            "hole_form_confirmed": false
+          },
+          "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae",
+          "preview_only": true,
+          "seconds": 1.8,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 1.8,
+              "source": "confirmed_snapshot",
+              "readiness": "L0",
+              "recipe_sha256": "3fdcdba8cd2a43a1fe225ff436fcbc05988aab833ffdb42e14b4b454038df5ae"
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "style_turns": [
+        {
+          "message": "将窗口侧斜面宽度 flank_w 设置为 4 mm，其他参数保持不变。",
+          "summary": "已修改：窗口侧斜面宽度 16 → 4。重建后检查全部通过。",
+          "changed": {
+            "flank_w": {
+              "from": 16.0,
+              "to": 4.0
+            }
+          },
+          "refused": [],
+          "passed": true,
+          "dir": "01"
+        },
+        {
+          "message": "将窗口侧斜面宽度 flank_w 设置为 2 mm，其他参数保持不变。",
+          "summary": "已修改：窗口侧斜面宽度 4 → 2。重建后检查全部通过。",
+          "changed": {
+            "flank_w": {
+              "from": 4.0,
+              "to": 2.0
+            }
+          },
+          "refused": [],
+          "passed": true,
+          "dir": "02"
+        }
+      ],
+      "engineering_chat_refusal": {
+        "message": "把 PCD 改成 114.3 mm，不改其他参数。",
+        "summary": "未修改：PCD（PCD 来自确认单）。",
+        "changed": null,
+        "refused": [
+          {
+            "param": "pcd",
+            "reason": "PCD 来自确认单"
+          }
+        ],
+        "passed": null,
+        "dir": null
+      },
+      "stale_request_status": 409,
+      "delivery": {
+        "name": "delivery-4727f8143153",
+        "chain": {
+          "case": null,
+          "text": null,
+          "spec": {
+            "diameter_in": 20.0,
+            "width_in": 10.5,
+            "pcd_mm": 112.0,
+            "bolts": 5,
+            "center_bore_mm": 66.6,
+            "et_mm": 15.0
+          },
+          "hole_form": "15X32X60",
+          "parent": {
+            "run": "revision-646dce472c99",
+            "recipe_sha256": "9604371a2df4fe67c0dd70570a8fe43e8eb5e56fff6d4877655627ab449155bd",
+            "changes": {},
+            "hole_form_confirmed": false
+          },
+          "recipe_sha256": "9604371a2df4fe67c0dd70570a8fe43e8eb5e56fff6d4877655627ab449155bd",
+          "preview_only": false,
+          "seconds": 28.0,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 1.8,
+              "source": "confirmed_snapshot",
+              "readiness": "L0",
+              "recipe_sha256": "9604371a2df4fe67c0dd70570a8fe43e8eb5e56fff6d4877655627ab449155bd"
+            },
+            {
+              "step": "machining",
+              "ok": true,
+              "seconds": 22.5,
+              "checks_failed": [],
+              "adjustments": []
+            },
+            {
+              "step": "package",
+              "ok": true,
+              "seconds": 3.4,
+              "simulation": "sampled_no_gouge",
+              "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.467 L 留待工厂 CAM。"
+            },
+            {
+              "step": "drawing",
+              "ok": true,
+              "seconds": 0.3,
+              "pdf": false
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "manifest": {
+        "source_recipe_sha256": "9604371a2df4fe67c0dd70570a8fe43e8eb5e56fff6d4877655627ab449155bd",
+        "parent": {
+          "run": "revision-646dce472c99",
+          "recipe_sha256": "9604371a2df4fe67c0dd70570a8fe43e8eb5e56fff6d4877655627ab449155bd",
+          "changes": {},
+          "hole_form_confirmed": false
+        },
+        "manufacturing_status": "not_released",
+        "preview_only": false,
+        "complete": true,
+        "geometry_scope": "GLB retains style; machining STEP is a derived machining preparation with adjustments, not full style CAD",
+        "artifacts": {
+          "chain.json": {
+            "sha256": "fe3c2c67deafc0258bbdfd70afc733aab65578126b42563ee5c611463773711c",
+            "bytes": 1190
+          },
+          "drawing.svg": {
+            "sha256": "2a8e8c7f639c7e95e6b14a19cce7fab1eab7a08247fbc5ece60a2a7176d59407",
+            "bytes": 67627
+          },
+          "input_spec.json": {
+            "sha256": "ca603f6d759f9426e74f8e7eea3a78c45ee6081ee0c95d7ed45a15d5a52b73ec",
+            "bytes": 142
+          },
+          "machining/machining.step": {
+            "sha256": "25d5a789f54f1f5a793d9dad6612c123b45b81f2f67b55714dd2e008c58fe819",
+            "bytes": 5459603
+          },
+          "machining/machining_report.json": {
+            "sha256": "425434efe98f6620b19c1ce0121b498c28447251e5ad4b0ce753cb9f468150f7",
+            "bytes": 1311
+          },
+          "machining/recipe.json": {
+            "sha256": "ba284641e377747f876c6c9d66062274f833033ca7472981b9bb57f68f52f6d2",
+            "bytes": 6744
+          },
+          "machining/stock.step": {
+            "sha256": "9bf0613a7c1a229c85fbe87724116b0882224ac2c4c1147dd0825d738b79f52c",
+            "bytes": 85666
+          },
+          "package/drawing.html": {
+            "sha256": "c43afdee8db759690b0b552f764b0408b68a6a3c1b4bae7257013ca79a33f5c1",
+            "bytes": 241
+          },
+          "package/drawing.svg": {
+            "sha256": "802f636e4b0f827bef5b84f77368472ee639101c6e8ec685893bbc008fd9f1d0",
+            "bytes": 31164
+          },
+          "package/machining_step.glb": {
+            "sha256": "cf0ea1ef88f6a5812dd0443ef32a9883465265a8da2365e6a1905f6630708166",
+            "bytes": 1033772
+          },
+          "package/process_plan.json": {
+            "sha256": "680879ebde4936bc5fce8fd3cdc4e742328c7ad50714c99a027addb66f375dc4",
+            "bytes": 3354
+          },
+          "package/reference.nc": {
+            "sha256": "729ad8d91b532c8351866079daaeed9ba2adea484568d444ef9ed9e3ae16ce05",
+            "bytes": 309280
+          },
+          "package/simulation_3d.png": {
+            "sha256": "8505e4c0801ac5c40d3ffb49b9bfd776d730de1efc5b319e762e697365ead457",
+            "bytes": 118779
+          },
+          "package/stock_after_roughing.glb": {
+            "sha256": "2cac0fe928f23d9a5487768032c90d3c4703fb6726cd7e07c16c517d1c7a5a4c",
+            "bytes": 928276
+          },
+          "package/stock_step.glb": {
+            "sha256": "6178e5f7e08eeea643f2ee159cbcd19f3692376effdb0cb021982fd19975a6b2",
+            "bytes": 391568
+          },
+          "package/tool_list.csv": {
+            "sha256": "8e09221518e77b2293de0919b3b87a37567c288c5cecf7fd465ba471dd7fea10",
+            "bytes": 438
+          },
+          "reconstruct/engineering_report.json": {
+            "sha256": "d96b21bd23860c40ddc9b25677688ccd3dcf4994963733133a386d7f7f07bb59",
+            "bytes": 14306
+          },
+          "reconstruct/recipe.json": {
+            "sha256": "ba284641e377747f876c6c9d66062274f833033ca7472981b9bb57f68f52f6d2",
+            "bytes": 6744
+          },
+          "reconstruct/report.json": {
+            "sha256": "18282e66593b846e69bac906040a04823f031adb4acdf50d7662c6313da3f04c",
+            "bytes": 627
+          },
+          "reconstruct/wheel.glb": {
+            "sha256": "cd18fdff5467fda0fdcdacb5b56b371b9fe0a1b20685ee23e3fa4dbd025e75a2",
+            "bytes": 4507112
+          },
+          "reference/front.jpg": {
+            "sha256": "d40c3c631ef7f918268e18c62845b6f110f53eef4672ae4aecf95519237778cc",
+            "bytes": 208761
+          }
+        }
+      },
+      "all_artifact_hashes_verified": true,
+      "passed": true,
+      "seconds": 44.25
+    },
+    {
+      "name": "text_deliver",
+      "text": {
+        "name": "text-52aa12896f7f",
+        "chain": {
+          "case": null,
+          "text": "20×10.5 ET15，5×112，中心孔66.6，孔型15X32X60。做5辐直辐，外圈加15个盲窗。",
+          "spec": {
+            "diameter_in": 20.0,
+            "width_in": 10.5,
+            "pcd_mm": 112.0,
+            "bolts": 5,
+            "center_bore_mm": 66.6,
+            "et_mm": 15.0
+          },
+          "hole_form": "15X32X60",
+          "parent": null,
+          "recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1",
+          "preview_only": true,
+          "seconds": 10.9,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 10.9,
+              "readiness": "L0",
+              "spokes": 5,
+              "checks_failed": [],
+              "questions": [],
+              "source": "text"
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "delivery": {
+        "name": "delivery-f804caf8ece5",
+        "chain": {
+          "case": null,
+          "text": "20×10.5 ET15，5×112，中心孔66.6，孔型15X32X60。做5辐直辐，外圈加15个盲窗。",
+          "spec": {
+            "diameter_in": 20.0,
+            "width_in": 10.5,
+            "pcd_mm": 112.0,
+            "bolts": 5,
+            "center_bore_mm": 66.6,
+            "et_mm": 15.0
+          },
+          "hole_form": "15X32X60",
+          "parent": {
+            "run": "text-52aa12896f7f",
+            "recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1",
+            "changes": {},
+            "hole_form_confirmed": false
+          },
+          "recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1",
+          "preview_only": false,
+          "seconds": 24.4,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 1.9,
+              "source": "confirmed_snapshot",
+              "readiness": "L0",
+              "recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1"
+            },
+            {
+              "step": "machining",
+              "ok": true,
+              "seconds": 18.7,
+              "checks_failed": [],
+              "adjustments": []
+            },
+            {
+              "step": "package",
+              "ok": true,
+              "seconds": 3.6,
+              "simulation": "sampled_no_gouge",
+              "conclusion": "窗口粗加工相对加工级 STEP 未发现新增采样过切；余量 0.488 L 留待工厂 CAM。"
+            },
+            {
+              "step": "drawing",
+              "ok": true,
+              "seconds": 0.3,
+              "pdf": false
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "manifest": {
+        "source_recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1",
+        "parent": {
+          "run": "text-52aa12896f7f",
+          "recipe_sha256": "a3ba31ec41832556454cf27a2673ec0c607decc7a43d65c70511f3a411b8c2f1",
+          "changes": {},
+          "hole_form_confirmed": false
+        },
+        "manufacturing_status": "not_released",
+        "preview_only": false,
+        "complete": true,
+        "geometry_scope": "GLB retains style; machining STEP is a derived machining preparation with adjustments, not full style CAD",
+        "artifacts": {
+          "chain.json": {
+            "sha256": "dcac813471db4c811c4f9ff936ec0c67590608d081d1363152e3c06db969eb54",
+            "bytes": 1281
+          },
+          "drawing.svg": {
+            "sha256": "642b229778bbd0d86bb1e7aca0777418074580ca57c471b114d0a65e119d4e5d",
+            "bytes": 87568
+          },
+          "input_spec.json": {
+            "sha256": "ca603f6d759f9426e74f8e7eea3a78c45ee6081ee0c95d7ed45a15d5a52b73ec",
+            "bytes": 142
+          },
+          "machining/machining.step": {
+            "sha256": "677d5d0b911ce9e440bc66efcf8d5144810cd642f96a0c017f72cf458eb8f14e",
+            "bytes": 4838057
+          },
+          "machining/machining_report.json": {
+            "sha256": "6b8e2716aac373c5685d872764fdd203ddb19cb3a2da55faaa0c62e8b2d88dd6",
+            "bytes": 1312
+          },
+          "machining/recipe.json": {
+            "sha256": "c5ebf6af12cd0fb37d1607f28ecc71534ebdbd486efca2a2f8a7de48b4dcf907",
+            "bytes": 8532
+          },
+          "machining/stock.step": {
+            "sha256": "f482a44688fc865f844d9059cd8c1d89225cc128ae47f5d759c5acfe8c7d3f4c",
+            "bytes": 83120
+          },
+          "package/drawing.html": {
+            "sha256": "c43afdee8db759690b0b552f764b0408b68a6a3c1b4bae7257013ca79a33f5c1",
+            "bytes": 241
+          },
+          "package/drawing.svg": {
+            "sha256": "820889acd2e19b49e5f7010c73d02a0163af5f4ffbcc7d11c183cf8f281f99a7",
+            "bytes": 36199
+          },
+          "package/machining_step.glb": {
+            "sha256": "530c901b84690f9034f0a53de52b126f6ee9ccc08b77f6468b9dceed3a3be5b1",
+            "bytes": 1206856
+          },
+          "package/process_plan.json": {
+            "sha256": "2ae7f6ea71fafad35b88b2665769eccdd0a011907ad1f1f784c5a2882e0fe307",
+            "bytes": 3352
+          },
+          "package/reference.nc": {
+            "sha256": "a3d8548e4496b4abda417265880b4577ee4d12ece632944935518d834cfd6f00",
+            "bytes": 302827
+          },
+          "package/simulation_3d.png": {
+            "sha256": "bcd83ec03608f7ecd0aa83271880d6873e206898f06025e63176bf9e6521938b",
+            "bytes": 111331
+          },
+          "package/stock_after_roughing.glb": {
+            "sha256": "f8a52744bff277597950c9a428abafd53206eac66e2be6c7e0c3443ff673e2bb",
+            "bytes": 972428
+          },
+          "package/stock_step.glb": {
+            "sha256": "50bc524ffb879b05b954e844f7857482c58e474da72a73231b56b8e5b870af0e",
+            "bytes": 444708
+          },
+          "package/tool_list.csv": {
+            "sha256": "8e09221518e77b2293de0919b3b87a37567c288c5cecf7fd465ba471dd7fea10",
+            "bytes": 438
+          },
+          "reconstruct/engineering_report.json": {
+            "sha256": "2733b273f39e8828696ee43dde91b4e16ea5684d0bb47c07f2e00cb54f6ce482",
+            "bytes": 8674
+          },
+          "reconstruct/recipe.json": {
+            "sha256": "c5ebf6af12cd0fb37d1607f28ecc71534ebdbd486efca2a2f8a7de48b4dcf907",
+            "bytes": 8532
+          },
+          "reconstruct/report.json": {
+            "sha256": "40357c2613fb3425a087f6ffdfcc5ee82bad5564a0404c4e76ec8ca852212af0",
+            "bytes": 628
+          },
+          "reconstruct/wheel.glb": {
+            "sha256": "a6613425548fd227d0a56a36ea83fcec7fd4ebc3adb6394c7b9981d277f67fcf",
+            "bytes": 5141140
+          }
+        }
+      },
+      "all_artifact_hashes_verified": true,
+      "passed": true,
+      "seconds": 36.06
+    },
+    {
+      "name": "text_unknowns",
+      "text": {
+        "name": "text-e9ef5c65c6c8",
+        "chain": {
+          "case": null,
+          "text": "做一个21寸的6辐Y形轮毂",
+          "spec": {
+            "diameter_in": 21.0,
+            "width_in": 9.5,
+            "pcd_mm": 112,
+            "bolts": 5,
+            "center_bore_mm": 66.6,
+            "et_mm": 35
+          },
+          "hole_form": null,
+          "parent": null,
+          "recipe_sha256": "eefb8bec9d9b75824e548ca0c75da63990d47927ed05ee392da7a5f6eaa56d55",
+          "preview_only": true,
+          "seconds": 9.3,
+          "steps": [
+            {
+              "step": "reconstruct",
+              "ok": true,
+              "seconds": 9.3,
+              "readiness": "L0",
+              "spokes": 6,
+              "checks_failed": [],
+              "questions": [
+                "请确认 width_in；当前仅用默认值 9.5 建立视觉草案。",
+                "请确认 pcd_mm；当前仅用默认值 112 建立视觉草案。",
+                "请确认 bolts；当前仅用默认值 5 建立视觉草案。",
+                "请确认 center_bore_mm；当前仅用默认值 66.6 建立视觉草案。",
+                "请确认 et_mm；当前仅用默认值 35 建立视觉草案。",
+                "请确认螺栓孔型；当前使用模板孔型，仅作草案。"
+              ],
+              "source": "text"
+            }
+          ],
+          "manufacturing_status": "not_released"
+        }
+      },
+      "passed": true,
+      "seconds": 9.67
+    }
+  ],
+  "all_passed": true,
+  "deployment": {
+    "host": "DGX Spark NVIDIA GB10",
+    "application_revision": "dfb00b7c64f2054729b0101f7c99c5eb21667edd",
+    "source_archive_sha256": "06d69b58e38b8229d1f14c47159250bada444279814ba6572f37052ca5210b3f",
+    "acceptance_script_sha256": "404c9037cda40df8699b19c9aecfb4e050aa56da387a90998ebbf2804bb5de66",
+    "base_image": "wheelcam-app:spark-20260928",
+    "base_image_id": "sha256:668410682ed48c24e6c93b3f9876c9a8ea783f7426fd8d09b47def975f9afcaf",
+    "source_mode": "dfb00b7 source mounted read-only over /app; base image not rebuilt",
+    "resources": {
+      "cpus": 6,
+      "memory_gib": 16,
+      "uid": 1002,
+      "read_only_root": true
+    },
+    "started_utc": "2026-09-28T14:17:27Z",
+    "finished_utc": "2026-09-28T14:18:57Z",
+    "exit_code": 0,
+    "model_endpoint": "Spark loopback 127.0.0.1:8000/v1",
+    "temporary_ui_stopped": true,
+    "existing_model_service_unchanged": true
+  },
+  "http_smoke": {
+    "/": {
+      "status": 200,
+      "bytes": 26628
+    },
+    "/api/runs": {
+      "status": 200,
+      "bytes": 134
+    },
+    "/api/runs/delivery-4727f8143153": {
+      "status": 200,
+      "bytes": 21657
+    },
+    "/files/delivery-4727f8143153/reconstruct/wheel.glb": {
+      "status": 200,
+      "bytes": 4507112
+    },
+    "/files/delivery-4727f8143153/machining/machining.step": {
+      "status": 200,
+      "bytes": 5459603
+    },
+    "/files/delivery-4727f8143153/drawing.svg": {
+      "status": 200,
+      "bytes": 67627
+    }
+  }
+}
