@@ -99,3 +99,14 @@ bash scripts/start_workbench_spark.sh runs/workbench-refinement-20260928 8795 18
 - 对话输入支持多行：Enter 发送，Shift+Enter 换行；中文输入法选词不触发发送。请求失败保留输入，真实回复后显示“模型已响应”。
 
 浏览器验证：真实 Agent 编辑；现有 `delivery-4a052714a256` 图纸大窗口；100% → 125% → 适应窗口；刷新版本保持。工程图截图 `runs/workbench-refinement-20260928/drawing-viewer.png`。`tests/test_workbench.py` 和 `tests/test_privacy.py` 合计 12 passed；JS 与启动脚本语法检查通过。启动脚本本轮只做语法检查，实际服务通过等价 SSH 转发和启动命令运行。
+
+## 第四轮：Studio 工作台视觉与专注视图
+
+沿用石墨灰与暖金强调色，整理顶部项目标题、版本切换与主操作。三栏采用独立面板，工程尺寸改为六个紧凑卡片，折叠版本详情和手动盲窗控件，为 Agent 对话保留空间。模型背景与缎面材质统一；构建记录保持真实阶段结果。
+
+新增纯预览控制：
+
+- 缎面金属 / 灰模检查，不改变模型几何或任何工程参数。
+- 专注模型：隐藏左右面板，点击“返回工作台”恢复；窄屏仍保留退出入口。
+
+浏览器已验证桌面布局、390px 窄屏、材质切换、进入/退出专注视图、盲窗控件展开、工程图打开/关闭；未记录控制台 error。JS 语法检查通过。本轮没有更改后端或重新运行模型生成。截图：`runs/workbench-refinement-20260928/studio-workspace.png`。
