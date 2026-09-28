@@ -72,3 +72,30 @@ GLB 仍为 L0 视觉草案；加工级 STEP 不包含完整造型曲面，未做
 新增回归覆盖真实几何体积下降、尺寸锁定、径向范围联动、来源、旧版本冲突、非法输入、构建失败保留父版本及模型配置状态。此轮为 Mac 构建；尚未在 Spark 部署复测，未生成该造型子版本的下游交付包。盲窗属于视觉造型，仍不能声称完整造型已进入加工级 STEP。
 
 第二轮自动验收命令：`PYTHONPATH=services .venv/bin/pytest -q tests/test_workbench_style.py tests/test_workbench.py tests/test_workbench_revision.py tests/test_privacy.py`，结果 **22 passed**（110.01 s）；JS 语法与 `git diff --check` 通过。
+
+## 第三轮：恢复真实 Agent 对话与工程图审阅
+
+### 已修复
+
+上轮 8795 服务缺少 `WHEELCAM_CHAT_BASE_URL` / `WHEELCAM_CHAT_MODEL`，界面正确禁用了对话，但用户无法完成交互。本轮核对 Spark 模型列表后，通过仅绑定 localhost 的 SSH 转发接通 `step3-vl-10b-fp8`，重启原端口服务。未重启 Spark 模型。
+
+实际浏览器在 `agent-live-check` 副本发送：“把窗口侧斜面宽度改成4毫米，保留15个外圈盲窗和所有工程尺寸。”真实模型返回 `flank_w: 2 → 4`，本机重建检查全部通过，历史保存在 `chat/history.json`，新预览在 `chat/01/`。原用户模型版本未修改。截图 `agent-connected.png`。
+
+可重复启动（先停止占用工作台端口的旧服务）：
+
+```sh
+bash scripts/start_workbench_spark.sh runs/workbench-refinement-20260928 8795 18096
+```
+
+脚本只建立模型隧道并启动本机工作台，退出清理自己的隧道。模型在 Spark，几何构建在 Mac，不能称为 Spark 全链运行。
+
+### 工程图与交互
+
+- 三维工具栏直接进入工程图，交付页也有“放大审阅”入口。
+- 大窗口按可用宽高适应整张 A3 图纸；50–300% 缩放，滚动查看细节，下载原始 SVG。
+- 显示图纸所属版本、输入规格摘要、过期提醒及正视/剖面阅读指引。
+- 无工程图时明确引导生成交付包，避免显示其他版本图纸。
+- 正视投影不展示盲窗底面，界面明确要求结合三维造型核对。本轮未更改图纸生成几何或制造准备等级。
+- 对话输入支持多行：Enter 发送，Shift+Enter 换行；中文输入法选词不触发发送。请求失败保留输入，真实回复后显示“模型已响应”。
+
+浏览器验证：真实 Agent 编辑；现有 `delivery-4a052714a256` 图纸大窗口；100% → 125% → 适应窗口；刷新版本保持。工程图截图 `runs/workbench-refinement-20260928/drawing-viewer.png`。`tests/test_workbench.py` 和 `tests/test_privacy.py` 合计 12 passed；JS 与启动脚本语法检查通过。启动脚本本轮只做语法检查，实际服务通过等价 SSH 转发和启动命令运行。

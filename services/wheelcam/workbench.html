@@ -22,6 +22,7 @@ dialog{width:620px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);o
 @media(max-width:560px){header h1{font-size:18px}.projectbar{padding:10px 12px}.project-identity{width:100%}.project-identity select{flex:1;max-width:100%;min-width:0}.projectbar .actions{width:100%}.projectbar .actions .primary{flex:1}.workspace{grid-template-columns:1fr}.center-panel{grid-row:1;height:500px}.input-panel{grid-row:2;max-height:none;border-top:1px solid var(--line)}.inspector{grid-row:3;height:620px}.input-panel .section{padding:16px}.parameter-list{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}.reference-thumb img{height:170px}.header-actions button{padding:6px;font-size:11px}#image-fields,#engineering-fields{grid-template-columns:1fr}.viewbar{padding:10px}.view-tools{padding:8px 10px}.workflow{padding:12px}.project-identity label{white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 .style-editor{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel-dark)}.style-editor label{font-size:12px}.style-editor .row{display:flex;gap:8px;align-items:center;margin-top:7px}.style-editor input{width:70px;background:var(--bg);border:1px solid #445062;color:var(--ink);padding:6px;border-radius:4px}.style-editor button{font-size:12px;padding:6px 10px}.style-editor small{display:block;font-size:11px;margin-top:6px}#model-state{font-size:11px;color:var(--warn);padding:7px 16px;border-bottom:1px solid var(--line)}.style-summary{display:flex;flex-wrap:wrap;gap:6px;padding:0 15px 9px;color:var(--mute);font-size:11px}.style-summary span{border:1px solid var(--line);padding:2px 6px;border-radius:4px}.style-summary .missing{color:var(--warn);border-color:#665039}.input-panel .reference-thumb img{height:105px}.parameter-row{padding:5px 0}.section{padding:13px 18px}.workspace{height:auto;min-height:0;flex:1}body{height:100dvh;display:flex;flex-direction:column}header,.projectbar,#task-status{flex-shrink:0}@media(max-width:950px){body{height:auto;display:block}.workspace{display:grid}}
+#drawing-viewer{width:96vw;max-width:1600px;height:92dvh;padding:0;overflow:hidden}#drawing-viewer[open]{display:flex;flex-direction:column}.drawing-toolbar{padding:12px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.drawing-toolbar h2{font-size:16px;margin-right:auto}.drawing-toolbar button{padding:6px 11px}.drawing-meta{padding:10px 18px;background:var(--panel-dark);font-size:12px}.drawing-meta .specs{display:flex;gap:15px;flex-wrap:wrap;margin-top:5px;color:var(--ink)}#drawing-paper{overflow:auto;flex:1;padding:20px;background:#414954;min-height:0}#drawing-sheet{display:block;background:white;max-width:none;box-shadow:0 3px 18px #0006;margin:auto}#drawing-warning{color:var(--warn)}.drawing-key{padding:9px 18px;font-size:12px;color:var(--mute)}#ask textarea{resize:vertical;min-height:62px;max-height:150px}#model-state.connected{color:var(--ok)}@media(max-width:600px){#drawing-viewer{height:95dvh;width:96vw}.drawing-toolbar{gap:6px;padding:10px}.drawing-meta .specs{gap:7px}#drawing-paper{padding:8px}}
 </style>
 </head>
 <body>
@@ -34,6 +35,7 @@ dialog{width:620px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);o
   <div class="project-identity"><label for="run">当前版本</label><select id="run" aria-label="选择轮毂版本"></select><span class="meta" id="version-state">尚未选择模型</span></div>
   <div class="actions"><button id="reset-preview" hidden>恢复原始预览</button><button id="deliver" class="primary" disabled>生成当前版本交付包</button></div>
 </div>
+<dialog id="drawing-viewer" aria-labelledby="drawing-viewer-title"><div class="drawing-toolbar"><h2 id="drawing-viewer-title">工程图 · 审阅</h2><button id="drawing-fit">适应窗口</button><button id="drawing-out" aria-label="缩小工程图">−</button><output id="drawing-zoom">100%</output><button id="drawing-in" aria-label="放大工程图">＋</button><a id="drawing-download" download>下载 SVG</a><button id="drawing-close">关闭图纸</button></div><div class="drawing-meta"><div id="drawing-version"></div><div class="specs" id="drawing-specs"></div><p id="drawing-warning"></p></div><div id="drawing-paper"><img id="drawing-sheet" alt="轮毂工程图：左侧正视图，右侧 A-A 剖面，下方技术要求与标题栏"></div><div class="drawing-key">左：正视与孔系 · 右：A-A 剖面、总宽与 ET · 下：技术要求。正视投影不展示盲窗底面，外观请结合三维模型核对。放大后滚动查看。</div></dialog>
 <div id="task-status" role="status" aria-live="polite"></div>
 <dialog id="text-dialog" aria-labelledby="text-title"><h2 id="text-title">用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
   <textarea aria-label="轮毂尺寸与造型描述" id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
@@ -59,7 +61,7 @@ dialog{width:620px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);o
   </aside>
   <section class="center-panel" aria-label="三维模型预览">
     <div class="viewbar"><strong>参数化轮毂预览</strong><span id="view-status">等待输入</span></div>
-    <div class="view-tools" role="group" aria-label="模型视图"><button data-camera="perspective" aria-pressed="true">透视</button><button data-camera="front" aria-pressed="false">正面</button><button data-camera="side" aria-pressed="false">侧面</button><button id="fit-view">适应窗口</button><button id="wireframe" aria-pressed="false">线框</button></div>
+    <div class="view-tools" role="group" aria-label="模型视图"><button data-camera="perspective" aria-pressed="true">透视</button><button data-camera="front" aria-pressed="false">正面</button><button data-camera="side" aria-pressed="false">侧面</button><button id="fit-view">适应窗口</button><button id="open-drawing">工程图</button><button id="wireframe" aria-pressed="false">线框</button></div>
     <div class="style-summary" id="style-summary"></div><div id="view"><div id="viewport-state" class="viewport-state"><div class="eyebrow">WHEEL ENGINEERING SKILL</div><h2>让参考变成可调整的轮毂</h2><p>导入图片或描述尺寸与造型，生成初稿后继续调整，再生成当前版本交付包。</p><div class="actions"><button data-start="image" class="primary">导入轮毂图片</button><button data-start="text">输入文字描述</button></div></div><div class="hint">拖动旋转 · 滚轮缩放 · 仅视觉草案</div></div>
     <div class="workflow"><div class="workflow-label"><span>本版本构建记录</span><span id="chain-time">尚无运行记录</span></div><div id="chain"></div><p class="scope-note">GLB 为造型预览；加工级 STEP 不包含完整造型曲面。</p></div>
   </section>
@@ -72,7 +74,7 @@ dialog{width:620px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);o
       <div id="model-state" role="status"></div>
       <div id="log" aria-live="polite"><p class="empty-log">造型修改与校验记录会显示在这里。</p></div>
       <div class="chips"><button>窗口斜面窄一些</button><button>辐条中间的脊再高一点</button><button>中心凹谷浅一点</button></div>
-      <form id="ask"><input id="q" aria-label="造型修改要求" placeholder="描述造型变化，例如：斜面窄一些" autocomplete="off"><button>发送</button></form><p id="agent-footnote">工程尺寸请在左侧明确确认；修改后需重新生成交付包。</p>
+      <form id="ask"><textarea id="q" aria-label="造型修改要求" placeholder="描述修改，例如：斜面宽度改为 4 mm。Enter 发送，Shift+Enter 换行。"></textarea><button>发送</button></form><p id="agent-footnote">工程尺寸请在左侧明确确认；修改后需重新生成交付包。</p>
     </div>
   </aside>
 </main>
@@ -209,7 +211,7 @@ function render(){
     <div class="download-card"><h3>加工准备 <span class="badge ${ready('package')?'ok':'warn'}">${ready('package')?stale?'修改前版本':'已生成':step('package')?'未通过':'未生成'}</span></h3><p>工序、刀具表与采样仿真。参考轨迹不可上机。</p><button data-t="cam">查看加工包</button></div>
     <details><summary>STEP 包含内容与限制</summary><p>${esc((m.in_step||[]).join('；'))}</p><p class="note">${esc((m.not_in_step||[]).join('；')||'完整造型曲面、结构仿真与制造审核未完成。')}</p></details>`;
   const back='<div class="subnav"><button data-t="deliverables">返回交付文件</button></div>';
-  $('#drawing').innerHTML=back+versionNote+(ready('drawing')?`<h2>工程图</h2><p><a href="${f('drawing.svg')}" target="_blank">打开 SVG</a>${step('drawing').pdf?` · <a href="${f('drawing.pdf')}" target="_blank">打开 PDF</a>`:''}</p><img class="fig" src="${f('drawing.svg')}" alt="轮毂工程图">`:'<h3>工程图尚未生成</h3><p class="muted">生成当前版本交付包后，工程图会出现在这里。</p>');
+  $('#drawing').innerHTML=back+versionNote+(ready('drawing')?`<h2>工程图</h2><p><a href="${f('drawing.svg')}" target="_blank">打开 SVG</a>${step('drawing').pdf?` · <a href="${f('drawing.pdf')}" target="_blank">打开 PDF</a>`:''}</p><button class="primary full-width" data-open-drawing>放大审阅工程图</button><img class="fig" src="${f('drawing.svg')}" alt="轮毂工程图"><p class="panel-note">左侧为正视图，右侧为 A-A 剖面。点击放大审阅，可缩放查看尺寸与技术要求。</p>`:'<h3>工程图尚未生成</h3><p class="muted">生成当前版本交付包后，工程图会出现在这里。</p>');
   const sim=data.simulation||{};$('#cam').innerHTML=back+versionNote+(ready('package')?`<h2>加工准备</h2><p class="note">${esc(sim.conclusion||sim.status||'')}</p><img class="fig" src="${f('package/simulation_3d.png')}" alt="加工采样仿真"><div class="download-card"><div class="links"><a href="${f('package/process_plan.json')}">工序单</a><a href="${f('package/tool_list.csv')}">刀具表</a><a href="${f('package/reference.nc')}">注释参考轨迹</a></div></div><p class="panel-note">未验证刀柄、夹具或机床碰撞。参考轨迹不能上机。</p>`:`<h3>加工准备${step('package')?'未通过':'尚未生成'}</h3><p class="${step('package')?'fail':'muted'}">${esc(step('package')?.error||'先确认参数，再生成当前版本交付包。')}</p>`);
   const manual=ch.parent?.style_changes?.lip_pockets;
   $('#log').innerHTML=data.history.length?data.history.map(bubble).join(''):manual?`<div class="msg bot">手动造型修改：外圈盲窗 ${num(manual.from)} → ${num(manual.to)}。<div class="x">已保存为新版本并重新校验。数量为造型目标，深度仍为模板假设。</div></div>`:'<p class="empty-log">可以试试：<br>“窗口斜面窄一些”<br>“辐条中间的脊再高一点”<br><br>每轮会保留修改前后的参数和校验结果。</p>';
@@ -242,8 +244,28 @@ function bubble(h){
   return `<div class="msg me">${esc(h.message)}</div><div class="msg bot">${esc(h.summary)}${ch ? `<div class="x">${esc(ch)}</div>` : ""}</div>`;
 }
 
+let drawingZoom=100, drawingFitWidth=1000;
+function zoomDrawing(value){drawingZoom=Math.max(50,Math.min(300,value));$('#drawing-sheet').style.width=(drawingFitWidth*drawingZoom/100)+'px';$('#drawing-zoom').textContent=drawingZoom+'%';}
+function fitDrawing(){const paper=$('#drawing-paper'),img=$('#drawing-sheet');const ratio=img.naturalWidth&&img.naturalHeight?img.naturalWidth/img.naturalHeight:420/297;drawingFitWidth=Math.max(100,Math.min(paper.clientWidth-40,(paper.clientHeight-40)*ratio));zoomDrawing(100);paper.scrollTo(0,0);}
+$('#drawing-sheet').onload=fitDrawing;
+function showDrawing(){
+  if(!data)return;
+  if(!data.chain.steps.some(s=>s.step==='drawing'&&s.ok)){selectTab('drawing');$('#task-status').textContent='当前版本尚无工程图，请先生成当前版本交付包。';return;}
+  $('#drawing-version').textContent='图纸所属版本：'+run;
+  $('#drawing-specs').innerHTML=Object.entries(FIELDS).map(([k,label])=>`<span>${esc(label)}：${num(data.chain.spec[k])}</span>`).join('');
+  $('#drawing-warning').textContent=(data.current_preview.downstream_stale?'造型已修改：这张图属于修改前版本，需重新生成交付包。 ':'')+'上方为输入规格摘要，图内尺寸以标注为准。工程草案 · 未经制造审核。';
+  $('#drawing-sheet').src=f('drawing.svg');$('#drawing-download').href=f('drawing.svg');$('#drawing-viewer').showModal();fitDrawing();
+}
+$('#open-drawing').onclick=showDrawing;
+document.addEventListener('click',e=>{if(e.target.closest('[data-open-drawing]'))showDrawing();});
+$('#drawing-close').onclick=()=>$('#drawing-viewer').close();
+$('#drawing-in').onclick=()=>zoomDrawing(drawingZoom+25);$('#drawing-out').onclick=()=>zoomDrawing(drawingZoom-25);
+$('#drawing-fit').onclick=fitDrawing;
+$('#q').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#ask').requestSubmit();}};
+
 let openSequence=0;
 async function open(name){
+  $('#drawing-viewer').close();
   const sequence=++openSequence;
   try{const response=await fetch(`/api/runs/${encodeURIComponent(name)}`);if(!response.ok)throw new Error('版本读取失败');const result=await response.json();if(sequence!==openSequence)return;run=name;data=result;$('#run').value=name;history.replaceState(null,'',`?run=${encodeURIComponent(name)}`);render();}
   catch(e){if(sequence===openSequence){$('#run').value=run||'';$('#task-status').textContent='无法打开版本：'+e.message;}}
@@ -340,8 +362,8 @@ $("#ask").onsubmit = async e => {
   try {
     const r = await fetch(`/api/runs/${run}/chat`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({message: q})});
     if (!r.ok) throw new Error((await r.json()).detail);
-    await open(run); $("#task-status").textContent="本轮处理完成，结果见 Agent 记录。";
-  } catch (err) { $("#task-status").textContent="修改未完成，当前模型保留。"; $("#wait").textContent = "出错：" + err.message; $("#wait").id = ""; }
+    await open(run); $('#model-state').textContent='对话模型已响应 · 本轮结果已保存';$('#model-state').classList.add('connected'); $("#task-status").textContent="本轮处理完成，结果见 Agent 记录。";
+  } catch (err) { $("#task-status").textContent="修改未完成，当前模型保留。"; $("#wait").textContent = "出错：" + err.message; $("#wait").id = "";$("#q").value=q; }
   btn.disabled = false; setBusy(false);
 };
 $('#apply-pockets').onclick=async()=>{
