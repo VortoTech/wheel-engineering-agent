@@ -1,0 +1,43 @@
+"""The STEP-backed study must use the actual M59 STEP pair and coordinate datum."""
+import json
+import math
+import re
+from pathlib import Path
+
+import pytest
+
+from wheelcam.manufacturing_step_demo import create_step_package
+
+
+def test_m59_step_pair_drives_simulation_and_reference_nc(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    case = root / "runs/real-orders-eval/machining/case-03-d20w10.5"
+    spec = root / "runs/real-orders/case-03/d20w10.5/spec.json"
+    if not (case / "machining.step").is_file() or not spec.is_file():
+        pytest.skip("Private M59 machining STEP fixture unavailable")
+    output = tmp_path / "m59"
+    plan = create_step_package(case, output, spec_path=spec)
+    assert plan["source"]["stock.step"]["sha256"] != plan["source"]["machining.step"]["sha256"]
+    assert plan["geometry"]["machining_mesh_vs_report_volume_fraction"] < .001
+    assert plan["simulation"]["gouge_vs_machining_step_mm3"] < 1
+    assert plan["simulation"]["remaining_vs_machining_step_mm3"] > 0
+    assert plan["simulation"]["step_pair_mesh_baseline_mismatch_mm3"] > 0
+    assert (output / "stock_step.glb").stat().st_size > 1000
+    assert (output / "machining_step.glb").stat().st_size > 1000
+    nc = (output / "reference.nc").read_text()
+    assert "Z0 RIM WIDTH MIDPLANE" in nc
+    assert "TURNING CONTOUR: USE STOCK.STEP" in nc
+    assert "TURN CONTOUR REFERENCE" not in nc
+    assert nc.count("(G81 X") == 5
+    assert all(line.startswith("(") and line.endswith(")") for line in nc.splitlines())
+    g81 = next(line for line in nc.splitlines() if line.startswith("(G81 X"))
+    assert math.isclose(plan["operations"][1]["retract_plane_z_mm"],
+                        float(re.search(r"\bR(-?[\d.]+)", g81).group(1)), abs_tol=.001)
+    assert math.isclose(plan["operations"][1]["drill_end_z_mm"],
+                        float(re.search(r"\bZ(-?[\d.]+)", g81).group(1)), abs_tol=.001)
+    assert json.loads((output / "process_plan.json").read_text())["source"] == plan["source"]
+
+
+def test_missing_step_pair_is_rejected(tmp_path):
+    with pytest.raises(FileNotFoundError, match="Missing machining STEP inputs"):
+        create_step_package(tmp_path, tmp_path / "out")

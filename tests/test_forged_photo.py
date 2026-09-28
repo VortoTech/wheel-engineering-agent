@@ -140,6 +140,11 @@ def test_group_rule_prefers_the_largest_consistent_multiple():
     # Glossy black 6-spoke (27216): every sector is noisy; the old 1.3x-ratio rule stepped on to 12.
     glossy = {3: .2652, 4: .3437, 5: .3589, 6: .2882, 7: .364, 8: .3716, 9: .3766, 10: .3773, 11: .3762, 12: .3718}
     assert choose_group_count(glossy) == 6
+    # M61's twelve visible arms are six paired groups; a harmonic agreement of
+    # 0.67 must not turn the repeat order into twelve independent groups.
+    m61 = {3: .0363, 4: .111, 5: .3092, 6: .0389, 7: .3202, 8: .2707,
+           9: .2757, 10: .3119, 11: .3251, 12: .1143}
+    assert choose_group_count(m61) == 6
     five = {3: .2564, 4: .2577, 5: .1846, 6: .2779, 7: .2782, 8: .283, 9: .283, 10: .282, 11: .2871, 12: .2879}  # WORK 5-spoke, 6 lugs
     assert choose_group_count(five) == 5
     assert choose_group_count({3: .30, 4: .28, 5: .10, 6: .29, 10: .31, 12: .3}) == 5   # a true 5 is not pushed to 10

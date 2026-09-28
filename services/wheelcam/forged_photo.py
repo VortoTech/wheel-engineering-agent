@@ -316,7 +316,7 @@ def choose_group_count(spread: dict) -> int:
 
     Divisors of the true count agree too, so the minimum is often a divisor. Agreement is scored
     against the median spread over all N (what misaligned sectors look like): 1 = as good as the best,
-    0 = no better than misaligned. A multiple is taken while its score stays >= 0.5. A plain ratio to
+    0 = no better than misaligned. A multiple is taken while its score stays >= 0.75. A plain ratio to
     the best failed on a glossy wheel where every sector is noisy (27216: 12 chosen instead of 6).
     """
     best = min(spread, key=spread.get)
@@ -327,7 +327,7 @@ def choose_group_count(spread: dict) -> int:
     while stepped:
         stepped = False
         for m in range(2 * chosen, max(spread) + 1, chosen):
-            if m in score and score[m] >= .5:
+            if m in score and score[m] >= .75:
                 chosen, stepped = m, True
                 break
     return chosen
@@ -976,3 +976,4 @@ def fit_depth(image, recipe: dict, rim_points, hub_point, bright=.8):
               "method": "forged-photo-depth-v1 (weak perspective, window rims)",
               "limits": "测的是窗口边缘的深度；辐条顶面 = 边缘 + 斜面深度（face_crown_depth 或 flank_depth，未测）。凹面形状参数把握度低于中心深度。"}
     return {**recipe, **fitted}, report
+

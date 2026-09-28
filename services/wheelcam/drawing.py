@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import html
 import math
+import textwrap
 
 import numpy as np
 
@@ -64,9 +65,11 @@ def _dim_v(x, y0, y1, text, ext_from=None):
 
 
 def drawing_svg(body, p, *, spec=None, order=None, title="锻造单片轮毂 初稿", drawing_no="", scale=4.0,
-                source="渲染图重建 + 订单确认单规格", date=None) -> str:
+                source="渲染图重建 + 订单确认单规格", date=None, machining_report=None,
+                forged_report=None) -> str:
     """The A3 SVG of `body` (manifold) built from recipe `p` (ForgedWheel)."""
     spec, order = spec or {}, order or {}
+    machining_report, forged_report = machining_report or {}, forged_report or {}
     W, H = A3
     k = 1 / scale
     lo, hi = np.asarray(body.bounding_box()[:3]), np.asarray(body.bounding_box()[3:])
@@ -133,7 +136,7 @@ def drawing_svg(body, p, *, spec=None, order=None, title="锻造单片轮毂 初
     # title block
     size = f'{spec.get("diameter_in", "")}×{spec.get("width_in", "")}J' if spec else ""
     rows = [("名称", title), ("图号", drawing_no), ("规格", f'{size} ET{spec.get("et_mm", round(et, 1)):g} PCD {p.bolts}×{p.pcd:g} CB{2 * p.center_bore_r:g}'),
-            ("材料", "6061-T6 锻造"), ("毛坯", order.get("blank", "未指定")), ("比例 / 单位", f"1:{scale:g} / mm"),
+            ("材料", order.get("material", "未确认")), ("毛坯", order.get("blank", "未指定")), ("比例 / 单位", f"1:{scale:g} / mm"),
             ("来源", source), ("公差", "未定义：按工厂标准由工程师补注"), ("日期", (date or datetime.date.today()).isoformat()),
             ("状态", "未发布 NOT RELEASED · 需工程师审核")]
     bx, by, bw, rh = W - 10 - 150, H - 10 - len(rows) * 6.5, 150, 6.5
@@ -145,11 +148,21 @@ def drawing_svg(body, p, *, spec=None, order=None, title="锻造单片轮毂 初
         cls = "tr" if key == "状态" else "t"
         el.append(f'<text x="{bx + 30}" y="{y + 4.6}" class="{cls}">{html.escape(str(val))}</text>')
     el.append(f'<line x1="{bx + 28}" y1="{by}" x2="{bx + 28}" y2="{by + rh * len(rows)}" class="thin"/>')
-    notes = ["技术要求：", "1. 未注圆角、倒角按锻造与加工工艺由工程师确定。",
-             "2. 辐条曲面精加工由工厂 CAM 编程；本图只标注回转与孔系尺寸。",
-             "3. ET 为安装面到轮辋中心平面的距离，正值偏向外侧。"]
-    for i, line in enumerate(notes):
-        el.append(f'<text x="14" y="{H - 10 - (len(notes) - 1 - i) * 5.5:.1f}" class="t">{html.escape(line)}</text>')
+    notes = ["技术要求：", "1. 未注圆角、倒角按锻造与加工工艺由工程师确定。"]
+    notes.append("2. 辐条造型曲面未进入 STEP；需由工厂 CAM 与工程师确认。" if machining_report else
+                 "2. 辐条曲面精加工由工厂 CAM 编程；本图只标注回转与孔系尺寸。")
+    notes.append("3. ET 为安装面到轮辋中心平面的距离，正值偏向外侧。")
+    skipped = forged_report.get("forged", {}).get("skipped_operations", [])
+    if skipped:
+        notes.append("跳过的造型工序（STEP 中缺失）：" + "、".join(skipped))
+    notes.extend("锥座/加工调整（须工程师确认）：" + str(item)
+                 for item in machining_report.get("adjustments", []))
+    note_lines = [part for note in notes for part in textwrap.wrap(note, width=58,
+                                                                   break_long_words=True,
+                                                                   break_on_hyphens=False)]
+    for i, line in enumerate(note_lines):
+        cls = "tr" if line.startswith(("跳过", "锥座/加工调整")) else "t"
+        el.append(f'<text x="14" y="{H - 10 - (len(note_lines) - 1 - i) * 5.5:.1f}" class="{cls}">{html.escape(line)}</text>')
     style = """
   .part { fill: #eef1f5; stroke: #111; stroke-width: .25; }
   .hole { fill: white; stroke: #111; stroke-width: .25; }

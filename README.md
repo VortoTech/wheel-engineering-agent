@@ -1,6 +1,8 @@
-# WheelCAM · 轮毂图片辅助建模与加工平台
+# Engineering Reconstruction Agent · Wheel Engineering Skill
 
 项目代号：`wheel-cam`，正式名称待定。创建日期：2026-09-12。
+
+产品方向：将不完整的视觉信息、工程尺寸和专业规则转化为可重新生成、可追溯、可验证的参数化 CAD 草稿。黑客松 V0.1 聚焦轮毂，按 Understand → Reason → Reconstruct → Verify → Report 完成工程重建闭环。详见 [V0.1 产品定义与验收边界](docs/product-v0.1.md) 和 [Wheel Engineering Skill](.agents/skills/wheel-engineering/SKILL.md)。
 
 当前阶段：本地建模与加工准备样机 v0.15（开发分支）。模板 `forged-monoblock-v15` 保留照片窗口拟合、独立外圈盲槽与侧壁拔模；`window-fit-v3` 使用完整二维边界，v0.15 进一步从每组三个窗口之间的实体通道提取两条正向双辐脊线。所有单图无法确定的脊线高度、槽深、厚度、拔模和背面结构仍明确记录为模板假设。详见 [单图拟合与识图 · 窗口法](docs/photo-fitting.md#窗口法从窗口标注拟合v10)。
 
@@ -54,7 +56,7 @@ PYTHONPATH=services uv run uvicorn wheelcam.app:app --host 127.0.0.1 --port 1876
 
 ## 项目定位
 
-根据多张轮毂照片、设计效果图和明确的工程尺寸，辅助生成可编辑的轮毂 CAD 模型；结合实际锻坯、工艺、刀具、夹具及机床配置，逐步形成经过验证的数控加工程序。
+首个垂直场景使用轮毂照片、设计效果图和已知工程尺寸，辅助工程师建立可追溯的轮毂配方与 CAD 草稿，并报告已知、估计和未知项。结合实际锻坯、工艺、刀具、夹具及机床配置后，才可能逐步形成经过验证的数控加工程序。
 
 核心资产是轮毂参数与建模模板、成品和毛坯的工程几何、加工特征以及经过验证的工艺配置。
 

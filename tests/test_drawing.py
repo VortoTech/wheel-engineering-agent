@@ -16,5 +16,11 @@ def test_drawing_has_views_dimensions_and_title_block():
     svg = drawing_svg(body, p, spec={"diameter_in": 20, "width_in": 10.5, "et_mm": 15}, order={"blank": "B-1"},
                       drawing_no="case-00")
     ET.fromstring(svg)                                                         # well-formed
-    for text in (f"Ø{2 * p.lip_r:.1f}", "ET ", f"PCD Ø{p.pcd:g}", "Ø32×60° 锥座", "A-A", "未发布", "B-1", "case-00"):
+    for text in (f"Ø{2 * p.lip_r:.1f}", "ET ", f"PCD Ø{p.pcd:g}", "Ø32×60° 锥座", "A-A", "未发布", "B-1", "case-00", "未确认"):
         assert text in svg, text
+    reviewed = drawing_svg(body, p, machining_report={"adjustments": ["锥座深度由 22 上提到 12.3 mm，须工程师确认"]},
+                           forged_report={"forged": {"skipped_operations": ["spoke_grooves"]}})
+    ET.fromstring(reviewed)
+    assert "辐条造型曲面未进入 STEP" in reviewed
+    assert "锥座深度由 22 上提到 12.3 mm" in reviewed
+    assert "spoke_grooves" in reviewed
