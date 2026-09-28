@@ -3,7 +3,7 @@
     PYTHONPATH=services .venv/bin/python scripts/demo_chain.py runs/real-orders/case-03/d20w10.5 --out runs/demo/m59
 
 1 reconstruct   wheel_skill on the order render + confirmed specs (mesh kernel, seconds)
-  style         style agent: the preset's styling checked against the photo (wheelcam.style_agent)
+                (with WHEELCAM_VLM_BASE_URL set, the skill's style agent corrects the preset styling)
 2 machining     machining-level STEP pair (stock + part) with the order's hole form (wheelcam.machining_step)
 3 package       process plan, reference NC and cutting simulation on that STEP pair
                 (scripts/build_manufacturing_step_demo.py)
@@ -14,6 +14,7 @@ Every output is a draft for engineering review: manufacturing_status not_release
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -57,8 +58,11 @@ def main():
         from wheelcam.wheel_skill import run
         oblique = case / "oblique.jpg"
         r = run(case / "front.jpg", spec, out / "reconstruct", oblique if oblique.exists() else None,
-                kernel="mesh", spec_evidence={k: {"source": "drawing"} for k in spec}, hole_form=order.get("hole_form"))
+                kernel="mesh", spec_evidence={k: {"source": "drawing"} for k in spec}, hole_form=order.get("hole_form"),
+                style_agent=bool(os.getenv("WHEELCAM_VLM_BASE_URL")))
         return {"readiness": r["readiness"], "spokes": r["parameters"].get("spokes", {}).get("value"),
+                "style_agent": r.get("style_agent_status"),
+                "style_changed": {k: v["to"] for k, v in (r.get("style_agent") or {}).items() if k != "lip_pocket_r"},
                 "checks_failed": [k for k, v in r["checks"].items() if not v.get("pass", True)]}
 
     def package():
@@ -72,17 +76,8 @@ def main():
         sim = plan.get("simulation_3d") or plan.get("simulation") or {}
         return {"simulation": sim.get("status"), "conclusion": sim.get("conclusion")}
 
-    def style():
-        # the skill's default styling (forged-Y preset) checked against the order photo
-        import shutil
-        from wheelcam.style_agent import run as agent
-        _, log = agent(json.loads((out / "reconstruct/recipe.json").read_text()), case / "front.jpg", out / "style", spec)
-        return {"changed": {k: v["to"] for k, v in log["changed"].items() if k != "lip_pocket_r"},
-                "lip_windows": log["steps"][0]["answer"]}
-
     def design_recipe():
-        styled = out / "style/recipe.json"
-        return json.loads((styled if styled.exists() else out / "reconstruct/recipe.json").read_text())
+        return json.loads((out / "reconstruct/recipe.json").read_text())   # the skill's, style agent applied
 
     def machining():
         from wheelcam.machining_step import export
@@ -118,9 +113,7 @@ def main():
         return {"section_rim_median_mm": public["section_rim"].get("median_mm"),
                 "dim_errors": {k: v["error"] for k, v in public["dimensions"].items()}}
 
-    if step("reconstruct", reconstruct):
-        step("style", style)                     # optional: without a vision model the preset stays
-    if steps[0]["ok"] and step("machining", machining):
+    if step("reconstruct", reconstruct) and step("machining", machining):
         step("package", package)
         step("drawing", drawing)
         if (case / "truth.json").exists():
