@@ -128,7 +128,7 @@ const LABEL = {single_valid_solid:"单一有效实体", outer_diameter:"外径",
   offset_et:"ET", rotational_symmetry:"旋转对称", valid_single_solid:"单一有效实体", step_roundtrip:"STEP 回读",
   no_sliver_faces:"无碎面", lip_od_mm:"外径 mm", overall_width_mm:"总宽 mm", et_mm:"ET mm", pcd_mm:"PCD mm",
   bolts:"孔数", bolt_hole_d_mm:"螺栓孔 mm", center_bore_mm:"中心孔 mm"};
-const STEP = {reconstruct:"重建", machining:"加工级 STEP", package:"加工包", drawing:"工程图", compare:"CAD 对照"};
+const STEP = {reconstruct:"重建", style:"造型 agent", machining:"加工级 STEP", package:"加工包", drawing:"工程图", compare:"CAD 对照"};
 const f = p => `/files/${run}/${p}`;
 const checksTable = c => `<table>${Object.entries(c || {}).map(([k, v]) =>
   `<tr><td>${LABEL[k] || esc(k)}</td><td class="${v.pass === false ? "fail" : v.pass ? "pass" : ""}">${v.pass === false ? "未通过" : v.pass ? "通过" : "—"}</td>
