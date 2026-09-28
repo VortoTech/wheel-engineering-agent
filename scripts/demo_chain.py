@@ -51,7 +51,7 @@ def main():
         from wheelcam.wheel_skill import run
         oblique = case / "oblique.jpg"
         r = run(case / "front.jpg", spec, out / "reconstruct", oblique if oblique.exists() else None,
-                kernel="mesh", spec_evidence={k: {"source": "drawing"} for k in spec})
+                kernel="mesh", spec_evidence={k: {"source": "drawing"} for k in spec}, hole_form=order.get("hole_form"))
         return {"readiness": r["readiness"], "spokes": r["parameters"].get("spokes", {}).get("value"),
                 "checks_failed": [k for k, v in r["checks"].items() if not v.get("pass", True)]}
 

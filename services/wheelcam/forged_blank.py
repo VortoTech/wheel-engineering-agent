@@ -213,7 +213,8 @@ GROOVE_LAND = 2.0    # least spoke top left each side of a centreline groove, mm
 # 20 mm below R starting ~24 mm behind the front flange's inner face, and a barrel ~7 mm below R.
 # The old section was a plain cylinder with slab flanges ("the barrel looks wrong").
 FLANGE_H = 19.9      # lip radius above the bead seat radius, mm (13/13 orders)
-FLANGE_T = 13.0      # flange thickness up to its inner face, mm (median of the orders: 13.0-16.1)
+FLANGE_T = 13.65     # flange thickness up to its inner face, mm: half of wheel_skill's 27.3 mm width
+#                      allowance, the median of the orders (13.0-16.1)
 RIM_WALL = 5.0       # barrel wall, mm
 WELL_DEPTH = 20.0    # drop well below the bead seat radius, mm
 BARREL_DROP = 7.0    # barrel below the bead seat radius behind the well, mm

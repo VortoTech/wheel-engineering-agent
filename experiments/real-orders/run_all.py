@@ -28,13 +28,14 @@ def one(size_dir: Path, out: Path, kernel: str) -> dict:
     from wheelcam.wheel_skill import run
     sys.path.insert(0, str(HERE))
     from compare import compare, section_image
-    spec = json.loads((size_dir / "spec.json").read_text())["spec"]
+    order = json.loads((size_dir / "spec.json").read_text())
+    spec = order["spec"]
     evidence = {k: {"source": "drawing"} for k in spec}
     build = out / "build"
     t = time.time()
     oblique = size_dir / "oblique.jpg"
     result = run(size_dir / "front.jpg", spec, build, oblique if oblique.exists() else None, kernel=kernel,
-                 spec_evidence=evidence)
+                 spec_evidence=evidence, hole_form=order.get("hole_form"))
     row = {"seconds": round(time.time() - t), "readiness": result["readiness"],
            "checks_failed": [k for k, v in result["checks"].items() if not v.get("pass", True)],
            "spokes": result["parameters"].get("spokes", {}).get("value"),
