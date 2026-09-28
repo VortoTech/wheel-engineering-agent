@@ -58,7 +58,9 @@ def create_app(runs: Path) -> FastAPI:
                 "reconstruct": {k: v for k, v in (read(d / "reconstruct" / "engineering_report.json") or {}).items()
                                 if k in ("readiness", "readiness_limits", "checks", "questions", "unknown")},
                 "simulation": package.get("simulation") or package.get("simulation_3d"),
-                "glb": f"chat/{current.name}/wheel.glb" if current else "reconstruct/cad/wheel.glb",
+                "glb": (f"chat/{current.name}/wheel.glb" if current else
+                        "style/wheel.glb" if (d / "style" / "wheel.glb").exists() else "reconstruct/cad/wheel.glb"),
+                "style_agent": read(d / "style" / "style_agent.json"),
                 "references": sorted(p.name for p in (d / "reference").glob("*.jpg")),
                 "history": history}
 

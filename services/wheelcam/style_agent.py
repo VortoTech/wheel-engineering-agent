@@ -86,7 +86,9 @@ def ask_vlm(images, question, key, timeout=120):
     probs = {}
     for token in (choice.get("logprobs") or {}).get("content", []):   # the first true/false token, not a space
         if token["token"].strip().lower() in ("true", "false"):
-            probs = {t["token"].strip().lower(): math.exp(t["logprob"]) for t in token.get("top_logprobs", [])}
+            for t in token.get("top_logprobs", []):   # " true" and "true" both count as true
+                key_ = t["token"].strip().lower()
+                probs[key_] = probs.get(key_, 0.0) + math.exp(t["logprob"])
             break
     p_true = probs.get("true", 0.0) / max(probs.get("true", 0.0) + probs.get("false", 0.0), 1e-9)
     return text.startswith("true"), round(p_true, 3)

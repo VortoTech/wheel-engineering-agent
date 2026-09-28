@@ -169,7 +169,8 @@ def lip_window_tools(p):
     spans = []
     for w in (np.asarray(w, float) for w in outlines(p)):
         rr = np.hypot(w[:, 0], w[:, 1])
-        end = w[(rr > r0 - 16) & (rr < r0 - 2)]          # the window just inside the lip windows
+        top = min(float(rr.max()), r0 - 2)                # the window's own outer end, up to the lip band
+        end = w[(rr > top - 14) & (rr <= top + 1e-6)]     # (case-04's windows end short of the band)
         if len(end) < 4:
             continue
         c = math.atan2(end[:, 1].mean(), end[:, 0].mean())

@@ -143,6 +143,7 @@ function render(){
     <tr><td>孔系</td><td>${sp.bolts}×${sp.pcd_mm}  中心孔 ${sp.center_bore_mm}</td></tr>
     <tr><td>孔型</td><td>${esc(ch.hole_form || "确认单未给出")}</td></tr></table>
     <h3>网格重建校验（${esc(data.reconstruct.readiness || "")}）</h3>${checksTable(data.reconstruct.checks)}
+    ${agentPanel(data.style_agent)}
     <h3>加工级 STEP 校验</h3>${checksTable(m.checks)}
     ${(m.adjustments || []).map(a => `<p class="note">⚠ ${esc(a)}</p>`).join("")}
     <h3>STEP 中包含 / 不包含</h3><p>${esc((m.in_step || []).join("；"))}</p><p class="note">${esc((m.not_in_step || []).join("；"))}</p>
@@ -169,6 +170,17 @@ function render(){
   $("#log").innerHTML = data.history.map(bubble).join("");
   $("#log").scrollTop = 1e9;
   loadGlb(f(data.glb));
+}
+function agentPanel(a){
+  if (!a) return "";
+  const rows = a.steps.map(s => s.step === "look"
+      ? `<tr><td>看</td><td>${esc(s.question)}：<b>${s.answer ? "有" : "没有"}</b>（p=${s.p_true}）${s.count ? `，计数 ${s.count.value}` : ""}</td></tr>`
+    : s.step === "search"
+      ? `<tr><td>搜</td><td>${esc(s.param)}：${s.scores.map(r => `${r.flank_w} mm → ${r.edge_mm}`).join("，")}${s.chosen ? `；选 ${s.chosen.flank_w} mm` : "；不改"}</td></tr>`
+      : `<tr><td>验</td><td>${esc(s.result)}${s.checks_failed.length ? "：" + esc(s.checks_failed.join("、")) : ""}</td></tr>`).join("");
+  const ch = Object.entries(a.changed || {}).filter(([k]) => k !== "lip_pocket_r").map(([k, v]) => `${k} ${v.from} → ${v.to}`).join("；");
+  return `<h3>造型 agent（照片对照修正预设造型）</h3><table>${rows}</table><p>${ch ? "已修改：" + esc(ch) : "未修改"}</p>
+    <p><img class="fig" style="width:49%" src="${f("style/before_render.png")}" alt="修正前"> <img class="fig" style="width:49%" src="${f("style/after_render.png")}" alt="修正后"></p>`;
 }
 function bubble(h){
   if (h.reset) return `<div class="msg bot">${esc(h.summary)}</div>`;
