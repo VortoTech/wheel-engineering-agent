@@ -103,6 +103,7 @@ def create_app(runs: Path) -> FastAPI:
         last = next((h for h in reversed(history) if h.get("dir")), None)
         return history, (d / "chat" / last["dir"]) if last else None
 
+    @app.get("/agent", response_class=HTMLResponse)
     @app.get("/", response_class=HTMLResponse)
     def page():
         return (Path(__file__).parent / "workbench.html").read_text()

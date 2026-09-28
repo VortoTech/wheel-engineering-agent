@@ -110,3 +110,9 @@ bash scripts/start_workbench_spark.sh runs/workbench-refinement-20260928 8795 18
 - 专注模型：隐藏左右面板，点击“返回工作台”恢复；窄屏仍保留退出入口。
 
 浏览器已验证桌面布局、390px 窄屏、材质切换、进入/退出专注视图、盲窗控件展开、工程图打开/关闭；未记录控制台 error。JS 语法检查通过。本轮没有更改后端或重新运行模型生成。截图：`runs/workbench-refinement-20260928/studio-workspace.png`。
+
+## 独立 Agent 对话页
+
+新增 `/agent?run=<版本>`，顶部主导航切换设计工作台与 Agent 对话。对话页采用参数上下文 / 宽幅对话 / 三维预览的布局，复用既有 API、历史和版本，避免两套状态分叉。任务运行中阻止页内导航跳转，完成后可返回同版本工作台。
+
+验证：两条页面路由均 HTTP 200，JS 语法通过。浏览器在 `agent-live-check` 通过 Spark 真实模型询问盲窗数量，返回“15个”，`changed=None`、`dir=None`，未触发建模。截图 `runs/workbench-refinement-20260928/agent-page.png`。本次没有修改模型能力或 CAD 内核。
