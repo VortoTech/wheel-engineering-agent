@@ -1,0 +1,378 @@
+{
+  "attempts": 12,
+  "finished": 12,
+  "groups": {
+    "A": {
+      "finished": 4,
+      "expected": 4,
+      "completed": 0,
+      "valid_single_solid": 0,
+      "step_roundtrip": 0,
+      "seconds_total": 683.13,
+      "missing_et_declared": 0,
+      "missing_et_assessed": 0,
+      "output_truncated": 3
+    },
+    "B": {
+      "finished": 4,
+      "expected": 4,
+      "completed": 4,
+      "valid_single_solid": 4,
+      "step_roundtrip": 4,
+      "seconds_total": 239.25,
+      "missing_et_declared": 2,
+      "missing_et_assessed": 2,
+      "output_truncated": 0
+    },
+    "C": {
+      "finished": 4,
+      "expected": 4,
+      "completed": 4,
+      "valid_single_solid": 4,
+      "step_roundtrip": 4,
+      "seconds_total": 330.53,
+      "missing_et_declared": 2,
+      "missing_et_assessed": 2,
+      "output_truncated": 0
+    }
+  },
+  "results": [
+    {
+      "case": "case-03-d20w10.5-full",
+      "arm": "A",
+      "completed": false,
+      "error": "worker failed; see worker.log",
+      "seconds": 213.75,
+      "model_usage": {
+        "prompt_tokens": 1082,
+        "total_tokens": 5178,
+        "completion_tokens": 4096,
+        "prompt_tokens_details": null
+      },
+      "finish_reason": "length",
+      "failure_detail": "json.decoder.JSONDecodeError: Expecting ',' delimiter: line 9 column 4 (char 146)",
+      "failure_category": "output_truncated"
+    },
+    {
+      "case": "case-03-d20w10.5-full",
+      "arm": "B",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 7442541.751,
+        "roundtrip_volume_delta": 4.766671228156203e-06,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 294.0,
+            "truth_mm": 294.26,
+            "error_mm": -0.26
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "41e62d308ee8798f62f6e48f0d0918fae47aa28ed4955e10c3d2bb0c73730bd5",
+      "supplied_values_preserved": true,
+      "missing_et_declared": null,
+      "style_agent_status": "disabled",
+      "seconds": 27.28
+    },
+    {
+      "case": "case-03-d20w10.5-full",
+      "arm": "C",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 7442541.751,
+        "roundtrip_volume_delta": 4.766671228156203e-06,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 294.0,
+            "truth_mm": 294.26,
+            "error_mm": -0.26
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "a01c2ed32812239fb9218540031d354581e01e2c10165529fcf49c0884dc9816",
+      "supplied_values_preserved": true,
+      "missing_et_declared": null,
+      "style_agent_status": "applied",
+      "seconds": 49.29
+    },
+    {
+      "case": "case-03-d20w10.5-missing-et",
+      "arm": "C",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 7505258.096,
+        "roundtrip_volume_delta": 9.907979118192116e-07,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 294.0,
+            "truth_mm": 294.26,
+            "error_mm": -0.26
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "6ff70ef3f7cc8d40d2f448c6d36f39f2a00c8fac669e3ca9e647b992db8f8111",
+      "supplied_values_preserved": true,
+      "missing_et_declared": true,
+      "style_agent_status": "applied",
+      "seconds": 49.56
+    },
+    {
+      "case": "case-03-d20w10.5-missing-et",
+      "arm": "A",
+      "completed": false,
+      "error": "worker failed; see worker.log",
+      "seconds": 42.86,
+      "model_usage": {
+        "prompt_tokens": 1072,
+        "total_tokens": 1895,
+        "completion_tokens": 823,
+        "prompt_tokens_details": null
+      },
+      "finish_reason": "stop",
+      "failure_detail": "ValueError: unsupported CSG operation",
+      "failure_category": "unsupported_operation"
+    },
+    {
+      "case": "case-03-d20w10.5-missing-et",
+      "arm": "B",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 7505258.096,
+        "roundtrip_volume_delta": 9.907979118192116e-07,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 294.0,
+            "truth_mm": 294.26,
+            "error_mm": -0.26
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "7b43a9a7ff69220afaff9aecd944c64a18a2746ad22dce231996ddc5cdb8fc2b",
+      "supplied_values_preserved": true,
+      "missing_et_declared": true,
+      "style_agent_status": "disabled",
+      "seconds": 27.26
+    },
+    {
+      "case": "case-01-d20w10-full",
+      "arm": "C",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 6599150.004,
+        "roundtrip_volume_delta": 1.4717756862052248e-07,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 281.3,
+            "truth_mm": 279.95,
+            "error_mm": 1.35
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "f381ac8a618100fe2c6855f8a60c58f1428681c710d649184c92ac5fcd9bed2b",
+      "supplied_values_preserved": true,
+      "missing_et_declared": null,
+      "style_agent_status": "unchanged",
+      "seconds": 115.87
+    },
+    {
+      "case": "case-01-d20w10-full",
+      "arm": "A",
+      "completed": false,
+      "error": "worker failed; see worker.log",
+      "seconds": 213.71,
+      "model_usage": {
+        "prompt_tokens": 915,
+        "total_tokens": 5011,
+        "completion_tokens": 4096,
+        "prompt_tokens_details": null
+      },
+      "finish_reason": "length",
+      "failure_detail": "json.decoder.JSONDecodeError: Expecting ',' delimiter: line 9 column 4 (char 145)",
+      "failure_category": "output_truncated"
+    },
+    {
+      "case": "case-01-d20w10-full",
+      "arm": "B",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 6599150.004,
+        "roundtrip_volume_delta": 1.4717756862052248e-07,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 281.3,
+            "truth_mm": 279.95,
+            "error_mm": 1.35
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "61b0ca1ad88544f2a282324e6b68463757900e506ea37cfb7d0eb88786b1975d",
+      "supplied_values_preserved": true,
+      "missing_et_declared": null,
+      "style_agent_status": "disabled",
+      "seconds": 92.48
+    },
+    {
+      "case": "case-01-d20w10-missing-et",
+      "arm": "A",
+      "completed": false,
+      "error": "worker failed; see worker.log",
+      "seconds": 212.81,
+      "model_usage": {
+        "prompt_tokens": 906,
+        "total_tokens": 5002,
+        "completion_tokens": 4096,
+        "prompt_tokens_details": null
+      },
+      "finish_reason": "length",
+      "failure_detail": "json.decoder.JSONDecodeError: Expecting ',' delimiter: line 10 column 4 (char 175)",
+      "failure_category": "output_truncated"
+    },
+    {
+      "case": "case-01-d20w10-missing-et",
+      "arm": "B",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 6486572.976,
+        "roundtrip_volume_delta": 1.0144860630195507e-06,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 281.3,
+            "truth_mm": 279.95,
+            "error_mm": 1.35
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "2b946bb8084faa03030e9aa778eea55b25977311fc9044a3981b2a73431ca4e9",
+      "supplied_values_preserved": true,
+      "missing_et_declared": true,
+      "style_agent_status": "disabled",
+      "seconds": 92.23
+    },
+    {
+      "case": "case-01-d20w10-missing-et",
+      "arm": "C",
+      "completed": true,
+      "score": {
+        "valid_single_solid": true,
+        "solid_count": 1,
+        "step_roundtrip": true,
+        "volume_mm3": 6486572.976,
+        "roundtrip_volume_delta": 1.0144860630195507e-06,
+        "dimensions": {
+          "lip_od_mm": {
+            "measured_mm": 547.8,
+            "truth_mm": 547.8,
+            "error_mm": 0.0
+          },
+          "overall_width_mm": {
+            "measured_mm": 281.3,
+            "truth_mm": 279.95,
+            "error_mm": 1.35
+          }
+        },
+        "center_bore_circular_edge_candidate": true,
+        "et_independent_metrology": "unavailable",
+        "pcd_hole_axis_metrology": "unavailable",
+        "visual_similarity": "unavailable",
+        "manufacturing_status": "not_released"
+      },
+      "step_sha256": "a31f09a74b5579dadfccb81aeed960de1f20696cda360eecbc1b6b467806551a",
+      "supplied_values_preserved": true,
+      "missing_et_declared": true,
+      "style_agent_status": "unchanged",
+      "seconds": 115.81
+    }
+  ],
+  "scope": "Development cases, bounded CSG baseline, simplified machining STEP. Truncation is not a geometry-quality comparison. Missing assessment is not a pass."
+}

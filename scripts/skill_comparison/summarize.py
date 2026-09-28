@@ -18,6 +18,11 @@ def summarize(root):
             row['finish_reason']=response['choices'][0].get('finish_reason')
         if not row['completed'] and (dest/'worker.log').exists():
             row['failure_detail']=(dest/'worker.log').read_text().strip().splitlines()[-1]
+        if not row['completed']:
+            detail=row.get('failure_detail','')
+            row['failure_category']=('output_truncated' if row.get('finish_reason')=='length' else
+                'unsupported_operation' if 'unsupported CSG operation' in detail else
+                'timeout' if 'wall-time' in row.get('error','') else 'worker_or_evaluator_failure')
         results.append(row)
     groups={}
     for arm in ('A','B','C'):

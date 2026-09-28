@@ -63,3 +63,7 @@ PYTHONPATH=services python scripts/evaluate_style_ablation.py \
 - 缺少未参与模板标定的新款，暂无独立泛化结果。
 - 此次不改变完整造型 STEP 的成功率，不增加机床碰撞、强度或制造审核能力。
 - 工作台整页截图协议超时；已保留页面操作记录、真实 WebGL 帧和后台产物，不能把这些称为完整录屏验收。正式成片与备份视频仍需录制。
+
+## 补充：通用工具基线与 Wheel Skill 的首轮系统对照
+
+已完成 Spark 上 2 款 × 完整/缺 ET × A/B/C 的 12 次 pilot，详见 [三组结果及边界](skill-comparison-results.md)。B/C 各 4/4 通过有效单实体和 STEP 回读；A 因输出截断与不支持的工具操作为 0/4，没有可用于几何精度比较的有效输出。此结果证明当前开发样本的 Skill 路线可执行；它尚不是成熟通用 Agent 与 Skill 的充分质量对照，不能宣传精度增益百分比或新款泛化。

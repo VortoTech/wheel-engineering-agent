@@ -1,0 +1,97 @@
+{
+  "schema": "bounded-skill-comparison-v1",
+  "platform": "Linux-6.11.0-1014-nvidia-aarch64-with-glibc2.41",
+  "machine": "aarch64",
+  "model": "step3-vl-10b-fp8",
+  "budget_seconds_per_arm": 600,
+  "attempts": 12,
+  "arms": {
+    "A": "generic bounded CSG model, no wheel modules",
+    "B": "Wheel Skill + machining STEP",
+    "C": "Wheel Skill + style Agent + machining STEP"
+  },
+  "scope": "development-set system comparison; restricted generic tools; front only; one attempt; no repair retries; no holdout claim",
+  "limitations": [
+    "STEP in B/C is simplified machining geometry, not full visual style",
+    "No independent ET/PCD/visual metric implemented in pilot",
+    "Same time cap, not equal consumed compute or LLM token count",
+    "C can fall back: actual style status must be read"
+  ],
+  "code_sha256": {
+    "services/wheelcam/case_library.py": "46be02f5331f5e4f0d4a244af787e376d851e7bd11d154ac694b3b5bfc3e07b0",
+    "services/wheelcam/parasolid_xt.py": "5187527780dd4860d213e1d9e6cb2a26bc9abf2ceb10b9b6b975da8949228be8",
+    "services/wheelcam/sf3d.py": "5e3c7e8ad2eda4ea86d89b331c0ab45b9746bee3563fc6c853810d1e2358ae29",
+    "services/wheelcam/sector_program.py": "057458dc7ee44c785b98ec92661df1fc14b6e6c88add545cf31ad6aed5b5dc65",
+    "services/wheelcam/contour_review.py": "81f0c1688770e2cb89e90454cd1520343116b54a42d753250e5bb759e5d6e02c",
+    "services/wheelcam/front_render.py": "4bd8332cd2a1759b6340a97e30cc2bdcc6ee62303a8ba68e2060859d550bb17e",
+    "services/wheelcam/manufacturing_demo.py": "8758046285bff532ab8881a0dcea59fd844d173c12b341809f9f8b4015668847",
+    "services/wheelcam/agent_orchestrator.py": "167d54881c7417336755757aa79d31a9946834e9135eb845dd294cb2617c2b55",
+    "services/wheelcam/workbench_revision.py": "c1fc25bd4550940b8eacd73a398e0e67c9b09f7c1810e3e7144d833bbe4647cd",
+    "services/wheelcam/mesh_build.py": "5872539633564ad5fd67dada8370c76ecc03c3af7b269a77c42b1c93452696e0",
+    "services/wheelcam/root_fitting.py": "4732416d29c17b8b44b7e660a90b75790e1c0764167859456134e8c18b431222",
+    "services/wheelcam/mass_properties.py": "f88b8edaf7822343a0d19c63cc2aa2a3331af034e8fa810cf0014b302054f392",
+    "services/wheelcam/wheel_skill_contract.py": "c7c8205efd887656304d6bcd76a77afdf8cb53ca8a6ca3cf91863167e5ca69d9",
+    "services/wheelcam/privacy.py": "92ba84efe8b16b591182d1b38b6e12169154c1ddaa9eba0cc635a043ed434b62",
+    "services/wheelcam/preparation.py": "bcf29b9d1747623c2dfd4ec9cedd1143a6c0997d7a0dd0b8daf84725686fea2e",
+    "services/wheelcam/visual_check.py": "14676267f96d5c13758992a0d74a1b5f7dfcbe57a7fffb24e2a9e9169e227d04",
+    "services/wheelcam/agent_cad.py": "9da78cd4ff626135f8c0497f9a8c70eb4a5942e7aa6993565c305acb22558b8c",
+    "services/wheelcam/photo_pose.py": "f9eba75555dca2023309f52a18f3783bfa515c3f6cbe1117592574a90c13de81",
+    "services/wheelcam/wheel_skill.py": "f7ee678e4e89e610b3bbbdcbce8e9abc3f41774101831d1346eca109a834a3e4",
+    "services/wheelcam/window_fit.py": "b69d5303b7e50f58bef252b8efac280f4f9b97f7695ae5fb8b9f04f16a25bd9b",
+    "services/wheelcam/workbench.py": "8e1da0e48438a5a17f8bfd48a6381fb5b91c6de1398a16c0d9035a4be84ef6f9",
+    "services/wheelcam/style_agent.py": "e3f286c7810c9da82c9ef5242a4714e1915f44fd8c1828c2f45e014f794f20d1",
+    "services/wheelcam/sector_fairing.py": "8b34fb167bbfda878819ec4b254e9cf0cb41e7ddc472d94a86f070cb1221e289",
+    "services/wheelcam/app.py": "cb35ee049bdb12665cc4b6defca737144ed2d33d72a4e372611bfeebee5c2018",
+    "services/wheelcam/forged_photo.py": "ec2c1d67093e5ae8daa9954a71931e736da1919ceeff6804469013480bc45de1",
+    "services/wheelcam/appearance.py": "9904459dac39194cbd57a462d167ce9bc20b440777eb85fda1ffe49ecface6eb",
+    "services/wheelcam/vision.py": "cf50a7f0e8e3d9d7e11ffcf7c28742c81956a08db03d550bd2477f48b63e85e9",
+    "services/wheelcam/sector_camera.py": "e4b5f0a409ae5ff742ca56f6170e6a489def38a9c58f82841b88f364db08cda5",
+    "services/wheelcam/drawing.py": "0ed9aba52e97ef0072fe677ff17523c0ec4848b140d6bceee45ac95880803278",
+    "services/wheelcam/engineering_schema.py": "9918e5c110bef3d30fea0d7ab64ffea375e0210b740c883796d1c227ee58220c",
+    "services/wheelcam/manufacturing_step_demo.py": "107590ee78792939c68102d5340976f9ae06af69ff1534c3687534b4726c6885",
+    "services/wheelcam/sector_evidence.py": "fb884f4247ae753423221f7ce4ebc40d37771a1c6420716502f1ecaeebf8ed47",
+    "services/wheelcam/template.py": "83c01705ff275f4b3ba3be7c5c21cce49a08aa414740c5a05f689211cc0b266b",
+    "services/wheelcam/presets.py": "d54a835e8ff5a312f98b6a700aa0cd4bb0771ac8e4c089ff9885ff7e69dcc078",
+    "services/wheelcam/sector_study.py": "a86c3e027fc1982a006626612e8f30390e8880f5bb130cb8ae1500d3d58d7130",
+    "services/wheelcam/models.py": "8e21c168cc567c447562d663a29f130901a00916695b6fd5a9c92b3ae011e35e",
+    "services/wheelcam/contours.py": "97bf7280731b89c9ffa0d38847db3727219f8fff9c69a3f7504ea6b9723a3cf9",
+    "services/wheelcam/__init__.py": "741b200e8fdb9b05e9787ba1f3569aa8663eb2e77568aa13635b8d7c0fb6413c",
+    "services/wheelcam/geometry.py": "8cd783bb9dc011d84f698147443edaa1e4a22839f780da182ff48ef3b7cee56d",
+    "services/wheelcam/front_reference.py": "92f09c7b9058225fdb6dfae279262cd75de71a74f8dfd9c3ed4ee15e63400a6a",
+    "services/wheelcam/storage.py": "1d8766502d370807563842bd14e4560cfeee4d835de90fac1d7671d4efeff1d2",
+    "services/wheelcam/join_worker.py": "d526a9be1d0cced62f0c1084c509d3d6c5485d16abf66d56b7967ed566288275",
+    "services/wheelcam/vlm_style.py": "81721740d648b9578b924e21977ada101d563761f944200947189f6ba938ef32",
+    "services/wheelcam/text_wheel.py": "adcc9cbd90a06c1354d9b5ec97dd60d65a2aa5a31bbaaeab4482ca0e36361c00",
+    "services/wheelcam/recipe_chat.py": "a1fbc4fc8f9d0ee25d74b8c921982eef6df1f9228ca26a34992399b05f83b4cc",
+    "services/wheelcam/worker.py": "e348cc350400036a43994aa2d52f54710082d098085564ea77c380ebef8ad593",
+    "services/wheelcam/sector_patches.py": "d44f2ea020436ea2da974b383a1d2fa6b77f4cb2cb799fbc4bba3defb5199847",
+    "services/wheelcam/forged_blank.py": "32787371e7f8de0cad40ae6486361defc5c90ad8127815e6003a7eeb1ef0b0d3",
+    "services/wheelcam/agent_tools.py": "8226a6e7ef31fd515476b55e848970714b83907f550316d3ad500a47e20fdbc7",
+    "services/wheelcam/windows.py": "3b2d8ea0233217baa15580e667411a45cc61b1487215cee457903456c62136c0",
+    "services/wheelcam/build_resolution.py": "6a39708b7beda43329b88093e8a932a56163ee4af55946bdfc0bde3a42229fca",
+    "services/wheelcam/machining_step.py": "1d78ffd456beb9e0a3655071d5eab1ba3daa63cffedf1e1e2d9987ae243dfd52",
+    "services/wheelcam/build.py": "3f54a85e3620a69e12036ca9600dd7f092acc1e027bb86963ae6930bd8098456",
+    "services/wheelcam/sector_surface.py": "9f2652d143c04f8ca6ddd4da6df3742be8853b0bf9f35f89decb623ad13ecf60",
+    "scripts/skill_comparison/score.py": "2a6e61d899a5d4492cd04b47e2d5f2b5f4fc5ba4d44df23451d1452b778646fa",
+    "scripts/skill_comparison/run.py": "2389abce6713f78dbf4249f8013b95884b3224503d344d3792275ab0452b54e5",
+    "scripts/skill_comparison/generic_cad.py": "94fcb652e37f34d6bb6940ce6f51a82aec5471ead0fd9e3adb34f5aaf9daf939"
+  },
+  "cases": [
+    {
+      "id": "case-03-d20w10.5",
+      "inputs": {
+        "front.jpg": "fe7dae90727ef9cc6769528e0c012b0a175d809fac47b7ab0ced45bfcc91bdfe",
+        "spec.json": "b7b34c3d55fdbcc0362463fdca7e6fc04768f959e07ce3cb7b212d2f65852828"
+      },
+      "truth_sha256": "8ae1778dcc7bca7066386b60950dbdbae7ffc57ce56b98e5ce97c776107984cf"
+    },
+    {
+      "id": "case-01-d20w10",
+      "inputs": {
+        "front.jpg": "6e5afe2bbc9b93aaa1f8a22530531cdeff9f500141a6d25cd853b6f9afe8b23c",
+        "spec.json": "d1051184274edf857138e83865c54c58c484d916d96c89d10b1028a1e907c309"
+      },
+      "truth_sha256": "8000346df7760d449dbe2442d461c46e1c866a9d94aae5d6234d1ff7a4faeaa4"
+    }
+  ]
+}
