@@ -9,21 +9,24 @@ it is either an explicit default listed under `unknown`, or the run stops and sa
         --out runs/hf64 [--no-build]
 
 Readiness levels (the report never claims more than the evidence supports):
-  L0 visual        a shape that looks like the photo
-  L1 parametric    a valid, editable single-solid STEP from a recipe
-  L2 dimensioned   every key dimension from the user or a spec, and verified on the solid
-  L3 validated     L2 + geometry integrity, bolt pattern, symmetry and fit checks all pass
+  L0 visual        a mesh preview, or no verified STEP
+  L1 parametric    a valid single-solid STEP, regenerable from the saved recipe
+  L2 dimensioned   supplied key specifications checked against that STEP
+  L3 geometry      L2 + the listed geometry checks pass; not engineering approval
   L4 / L5          simulation / manufacturing review: out of scope, never assigned here
 """
 import argparse
+import hashlib
 import json
 import math
+import os
 from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 
-from .forged_blank import ForgedWheel, recipe_from_dict
+from .forged_blank import FLANGE_H, ForgedWheel, hole_form as parse_hole_form, recipe_from_dict
+from .wheel_skill_contract import WheelInputSpec, input_evidence, understanding, validate_spec_evidence
 
 KEY_SPECS = {                      # spec key -> what it fixes; all are needed for L2
     "diameter_in": "rim diameter (lip radius)",
@@ -37,6 +40,7 @@ BORE_WALL = 3.0                    # least wall between a lug seat counterbore a
 WEB_HUB = (35.0, 60.0)             # hub web thickness a forged centre is given, mm
 RING_Z_MAX = -5.0                  # the spoke ring stays this far under the lip face, mm
 SEAT_D = 30.0                      # lug seat counterbore, mm: a 22 mm hex socket (~28 mm OD) plus clearance
+TOTAL_FLANGE_ALLOWANCE_MM = 27.3 # median overall-width excess in those 13 files; model-specific residual remains
 UNOBSERVABLE = {                   # never measured from photos; listed with the value used
     "back_side": "背面减重腔、背部结构：照片看不到，按模板默认（当前关闭）。",
     "spoke_chamfer_depth": "辐条斜切深度：照片测不到，按默认值。",
@@ -54,25 +58,27 @@ def envelope_from_specs(spec: dict) -> tuple[dict, dict]:
     base = ForgedWheel()
     upd, prov = {}, {}
     if "diameter_in" in spec:
-        lip_r = spec["diameter_in"] * 25.4 / 2 + 18.0            # bead seat radius + flange height
+        lip_r = spec["diameter_in"] * 25.4 / 2 + FLANGE_H
         upd.update(lip_r=round(lip_r, 1), lip_face_r_in=round(lip_r - 14, 1), barrel_outer_r=round(lip_r - 22, 1),
                    barrel_inner_r=round(lip_r - 27, 1), ring_r=round(lip_r - 38, 1))
-        prov["lip_r"] = _record(upd["lip_r"], "spec", 1.0, f'{spec["diameter_in"]}″ 名义直径 + 轮缘 18 mm（轮缘高度为模板估计）')
+        prov["lip_r"] = _record(upd["lip_r"], "estimate", None,
+                                f'{spec["diameter_in"]}″ 名义直径 + 单侧轮缘 {FLANGE_H:g} mm（由同批 13 个 CAD 标定，非独立评测）')
         prov["barrel_wall"] = _record(5.0, "estimate", None, "旋压轮辋常见壁厚 4–6 mm")
     else:
         prov["lip_r"] = _record(base.lip_r, "default", None, "未提供直径，用模板默认 20″")
     if "width_in" in spec:
-        upd["width"] = round(spec["width_in"] * 25.4 + 25.0, 1)    # J width + two flange thicknesses
-        prov["width"] = _record(upd["width"], "spec", 1.0, f'{spec["width_in"]}J + 两侧轮缘约 25 mm（估计）')
+        upd["width"] = round(spec["width_in"] * 25.4 + TOTAL_FLANGE_ALLOWANCE_MM, 1)
+        prov["width"] = _record(upd["width"], "estimate", None,
+                                f'{spec["width_in"]}J + 两侧轮缘合计 {TOTAL_FLANGE_ALLOWANCE_MM:g} mm（同批 13 个 CAD 中位数标定，非独立评测）')
     else:
         prov["width"] = _record(base.width, "default", None, "未提供宽度")
     for key, field, fn in (("pcd_mm", "pcd", float), ("bolts", "bolts", int)):
         if key in spec:
             upd[field] = fn(spec[key])
-            prov[field] = _record(upd[field], "spec", 1.0)
+            prov[field] = _record(upd[field], "spec", None, "原始规格来源见 engineering_understanding.spec_evidence")
     if "center_bore_mm" in spec:
         upd["center_bore_r"] = round(spec["center_bore_mm"] / 2, 2)
-        prov["center_bore_r"] = _record(upd["center_bore_r"], "spec", 1.0)
+        prov["center_bore_r"] = _record(upd["center_bore_r"], "spec", None, "由输入中心孔直径换算；来源见 spec_evidence")
     if "pcd_mm" in spec:
         upd["hub_r"] = round(spec["pcd_mm"] / 2 + 10, 1)
         prov["hub_r"] = _record(upd["hub_r"], "estimate", None, "PCD/2 + 10 mm")
@@ -96,10 +102,30 @@ def _front_rim_hub(image):
     ys, xs = np.nonzero(fg)
     if len(xs) < 1000:
         return None
-    w, h = xs.max() - xs.min(), ys.max() - ys.min()
+    # Text in the upper corner and a floor shadow can widen the full-image box.
+    # The wheel's diameters cross its centre, so sample strips through the rough
+    # box centre, then refine the other strip through the measured horizontal centre.
+    rough_y = int((ys.min() + ys.max()) / 2)
+    band_y = max(2, int(fg.shape[0] * .01))
+    row = fg[max(0, rough_y - band_y):rough_y + band_y + 1]
+    row_x = np.flatnonzero(row.any(axis=0))
+    if len(row_x) < 2:
+        return None
+    cx = float((row_x.min() + row_x.max()) / 2)
+    band_x = max(2, int(fg.shape[1] * .01))
+    col = fg[:, max(0, int(cx) - band_x):int(cx) + band_x + 1]
+    col_y = np.flatnonzero(col.any(axis=1))
+    if len(col_y) < 2:
+        return None
+    cy = float((col_y.min() + col_y.max()) / 2)
+    row = fg[max(0, int(cy) - band_y):int(cy) + band_y + 1]
+    row_x = np.flatnonzero(row.any(axis=0))
+    if len(row_x) < 2:
+        return None
+    w, h = row_x.max() - row_x.min(), col_y.max() - col_y.min()
     if not .93 < w / max(h, 1) < 1.07:                       # an oblique view is an ellipse, not a circle
         return None
-    cx, cy, r = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2, (w + h) / 4
+    cx, cy, r = (row_x.min() + row_x.max()) / 2, (col_y.min() + col_y.max()) / 2, (w + h) / 4
     rim = [[cx + r * math.cos(t), cy + r * math.sin(t)] for t in np.linspace(0, 2 * math.pi, 16, endpoint=False)]
     return rim, [cx, cy]
 
@@ -293,7 +319,7 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
         questions.append("请提供一张 20–45° 的斜视图：正面照测不出凹面深度。")
     if et is not None:
         recipe["web_thick_hub"] = round(recipe["hub_z"] + recipe["width"] / 2 - et, 1)
-        prov["et"] = _record(et, "spec", 1.0, "由 ET 反推安装面位置（中心背面厚度随之调整）")
+        prov["et"] = _record(et, "spec", None, "由 ET 反推安装面位置（中心背面厚度随之调整）；来源见 spec_evidence")
         note = _hold_hub_web(recipe)
         if note:
             prov["dish_depth"] = _record({"hub_z": recipe["hub_z"], "ring_z": recipe["ring_z"]}, "rule", None, note)
@@ -313,6 +339,14 @@ def verify(step_path, recipe, spec: dict, report: dict) -> dict:
     checks = {}
     bb = part.BoundingBox()
     checks["single_valid_solid"] = {"pass": part.isValid() and len(part.Solids()) == 1}
+    skipped = report.get("forged", {}).get("skipped_operations", [])
+    checks["all_style_stages_built"] = {
+        "pass": not skipped and report.get("checks", {}).get("all_style_stages_built") is not False,
+        "skipped_operations": skipped,
+    }
+    preparation = report.get("preparation", {})
+    checks["preparation_execution"] = {"pass": preparation.get("status") != "failed",
+                                       "status": preparation.get("status", "not_reported")}
     if "diameter_in" in spec:
         checks["outer_diameter"] = {"pass": abs(bb.xlen - 2 * recipe.lip_r) < .5, "measured_mm": round(bb.xlen, 2),
                                     "expected_mm": round(2 * recipe.lip_r, 2)}
@@ -338,7 +372,8 @@ def verify(step_path, recipe, spec: dict, report: dict) -> dict:
     checks["no_sliver_faces"] = {"pass": not small, "faces_under_5mm2": len(small)}
     et = report.get("derived", {}).get("offset_et_mm")
     if "et_mm" in spec and et is not None:
-        checks["offset_et"] = {"pass": abs(et - spec["et_mm"]) < .5, "measured_mm": et, "expected_mm": spec["et_mm"]}
+        checks["offset_et"] = {"pass": abs(et - spec["et_mm"]) < .5, "derived_mm": et,
+                               "expected_mm": spec["et_mm"], "method": "build_profile_not_independent_step_metrology"}
     # Rotational symmetry: volume in each spoke sector (the part is built by rotation, so any
     # asymmetric boolean failure shows up as a sector that differs).
     # Lugs break the spoke symmetry unless the counts share a factor (8 groups, 5 lugs: none left).
@@ -362,52 +397,122 @@ def verify(step_path, recipe, spec: dict, report: dict) -> dict:
     return checks
 
 
-def readiness(prov: dict, checks: dict, spec: dict, built: bool) -> tuple[str, list]:
+def readiness(prov: dict, checks: dict, spec: dict, built: bool, kernel: str = "brep",
+              spec_evidence: dict | None = None, skipped_operations: list[str] | None = None) -> tuple[str, list]:
     """Highest level the evidence supports, with the reasons it is not higher."""
-    why = []
-    if not built or not checks.get("single_valid_solid", {}).get("pass"):
-        return "L0", ["没有生成有效实体。"]
+    skipped_operations = skipped_operations or checks.get("all_style_stages_built", {}).get("skipped_operations", [])
+    why = ["STEP 跳过造型工序：" + "、".join(skipped_operations)] if skipped_operations else []
+    if checks.get("preparation_execution", {}).get("pass") is False:
+        why.append("加工准备检查执行失败；需查看 cad/report.json 的 preparation.error。")
+    if not built:
+        return "L0", why + ["尚未生成模型。"]
+    if kernel == "mesh":
+        return "L0", why + ["仅生成 GLB 网格预览；没有 STEP 回读证据，不能评为参数化 CAD。"]
+    if not checks.get("single_valid_solid", {}).get("pass") or not checks.get("step_roundtrip", {}).get("pass"):
+        return "L0", why + ["STEP 单实体或回读检查未通过；不能评为参数化 CAD。"]
     level = "L1"
     missing = [k for k in KEY_SPECS if k not in spec]
-    dim_checks = [k for k in ("outer_diameter", "overall_width", "offset_et", "bolt_pattern") if k in checks]
+    unconfirmed = [k for k in KEY_SPECS if k in spec and
+                   (spec_evidence or {}).get(k, {}).get("source") not in {"user", "drawing", "measurement"}]
+    dim_checks = ("outer_diameter", "overall_width", "offset_et", "bolt_pattern")
     if missing:
         why.append("缺少关键尺寸：" + "、".join(KEY_SPECS[k] for k in missing))
-    elif not all(checks[k]["pass"] for k in dim_checks):
-        why.append("关键尺寸在实体上核对未通过：" + "、".join(k for k in dim_checks if not checks[k]["pass"]))
+    elif unconfirmed:
+        why.append("关键规格来源尚未由用户、图纸或实测确认：" + "、".join(unconfirmed))
+    elif not all(checks.get(k, {}).get("pass") is True for k in dim_checks):
+        why.append("关键规格缺少对应构建检查或未通过：" + "、".join(k for k in dim_checks if not checks.get(k, {}).get("pass")))
     else:
         level = "L2"
-        failed = [k for k, v in checks.items() if not v["pass"]]
+        required = ("no_sliver_faces", "rotational_symmetry")
+        failed = [k for k in required if not checks.get(k, {}).get("pass")]
+        failed += [k for k, v in checks.items() if not v.get("pass") and k not in failed]
         if failed:
             why.append("几何/约束检查未通过：" + "、".join(failed))
         else:
             level = "L3"
-    why.append("L4/L5（强度仿真、制造评审）不在本 Skill 范围内：不可直接用于制造。")
+    if skipped_operations and level == "L3":
+        level = "L2"
+    why.append("几何检查不等于工程批准；强度、疲劳、工艺及制造评审未完成，不可直接用于制造。")
     return level, why
 
 
-def run(front, spec, out, oblique=None, build=True, kernel="mesh", style=None):
+def run(front, spec, out, oblique=None, build=True, kernel="mesh", style=None, use_vlm=False,
+        spec_evidence=None, visual_check=False, hole_form=None, style_agent=False):
     """kernel "mesh": manifold3d build (seconds; GLB, mass and checks); "brep": the OCC build with a STEP
     for manufacturing (tens of minutes, and OCC booleans failed on most eval-set wheels, 2026-09-26).
     style: which style features to model (STYLE_KEYS); None asks the vision model when one is
     configured (vlm_style), else the forged_y preset is used and asked about."""
     from PIL import Image
+    if kernel not in {"mesh", "brep"}:
+        raise ValueError(f"不支持的建模内核：{kernel}")
+    spec = WheelInputSpec.model_validate(spec).model_dump(exclude_none=True)
+    spec_evidence = validate_spec_evidence(spec, spec_evidence)
+    parsed_hole_form = parse_hole_form(hole_form) if hole_form is not None else None
+    if hole_form is not None and not parsed_hole_form:
+        raise ValueError(f"无法解析确认单孔型：{hole_form}")
     out = Path(out)
+    if out.exists() and any(out.iterdir()):
+        raise ValueError(f"输出目录非空：{out}；请为每次运行使用新的目录，以免混入旧 STEP 或报告。")
+    evidence_files = input_evidence(front, oblique)
     out.mkdir(parents=True, exist_ok=True)
     load = lambda path: np.asarray(Image.open(path).convert("RGB"), float) / 255
+    front_image = load(front)
+    oblique_image = load(oblique) if oblique else None
     style_note = None
-    if style is None:
+    if style is None and use_vlm:
         from . import vlm_style
         if vlm_style.configured():
             try:
                 style = vlm_style.detect([x for x in (front, oblique) if x])
             except Exception as e:                      # the model is optional: fall back to the preset
                 style_note = f"视觉模型判断造型特征失败（{type(e).__name__}），按「锻造 Y 辐」预设建模。"
-    recipe, prov, questions, unknown, evidence = reconstruct(load(front), spec, load(oblique) if oblique else None,
+    recipe, prov, questions, unknown, evidence = reconstruct(front_image, spec, oblique_image,
                                                              style=style)
+    if parsed_hole_form:
+        recipe = recipe_from_dict({**asdict(recipe), **parsed_hole_form})
+        for field, value in parsed_hole_form.items():
+            prov[field] = _record(value, "drawing", 1.0, f"确认单孔型 {hole_form}")
+        questions = [q for q in questions if not q.startswith("螺母座让位孔按")]
     if style_note:
         questions.append(style_note)
+    agent_changed, agent_steps = {}, []
+    agent_status = "disabled"
+    if style_agent:
+        if not os.getenv("WHEELCAM_VLM_BASE_URL"):
+            agent_status = "not_configured"
+            questions.append("造型 agent 未运行：WHEELCAM_VLM_BASE_URL 未设置；保留预设造型。")
+        else:
+            try:
+                from .style_agent import run as agent
+                from .recipe_chat import STYLE
+
+                before = asdict(recipe)
+                proposed, log = agent(before, front, out / "style", spec)
+                corrected = recipe_from_dict(proposed)
+                after = asdict(corrected)
+                actual = {k: {"from": before[k], "to": after[k]} for k in before if before[k] != after[k]}
+                # lip_pocket_r follows lip_pockets (recipe_chat.apply_edit sets the band with the count)
+                allowed = ({"lip_pockets", "flank_w", "flank_depth"} & set(STYLE)) | {"lip_pocket_r"}
+                pocket_band = (before["ring_r"] + 2, before["lip_face_r_in"] - 3)
+                valid_pocket_band = ("lip_pocket_r" not in actual or
+                                     ("lip_pockets" in actual and after["lip_pockets"] > 0 and
+                                      after["lip_pocket_r"] == pocket_band))
+                if set(actual) - allowed or not valid_pocket_band or log.get("changed") != actual:
+                    raise ValueError("造型 agent 修改了非本流程造型白名单参数，或改动日志与配方不一致")
+                recipe, agent_changed = corrected, actual
+                agent_steps = log.get("steps", [])
+                agent_status = "applied" if actual else "unchanged"
+                for field, change in actual.items():
+                    step_name = "look" if field in {"lip_pockets", "lip_pocket_r"} else "search"
+                    evidence_step = next((step for step in agent_steps if step.get("step") == step_name), {})
+                    prov[field] = {**_record(change["to"], "agent", None,
+                                             "造型问答或照片边缘评分；不是工程尺寸测量"),
+                                   "evidence": evidence_step}
+            except Exception as exc:
+                agent_status = "failed"
+                questions.append(f"造型 agent 调用失败（{type(exc).__name__}）；保留预设造型，请检查视觉模型和日志。")
     (out / "recipe.json").write_text(json.dumps(asdict(recipe), ensure_ascii=False, indent=1))
-    checks, report, mass = {}, {}, None
+    checks, report, mass, visual = {}, {}, None, {"status": "not_run"}
     if build and kernel == "mesh":
         from . import mesh_build
         (out / "cad").mkdir(parents=True, exist_ok=True)
@@ -419,12 +524,55 @@ def run(front, spec, out, oblique=None, build=True, kernel="mesh", style=None):
         from .forged_blank import export_model
         report = export_model(asdict(recipe), out / "cad", {"forged": asdict(recipe)})
         checks = verify(out / "cad" / "wheel.step", recipe, spec, report)
+        checks["step_roundtrip"] = {"pass": report.get("checks", {}).get("step_roundtrip") is True,
+                                    "relative_volume_delta": report.get("step_volume_relative_delta")}
         mass = report.get("forged", {}).get("part_mass_kg_6061")
-    level, why = readiness(prov, checks, spec, build)
-    result = {"skill": "wheel-engineering-v0.1", "inputs": {"front": str(front), "oblique": str(oblique) if oblique else None, "spec": spec},
+    if build and visual_check:
+        try:
+            import cadquery as cq
+            from . import visual_check as visual_tools
+            from .forged_photo import fit_oblique_camera
+
+            shape = body if kernel == "mesh" else cq.importers.importStep(str(out / "cad" / "wheel.step")).val()
+            rim, _ = _front_rim_hub(front_image)
+            centre = np.mean(rim, axis=0)
+            radius = float(np.mean(np.linalg.norm(np.asarray(rim) - centre, axis=1)))
+            front_scores, front_overlay = visual_tools.compare_front(shape, front_image, tuple(centre), radius, recipe)
+            Image.fromarray(front_overlay).save(out / "cad" / "front_overlay.png")
+            visual = {"status": "measured", "front": front_scores,
+                      "scope": "same-photo appearance comparison; not dimensional or engineering verification"}
+            if oblique_image is not None:
+                o_rim, o_hub = _oblique_rim_hub(oblique_image)
+                o_rim, o_hub, _ = fit_oblique_camera(oblique_image, recipe, o_rim, o_hub)
+                oblique_scores, oblique_overlay = visual_tools.compare_oblique(shape, oblique_image, o_rim, o_hub, recipe)
+                Image.fromarray(oblique_overlay).save(out / "cad" / "oblique_overlay.png")
+                visual["oblique"] = oblique_scores
+        except Exception as exc:
+            visual = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:500],
+                      "scope": "visual evaluation failed; CAD checks remain separate"}
+    level, why = readiness(prov, checks, spec, build, kernel=kernel, spec_evidence=spec_evidence,
+                           skipped_operations=report.get("forged", {}).get("skipped_operations", []))
+    outputs = [out / "recipe.json"]
+    if build:
+        outputs += [out / "cad" / name for name in ("wheel.step", "wheel.glb", "report.json",
+                                                   "front_overlay.png", "oblique_overlay.png")]
+    if agent_status in {"applied", "unchanged"}:
+        outputs += [out / "style" / name for name in ("style_agent.json", "recipe.json", "before_render.png",
+                                                      "after_render.png", "wheel.glb")]
+    output_evidence = {str(path.relative_to(out)): {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                                   "bytes": path.stat().st_size}
+                       for path in outputs if path.exists()}
+    result = {"skill": "wheel-engineering-v0.1", "inputs": {"front": str(front), "oblique": str(oblique) if oblique else None, "spec": spec,
+                                                       "hole_form": hole_form},
+              "input_evidence": evidence_files, "engineering_understanding": understanding(spec, prov, unknown, questions, recipe, spec_evidence),
+              "output_evidence": output_evidence,
               "readiness": level, "readiness_limits": why, "questions": questions, "parameters": prov, "unknown": unknown,
               "checks": checks, "evidence": evidence,
+              "style_agent": agent_changed, "style_agent_status": agent_status,
+              "style_agent_steps": agent_steps,
+              "visual_check": visual,
               "kernel": kernel if build else None, "mass_kg_6061": mass,
+              "manufacturing_status": "not_released", "engineering_approved": False,
               "artifacts": {k: str(out / "cad" / k) for k in ("wheel.step", "wheel.glb") if (out / "cad" / k).exists()} if build else {}}
     (out / "engineering_report.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=str))
     return result
@@ -435,10 +583,17 @@ if __name__ == "__main__":
     ap.add_argument("--front", required=True)
     ap.add_argument("--oblique")
     ap.add_argument("--spec", default="{}", help="JSON: diameter_in, width_in, pcd_mm, bolts, center_bore_mm, et_mm")
+    ap.add_argument("--spec-evidence", default="{}", help="JSON map: each supplied spec -> source user/drawing/measurement/catalog and optional reference")
+    ap.add_argument("--hole-form", help="确认单孔型，例如 15X32X60；覆盖模板孔并记录图纸来源")
     ap.add_argument("--out", required=True)
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--kernel", choices=("mesh", "brep"), default="mesh", help="mesh: seconds, GLB; brep: STEP, slow")
+    ap.add_argument("--use-vlm", action="store_true", help="send photos to the configured vision endpoint to judge style features")
+    ap.add_argument("--style-agent", action="store_true", help="correct preset styling using visual questions and render/photo edge scores")
+    ap.add_argument("--visual-check", action="store_true", help="compare the built model to input photos and save overlays")
     a = ap.parse_args()
-    res = run(a.front, json.loads(a.spec), a.out, a.oblique, not a.no_build, a.kernel)
+    res = run(a.front, json.loads(a.spec), a.out, a.oblique, not a.no_build, a.kernel,
+              use_vlm=a.use_vlm, spec_evidence=json.loads(a.spec_evidence), visual_check=a.visual_check,
+              hole_form=a.hole_form, style_agent=a.style_agent)
     print(json.dumps({k: res[k] for k in ("readiness", "readiness_limits", "questions", "checks", "mass_kg_6061")},
                      ensure_ascii=False, indent=1, default=str))
