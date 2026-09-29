@@ -78,11 +78,14 @@ def ask_vlm(images, question, key, timeout=120):
             "continue_final_message": True, "add_generation_prompt": False}
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
+    if r.status_code == 400:                 # step-5-preview rejects log probabilities with images (2026-09-29)
+        body.pop("logprobs"), body.pop("top_logprobs")
+        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
     r.raise_for_status()
     choice = r.json()["choices"][0]
     text = (choice["message"]["content"] or "").strip().lower()
     if not (text.startswith("true") or text.startswith("false")):
-        raise ValueError(f"视觉模型的回答不是 true/false：{text!r}")
+        return _ask_plain(base, headers, model, content, key, text, timeout)
     probs = {}
     for token in (choice.get("logprobs") or {}).get("content", []):   # the first true/false token, not a space
         if token["token"].strip().lower() in ("true", "false"):
@@ -90,8 +93,24 @@ def ask_vlm(images, question, key, timeout=120):
                 key_ = t["token"].strip().lower()
                 probs[key_] = probs.get(key_, 0.0) + math.exp(t["logprob"])
             break
+    if not probs:                            # the server returned no log probabilities
+        return text.startswith("true"), None
     p_true = probs.get("true", 0.0) / max(probs.get("true", 0.0) + probs.get("false", 0.0), 1e-9)
     return text.startswith("true"), round(p_true, 3)
+
+
+def _ask_plain(base, headers, model, content, key, prefilled, timeout):
+    """(answer, None) from a plain JSON answer, for servers that ignore the continued assistant turn
+    (hosted APIs such as step-5-preview and step-3.7-flash, 2026-09-29): no log probabilities there."""
+    from .recipe_chat import answer_budget, completion
+    body = {"model": model, "temperature": 0, "max_tokens": answer_budget(2000),
+            "messages": [{"role": "user", "content": content}], "response_format": {"type": "json_object"},
+            "chat_template_kwargs": {"enable_thinking": False}}
+    text = completion(base, headers, body, max(timeout, 180))
+    m = re.search(rf'"{re.escape(key)}"\s*:\s*(true|false)', text, flags=re.I)
+    if not m:
+        raise ValueError(f"视觉模型的回答不是 true/false：{(prefilled or text)[:80]!r}")
+    return m.group(1).lower() == "true", None
 
 
 def wheel_crop(photo):

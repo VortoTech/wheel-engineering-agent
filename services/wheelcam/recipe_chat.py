@@ -78,29 +78,48 @@ def _endpoint():
     return base.rstrip("/"), model, get("API_KEY")
 
 
+def answer_budget(default: int) -> int:
+    """Completion tokens per call: WHEELCAM_CHAT_MAX_TOKENS when set (thinking API models need
+    thousands: step-5-preview and step-3.7-flash spent 850 on reasoning alone, 2026-09-29)."""
+    return int(os.getenv("WHEELCAM_CHAT_MAX_TOKENS") or default)
+
+
+def completion(base: str, headers: dict, body: dict, timeout=90) -> str:
+    """The answer text of one /chat/completions call, for local vLLM and hosted APIs alike.
+    A server that rejects the vLLM-only fields gets the request again without them; a thinking model
+    that used the whole budget before answering (finish_reason length, no content) is asked once
+    more with a larger one."""
+    import httpx
+    r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
+    if r.status_code == 400 and "chat_template_kwargs" in body:
+        body.pop("chat_template_kwargs"), body.pop("response_format", None)
+        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    choice = r.json()["choices"][0]
+    text = choice["message"].get("content") or ""
+    if not text.strip() and choice.get("finish_reason") == "length":
+        body["max_tokens"] = max(6000, 4 * int(body.get("max_tokens") or 0))
+        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=max(timeout, 240))
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"].get("content") or ""
+    return text
+
+
 def ask_model(recipe: dict, message: str, history=(), timeout=90) -> dict:
     """The model's proposal, parsed from its JSON answer (thinking disabled where the server allows)."""
-    import httpx
     base, model, key = _endpoint()
     messages = [{"role": "system", "content": system_prompt(recipe)}, *history, {"role": "user", "content": message}]
-    body = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 600,
+    body = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": answer_budget(600),
             "response_format": {"type": "json_object"},
             "chat_template_kwargs": {"enable_thinking": False}}
     headers = {"Authorization": f"Bearer {key}"} if key else {}
-    r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
-    if r.status_code == 400:                        # servers that reject the vLLM-only fields
-        body.pop("chat_template_kwargs"), body.pop("response_format")
-        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    text = r.json()["choices"][0]["message"]["content"] or ""
+    text = completion(base, headers, body, timeout)
     try:
         return parse_answer(text)
     except ValueError:                           # malformed JSON (json.JSONDecodeError is a ValueError): ask once more
         body["messages"] = messages + [{"role": "assistant", "content": text},
                                        {"role": "user", "content": "上面的回答不是合法 JSON。请只输出一个合法的 JSON 对象。"}]
-        r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        return parse_answer(r.json()["choices"][0]["message"]["content"] or "")
+        return parse_answer(completion(base, headers, body, timeout))
 
 
 def parse_answer(text: str) -> dict:

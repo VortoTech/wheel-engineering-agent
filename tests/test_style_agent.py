@@ -53,3 +53,29 @@ def test_agent_leaves_the_style_alone_when_nothing_is_better(tmp_path, monkeypat
     recipe = outline_recipe(flank_w=16.0, flank_depth=22.0)
     edited, log = sa.run(recipe, "front.jpg", tmp_path, ask=lambda *a: (False, .95))
     assert edited == recipe and log["changed"] == {}
+
+
+def test_yes_no_survives_servers_without_logprobs_or_prefill(monkeypatch):
+    """step-5-preview rejects logprobs with images (400); hosted APIs ignore the continued assistant turn."""
+    import httpx
+    from wheelcam import style_agent
+    monkeypatch.setenv("WHEELCAM_VLM_BASE_URL", "http://x/v1")
+    monkeypatch.setenv("WHEELCAM_VLM_MODEL", "m")
+    calls = []
+
+    class R:
+        def __init__(self, code, body): self.status_code, self.body = code, body
+        def raise_for_status(self): pass
+        def json(self): return self.body
+
+    def post(url, json=None, **kw):
+        calls.append(dict(json))
+        if "logprobs" in json:
+            return R(400, {})
+        if json["messages"][-1]["role"] == "assistant":           # prefill ignored: free text back
+            return R(200, {"choices": [{"message": {"content": "图中外圈……"}}]})
+        return R(200, {"choices": [{"finish_reason": "stop", "message": {"content": '{"k": true}'}}]})
+
+    monkeypatch.setattr(httpx, "post", post)
+    assert style_agent.ask_vlm([np.zeros((8, 8, 3), np.uint8)], "q", "k") == (True, None)
+    assert len(calls) == 3

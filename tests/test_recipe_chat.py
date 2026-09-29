@@ -54,3 +54,26 @@ def test_hub_recess_is_refused_when_the_centre_plate_gets_too_thin():
     r = outline_recipe(web_thick_hub=30.0)
     result = turn(r, "中心下沉 20", None, ask=fake([{"param": "hub_recess_depth", "value": 20}]))
     assert result["built"] is None and result["refused"][0]["param"] == "hub_recess_depth"
+
+
+def test_thinking_model_that_runs_out_of_budget_is_asked_again_with_more(monkeypatch):
+    """Hosted thinking models (step-5-preview, step-3.7-flash) can spend the whole budget before answering."""
+    import httpx
+    from wheelcam.recipe_chat import completion
+    calls = []
+
+    class R:
+        status_code = 200
+        def __init__(self, body): self.body = body
+        def raise_for_status(self): pass
+        def json(self): return self.body
+
+    def post(url, json=None, **kw):
+        calls.append(dict(json))
+        if len(calls) == 1:
+            return R({"choices": [{"finish_reason": "length", "message": {"content": "", "reasoning_content": "..."}}]})
+        return R({"choices": [{"finish_reason": "stop", "message": {"content": '{"changes": []}'}}]})
+
+    monkeypatch.setattr(httpx, "post", post)
+    assert completion("http://x/v1", {}, {"model": "m", "max_tokens": 600}) == '{"changes": []}'
+    assert calls[1]["max_tokens"] >= 6000

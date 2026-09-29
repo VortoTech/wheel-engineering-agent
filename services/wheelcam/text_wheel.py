@@ -64,8 +64,7 @@ def _json_answer(content: str) -> dict:
 
 
 def ask_model(message: str) -> dict:
-    """Use the configured local OpenAI-compatible endpoint; one repair retry for malformed JSON."""
-    import httpx
+    """Use the configured OpenAI-compatible endpoint; one repair retry for malformed JSON."""
     base, model, key = recipe_chat._endpoint()
     system = ("你是轮毂造型提案助手，只返回 JSON 对象。字段：spec、hole_form、family、preset、style_id、spokes、shape、style、reply、unknown。"
               "family 只能 single/y_split/skeleton；preset 只能 work6-tapered/wide6-centre-groove/hf6-y-split/tree6-branching。"
@@ -84,15 +83,10 @@ def ask_model(message: str) -> dict:
                json.dumps([{k: e[k] for k in ('id', 'description', 'spokes', 'family')} for e in candidates], ensure_ascii=False))
     messages = [{"role": "system", "content": system}, {"role": "user", "content": message}]
     headers = {"Authorization": f"Bearer {key}"} if key else {}
-    body = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 850,
+    body = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": recipe_chat.answer_budget(850),
             "response_format": {"type": "json_object"}, "chat_template_kwargs": {"enable_thinking": False}}
     for attempt in range(2):
-        response = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=90)
-        if response.status_code == 400 and "chat_template_kwargs" in body:
-            body.pop("chat_template_kwargs"); body.pop("response_format")
-            response = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=90)
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"].get("content") or ""
+        content = recipe_chat.completion(base, headers, body)
         try:
             return _json_answer(content)
         except ValueError:

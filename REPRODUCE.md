@@ -126,6 +126,32 @@ PYTHONPATH=services .venv/bin/python scripts/demo_chain.py examples/sample-order
 FP8 权重需要较新的 NVIDIA 架构（Ada / Hopper / Blackwell），更老的显卡需改用 BF16 权重，显存需求相应增加。
 Apple 芯片或无显卡的电脑不适合本地跑这个模型，可以接一个远端 OpenAI 兼容服务，或只跑第一档。
 
+### 换用阶跃星辰云端模型（2026-09-29 实测）
+
+文字、对话和看图分别由 `WHEELCAM_CHAT_*` 与 `WHEELCAM_VLM_*` 配置，可以各指一个模型。接阶跃星辰开放平台时：
+
+```bash
+export WHEELCAM_CHAT_BASE_URL=<阶跃星辰 API 地址>/v1  WHEELCAM_CHAT_API_KEY=<密钥>  WHEELCAM_CHAT_MODEL=step-3.7-flash
+export WHEELCAM_VLM_BASE_URL=<阶跃星辰 API 地址>/v1   WHEELCAM_VLM_API_KEY=<密钥>   WHEELCAM_VLM_MODEL=step-3.7-flash
+# 或 step-5-preview；这两个模型会先思考，默认输出额度不够时自动加大，也可设 WHEELCAM_CHAT_MAX_TOKENS=6000
+```
+
+| 模型 | 文字新建全链路（示例文字） | 示例订单 + 造型 Agent | 对话：改斜面 / 拒改 PCD |
+|---|---|---|---|
+| `step-3.7-flash`（云端） | 4/4，47 s | 4/4，88 s；判断“无盲窗”正确，有置信度 | 执行 / 拒绝 |
+| `step-5-preview`（云端） | 4/4，47 s | 4/4，86 s；判断“无盲窗”正确 | 需说成“把窗口侧斜面宽度改成 3 mm”才执行；较口语的说法返回空修改 / 拒绝 |
+| `step3-vl-10b-fp8`（本地 vLLM，见上） | 4/4，23 s | 4/4，64 s；有置信度 | 执行 / 拒绝 |
+
+注意：**云端模型会收到订单文字和照片**。真实客户订单只应发给本地或已获授权的服务；上表只用公开示例订单测试。
+云端接口不支持 vLLM 的“续写助手消息”，`step-5-preview` 带图时还拒绝返回概率；代码会自动改用普通问法，这时报告里的置信度显示为“模型未提供概率”。
+
+### 在 DGX Spark 上本地部署 Step-3.7-Flash？
+
+权重公开（Apache-2.0）：1980 亿参数混合专家模型，每 token 激活约 110 亿，含 18 亿参数视觉编码器。量化版大小：
+BF16 394 GB，FP8/Q8_0 约 209 GB，NVFP4 官方要求 ≥ 120 GB 统一内存，Q4_K_S 112 GB，IQ4_XS 105 GB，Q3_K_M 94 GB，IQ3_XXS 76 GB，另加 4 GB 视觉投影；GGUF 需阶跃星辰的 llama.cpp 分支。
+一台 Spark 共 119.7 GiB 统一内存，**独占时**可跑 Q4 及以下；我们的节点上已有 Step3-VL-10B 服务占用约 58 GiB，二者不能同时运行，因此**未部署**。
+想在本地用 3.7 的评委，需要一台 ≥ 128 GB 统一内存且不跑其他模型的机器（官方列出 DGX Spark、Mac Studio、Ryzen AI Max+ 395）。
+
 换用其他视觉语言模型（未测）时要自行确认两点：能按要求只输出 JSON；支持续写助手消息（`continue_final_message`），造型 Agent 用它让模型直接回答“是/否”并读取概率。换用其他模型时，JSON 输出格式和“是/否”判断的稳定性需要自行确认；审核层会拒绝不合规的提案，不会让模型改工程尺寸。
 
 2026-09-29 在 Spark 上用同一个全新虚拟环境实测（无私有造型库）：
