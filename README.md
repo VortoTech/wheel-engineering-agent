@@ -18,6 +18,7 @@
 | 让 Claude Code / Codex 用 Skill 走完全链路 | [Agent 使用 Skill 走完全链路](docs/skill-walkthrough.md) |
 | Skill 本身 | [skills/wheel-engineering/SKILL.md](skills/wheel-engineering/SKILL.md) |
 | 产品架构、PRD 与路线图 | [产品全貌](docs/product-architecture-roadmap.md) · [架构说明](docs/architecture.md) |
+| 在本机或 DGX Spark 上选择、部署并验收本地模型 | 姊妹项目 [LocalPilot](https://github.com/DingHappy/localpilot) |
 
 ## 效果
 
@@ -121,6 +122,13 @@ Understand        Reason              Reconstruct         Verify               R
 三维几何全部由 manifold3d（网格）和 OpenCascade（STEP）生成，不用三维生成模型；PartPacker 等试过，未达到轮毂装配要求。
 模型选择、配置需求与 Step-3.7-Flash 的本地部署见 [REPRODUCE.md](REPRODUCE.md#用哪个模型需要什么配置)。
 
+### 本地模型从哪来：LocalPilot
+
+[LocalPilot](https://github.com/DingHappy/localpilot) 是同一作者的姊妹项目：**“AI that configures AI”**。说出想在本地跑的模型，它负责选择推理引擎（vLLM、SGLang、llama.cpp 等）、精度（NVFP4 / FP8 / BF16）和服务配置，在你的机器上实测对比候选，并记住最优配置；面向 Apple Silicon、DGX Spark 和其他 CUDA 设备，也带有供 Agent 使用的 Skill。
+
+两者分工：**LocalPilot 把本地模型服务配好并验收，Wheel Engineering 用这个服务做轮毂工程。** 仓库里的 [LocalPilot 接入技能](skills/localpilot/SKILL.md) 负责交接：检查节点前置条件，从 LocalPilot 取得实际的引擎端点、模型名和验收记录，再交给 Wheel Engineering。已有可用的模型服务时可以跳过 LocalPilot。
+Wheel Engineering 直接连接推理引擎的端点，不经过 LocalPilot 网关：实测该网关会合并消息内容、丢弃助手轮次，尚未验证可以传递图片或多轮对话。
+
 ### 产物
 
 | 产物 | 用途与边界 |
@@ -142,7 +150,7 @@ Understand        Reason              Reconstruct         Verify               R
 
 GPU 用于模型推理；B-Rep 与 STEP 由 CPU 构建，不声称 CAD 获得 GPU 加速。两种运行方式：本机工作台 + Spark 模型（`bash scripts/start_workbench_spark.sh runs/demo 8795 18096`，CAD 在本机）；或在 Spark 上运行 `scripts/demo_chain.py`，模型与 CAD 都在 Spark（[全链证据](docs/spark-full-chain-evidence.md)）。模型只绑定回环地址，经 SSH 隧道访问。
 
-可选的 [LocalPilot 接入技能](skills/localpilot/SKILL.md) 用于检查节点并取得模型端点；已有模型服务时可跳过。
+Spark 上的模型服务可以用 [LocalPilot](https://github.com/DingHappy/localpilot) 选择配置和验收，见上文“本地模型从哪来”。
 
 ## 局限
 
