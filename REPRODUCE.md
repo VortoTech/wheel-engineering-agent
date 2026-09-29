@@ -108,7 +108,25 @@ PYTHONPATH=services .venv/bin/python scripts/demo_chain.py \
 PYTHONPATH=services .venv/bin/python scripts/demo_chain.py examples/sample-order --out runs/sample-agent
 ```
 
-我们实测的模型是 `step3-vl-10b-fp8`（vLLM，DGX Spark）。换用其他模型时，JSON 输出格式和“是/否”判断的稳定性需要自行确认；审核层会拒绝不合规的提案，不会让模型改工程尺寸。
+### 用哪个模型、需要什么配置
+
+项目里的**三维几何全部由确定性 CAD 内核生成**（manifold3d 网格、OpenCascade STEP），不依赖三维生成模型；大模型只做三件事：文字→配方 JSON、对话→白名单参数、看图回答“有没有”。三件事用同一个视觉语言模型。
+
+| 用途 | 模型 | 部署 | 状态 |
+|---|---|---|---|
+| **推荐：本地** 文字 + 对话 + 看图 | 阶跃星辰 **Step3-VL-10B**，FP8 权重（`step3-vl-10b-fp8`） | vLLM，OpenAI 兼容接口，只绑定 127.0.0.1 | 演示、全链、以上实测均用它 |
+| 云端备选（仅文字） | 阶跃星辰 `step-3.7-flash`（阶跃星辰开放平台 API） | 设 `WHEELCAM_AGENT_BASE_URL / _MODEL / _API_KEY`；未设 `WHEELCAM_CHAT_*` 时文字与对话回退到它 | 可用，但订单文字会发到云端；**演示链路没有用它**，看图仍需视觉模型 |
+| 三维生成（未采用） | NVIDIA PartPacker（图像→分件网格） | 独立 PyTorch 环境 | 在 GB10 实测：每张图 8–14 分钟、约 9.4–9.7 GiB 内存；轮毂装配深度不合格，**未进入链路**；非商用许可 |
+| 三维生成（可选旁路） | Stable Fast 3D | 独立环境，需 Hugging Face 授权 | 只做外观对照，不进入尺寸、STEP 或加工检查 |
+
+**Step3-VL-10B-FP8 的实测部署（DGX Spark GB10，119.7 GiB 统一内存）**：权重目录 15 GB；vLLM `--max-model-len 8192 --max-num-seqs 8 --gpu-memory-utilization 0.5`，
+即预留约 58 GiB，其中大部分是 KV 缓存预留，不是模型本身的需求。单次“是/否”判断不到 1 秒，文字新建一轮约 5–10 秒。
+
+**其他机器的估计（未实测）**：权重约 15 GB，加上 8K 上下文的 KV 缓存，建议显存 **≥ 24 GB**（可调低 `--gpu-memory-utilization`、`--max-num-seqs` 以省显存）；
+FP8 权重需要较新的 NVIDIA 架构（Ada / Hopper / Blackwell），更老的显卡需改用 BF16 权重，显存需求相应增加。
+Apple 芯片或无显卡的电脑不适合本地跑这个模型，可以接一个远端 OpenAI 兼容服务，或只跑第一档。
+
+换用其他视觉语言模型（未测）时要自行确认两点：能按要求只输出 JSON；支持续写助手消息（`continue_final_message`），造型 Agent 用它让模型直接回答“是/否”并读取概率。换用其他模型时，JSON 输出格式和“是/否”判断的稳定性需要自行确认；审核层会拒绝不合规的提案，不会让模型改工程尺寸。
 
 2026-09-29 在 Spark 上用同一个全新虚拟环境实测（无私有造型库）：
 
