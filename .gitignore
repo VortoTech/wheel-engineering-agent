@@ -16,3 +16,7 @@ __pycache__/
 artifacts/
 experiments/partpacker-gb10/results/
 runs/
+
+# Python package builds
+/build/
+/dist/

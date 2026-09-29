@@ -1,0 +1,61 @@
+{
+  "scope": "Runtime installation, regression and STEP delivery transparency",
+  "implementation_commit": "37ad26b97402fc82fadb1dba8c14788a47dc2070",
+  "local_regression": {
+    "passed": 56,
+    "warnings": 2
+  },
+  "github_actions": {
+    "url": "https://github.com/VortoTech/wheel-engineering-agent/actions/runs/36515242248",
+    "status": "success",
+    "passed": 54,
+    "skipped": 2,
+    "skip_reasons": [
+      "Local privacy deny list unavailable",
+      "Private calibration CAD truth files unavailable"
+    ],
+    "runtime_only_imports": "passed",
+    "lockfile_export_consistency": "passed"
+  },
+  "fresh_macos_runtime": {
+    "installation": "uv sync --locked --no-dev --no-editable in a separate environment",
+    "httpx_workbench_text_imports": "passed",
+    "simple_occt_solid": "valid_single_solid",
+    "pytest_installed": false
+  },
+  "workbench": {
+    "browser_verified": true,
+    "step_scope_fields": [
+      "in_step",
+      "not_in_step",
+      "adjustments"
+    ],
+    "local_screenshot": "runs/step-scope-review.png"
+  },
+  "limitations": [
+    "No new Spark deployment or real-model full-chain evaluation in this change",
+    "No change to full-style B-Rep geometry or its success rate",
+    "Python packages are pinned with hashes; base image and apt packages are not immutable",
+    "All manufacturing artifacts remain not_released"
+  ],
+  "local_arm64_container": {
+    "status": "passed",
+    "image": "wheelcam-app:reliability-check",
+    "image_id": "sha256:f407b4111ec78e82f92be67a51b3ac321407d932d2e0dffd148eebd95286706b",
+    "platform": "linux/arm64",
+    "package_source": "https://pypi.org/simple",
+    "hash_verification": true,
+    "network_during_smoke": "none",
+    "root_filesystem_during_smoke": "read_only",
+    "runtime_imports": "passed",
+    "step_readback": "valid_single_solid",
+    "volume_error_mm3": 1.2514647096395493e-09,
+    "geometry": "Synthetic annular cylinder, not a real wheel or full-chain acceptance",
+    "build_attempts": [
+      "Initial official-source download timeout",
+      "Alternate mirror missing manifold3d 3.5.4",
+      "Official-source retry succeeded"
+    ],
+    "warning": "Read-only root prevented optional ezdxf cache creation; smoke test passed"
+  }
+}
