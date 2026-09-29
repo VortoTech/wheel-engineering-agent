@@ -1,120 +1,121 @@
-# Engineering Reconstruction Agent · Wheel Engineering Skill
+# Wheel Engineering Agent
 
-项目代号：`wheel-cam`，正式名称待定。创建日期：2026-09-12。
+**VortoTech · Engineering Reconstruction Agent 的轮毂垂直实现**
 
-产品方向：将不完整的视觉信息、工程尺寸和专业规则转化为可重新生成、可追溯、可验证的参数化 CAD 草稿。黑客松 V0.1 聚焦轮毂，按 Understand → Reason → Reconstruct → Verify → Report 完成工程重建闭环。详见 [V0.1 产品定义与验收边界](docs/product-v0.1.md) 和 [Wheel Engineering Skill](.agents/skills/wheel-engineering/SKILL.md)。
+把轮毂图片或文字需求、已知工程尺寸与专业规则转化为可调整、可追溯、可验证的 CAD **草稿**。
 
-当前阶段：本地建模与加工准备样机 v0.15（开发分支）。模板 `forged-monoblock-v15` 保留照片窗口拟合、独立外圈盲槽与侧壁拔模；`window-fit-v3` 使用完整二维边界，v0.15 进一步从每组三个窗口之间的实体通道提取两条正向双辐脊线。所有单图无法确定的脊线高度、槽深、厚度、拔模和背面结构仍明确记录为模板假设。详见 [单图拟合与识图 · 窗口法](docs/photo-fitting.md#窗口法从窗口标注拟合v10)。
+核心能力是 **[Wheel Engineering Skill](SKILL.md)**：理解结构 → 区分已知与未知 → 生成配方 → 重建 → 校验 → 报告。工作台允许工程师持续对话修改、查看渲染和重新生成交付包。
 
-> **2026-09-22 架构重置：** 项目主线改为“工程参数空间 → Design Intent / Feature Tree → 参数化 B-Rep → STEP 回读与验证”。照片曲面、单图深度和通用 image-to-3D 只保留为候选证据，不再作为工程主模型。每次 CAD 导出新增 `engineering.json`，显式记录参数来源、置信度、UNKNOWN 和 `not_released` 状态。详见 [架构重置说明](docs/rebuild-architecture.md)。
+> 当前为工程辅助原型。GLB 是 L0 视觉预览；加工级 STEP 使用简化几何，不包含全部造型曲面。工程图、参考 NC 和采样材料去除仿真均未经过制造批准，输出保持 `not_released`。
 
-AI Agent 采用“主动建模、受控执行”：可以通过类型化 Action IR 修改参数、替换轮辐草图、标记 UNKNOWN 和请求测量，但不能注入任意 CAD 脚本或绕过工程验证。详见 [Engineering Reconstruction Agent V1](docs/engineering-reconstruction-agent.md)。
+## Skill 在项目中做什么
 
-工程一致性修正已加入：Agent 不得覆盖人工/图纸/实测输入；构建请求、最终配方和逐特征结果分别记录，降级构建不再与按请求生成混同；窗口拟合与 CAD 共用含拱高的毛坯基面。范围和剩余限制见 [工程一致性第一批修正](docs/foundation-consistency.md)。
+| 阶段 | Skill 的职责 | 实现入口 |
+| --- | --- | --- |
+| Understand | 接收图片、文字和规格；形成结构与参数候选 | `wheel_skill.py`、`text_wheel.py` |
+| Reason | 保存来源，区分已知、假设、未知；锁定工程尺寸 | `wheel_skill_contract.py`、`wheel_skill.py` |
+| Reconstruct | 生成可重建配方；按选择构建网格或 B-Rep | `wheel_skill.py`、`mesh_build.py`、`forged_blank.py` |
+| Refine | 可选视觉 Agent 修正造型；对白名单内参数做对话修改 | `style_agent.py`、`recipe_chat.py` |
+| Verify | 校验几何、规格、STEP 回读；保留跳过工序与失败 | `wheel_skill.py`、下游几何模块 |
+| Report | 记录参数来源、未知项、检查、准备等级和交付状态 | `engineering_report.json`、各产物报告 |
 
-新增默认不接入工作台的 [可执行母扇区实验](docs/master-sector-program.md)：按稳定特征 ID 编辑主窗/分叉窗/根部小孔，编译到同一个 CAD adapter，并比较真实 STEP 的重放等价与局部修改。仍保留 MiMo 和现有工程模型，不将合成夹具结果当作照片重建提升。
+**Skill 有两个层面：**
 
-该实验进一步发现旧体积积分存在精度设置敏感问题。现已将几何、加工准备和预览分区统一到带分段积分的 Gauss–Kronrod 计量，并拒绝无效/非有限实体；旧报告的体积、重量、去料比例明确提示需重建复核。整轮差分及复合造型仍有未通过项，不能据此替换原模型或宣布可加工。详见 [计量修复与独立校核](docs/volume-measurement.md) 和 [实际验证记录](docs/validation.md)。
+- 根目录 [`SKILL.md`](SKILL.md) 是给开发助手调用和评审能力的使用契约。
+- `services/wheelcam/` 中的 Python 模块是实际执行的技能。工作台调用这些代码，不读取 Markdown 来运行建模。
 
-Agent 模型为可选接入。设置 `WHEELCAM_AGENT_BASE_URL` 与 `WHEELCAM_AGENT_MODEL` 后，工作台 Agent 页签可调用
-OpenAI-compatible 多模态接口生成受控修改计划；需要鉴权时通过服务端环境设置 `WHEELCAM_AGENT_API_KEY`。
-未配置时界面明确显示“AI 模型尚未连接”，不会使用模拟结果。主参考图默认不发送，须逐次勾选同意。
-已有 PinPawo Model Profile 时可设置 `WHEELCAM_AGENT_PROFILE=pinpawo:primary`，避免复制或暴露 Token。
-当前 Xiaomi Token Plan 验证配置还需覆盖 `WHEELCAM_AGENT_MODEL=mimo-v2.6-pro` 与
-`WHEELCAM_AGENT_INPUT_MODALITIES=text,image`；原 profile 不会被 WheelCAM 改写，图片仍须在每次提案前显式勾选。
+`.agents/skills/wheel-engineering/` 与 `.claude/skills/wheel-engineering/` 仅提供工具发现入口，`SKILL.md` 都链接到根目录同一文件。当前仓库没有 `.codex/skills`。保留两个入口是为了兼容不同开发助手，不表示运行了两个 Agent，也不表示工作台依赖 Codex 或 Claude。
 
-v9 在锻造单片 v2 基础上加入可选气门孔，并提供卡钳整圈包络检查、圆柱/杯形锻坯包含与余量检查、去除率与重量估算、加工特征 JSON / 工序 CSV / 交接 ZIP 导出。所有结果绑定模型版本和输入来源。支持逐支臂连续边缘跟踪、多组截面拟合与渐变分叉槽；新增相机姿态拟合、独立分叉底角，以及三个点位修正后重新生成 CAD 的闭环，实际模型可按拟合视角叠加原图；通用视觉大模型、完整图片重建、真实 CAM 与 NC 输出尚未实现。
+## 当前运行架构
 
-新增照片参考双辐样例：点击“新建双辐样例”生成独立项目，调整 8 组 / 16 根支臂、组内间隙、端部宽度及分叉位置。黑银分色预览与可关闭的中心盖、周圈螺栓已接入；展示附件不进入工程实体和计算。详见 [照片双辐样例](docs/paired-photo.md)。
+```text
+工作台 workbench.py + workbench.html / CLI demo_chain.py
+  ├─ 图片 + 规格 → wheel_skill.py
+  ├─ 文字需求   → text_wheel.py
+  └─ 对话修改   → recipe_chat.py / 工程确认 workbench_revision.py
+                         ↓
+          参数契约 + 来源 + UNKNOWN + 配方
+                         ↓
+       网格预览 / B-Rep 候选 → 校验与报告
+                         ↓
+       选定配方快照 → machining_step.py
+                         ↓
+        stock.step + machining.step
+                         ↓
+       加工准备包 / 采样仿真 / 工程图 / 交付清单
+```
 
-新增单图造型优化：可调轮唇延伸与落差、辐根展开、中段宽度和末端内收；“照片对照与识图”可提取点位、填写可选参考外径，核对后将受支持候选应用到草稿。详见 [单图拟合与识图](docs/photo-fitting.md)。
+LLM/VLM 提出候选；确定性代码约束参数、构建和检查。模型无法凭照片认证尺寸或制造可行性。LocalPilot 是此前讨论的运行平台方向，当前代码不应被描述为已集成通用 LocalPilot Runtime。
 
-可选接入 Stable Fast 3D，将主参考图生成带纹理 GLB 作为视觉造型参考。视觉重建使用独立队列和目录，不会显示为 CAD 几何检查通过，也不提供 STEP 或加工结论。安装与许可边界见 [Stable Fast 3D 视觉重建](docs/stable-fast-3d.md)。
+详见 [架构与目录导航](docs/architecture.md)。
 
-## 启动本地工作台
+## 启动当前演示工作台
 
-需要 Python 3.12、Node.js 22.12+ 和 uv。依赖仅安装在此项目中。
+需要 Python 3.12 或 3.13、`uv`。从仓库根目录执行：
 
 ```bash
 uv sync --extra test
-npm ci
-npm run dev
+PYTHONPATH=services .venv/bin/python -m wheelcam.workbench --runs runs/demo --port 8795
 ```
 
-打开 `http://127.0.0.1:5178`。点击“生成三维模型”创建首个版本。界面先使用概念模板，所有默认参数均标记为假设值。
+打开 <http://127.0.0.1:8795>。首次运行没有已有案例，使用“用图片新建”或“用文字新建”。文字生成与对话需要配置模型；未配置时不会自动获得模型能力。
 
 ```bash
-# 检查与构建
-uv run --extra test pytest
-npm run build
-
-# 使用构建后的界面，只启动一个本地服务
-PYTHONPATH=services uv run uvicorn wheelcam.app:app --host 127.0.0.1 --port 18765
+# 使用自己的 OpenAI-compatible 模型端点；不要把密钥写入 Git
+export WHEELCAM_CHAT_BASE_URL=http://127.0.0.1:8000/v1
+export WHEELCAM_CHAT_MODEL=your-model-id
+export WHEELCAM_VLM_BASE_URL=http://127.0.0.1:8000/v1
+export WHEELCAM_VLM_MODEL=your-vision-model-id
 ```
 
-构建后的界面地址为 `http://127.0.0.1:18765`。详细说明见 [本地工作台](docs/local-workbench.md)。
+若已配置 SSH 别名 `spark`，远端已有兼容模型服务监听 8000 端口：
 
-## 项目定位
-
-首个垂直场景使用轮毂照片、设计效果图和已知工程尺寸，辅助工程师建立可追溯的轮毂配方与 CAD 草稿，并报告已知、估计和未知项。结合实际锻坯、工艺、刀具、夹具及机床配置后，才可能逐步形成经过验证的数控加工程序。
-
-核心资产是轮毂参数与建模模板、成品和毛坯的工程几何、加工特征以及经过验证的工艺配置。
-
-## 已确认的范围
-
-- 首期场景：锻造定制单片轮毂，从通用锻坯加工目标造型。
-- 输入方向：多张图片或效果图，并补充关键尺寸和工程约束。
-- 当前条件：暂时没有现成的 CAD/CAM 软件、机床类型和数控系统信息。
-- 当前交付：本地参数化建模、基础适配/锻坯检查与工艺交接草案。
-
-## 主流程
-
-```text
-图片 / 效果图 + 工程尺寸与要求
-              ↓
-造型特征识别 → 人工确认 → 参数化成品 CAD
-                                      ↓
-实际毛坯 CAD / 测量数据 ────────→ 毛坯与成品匹配检查
-                                      ↓
-                            工艺与装夹方案确认
-                                      ↓
-                         CAM 刀路与材料去除仿真
-                                      ↓
-                         机床专用后处理 → NC 草稿
-                                      ↓
-                   程序与机床验证 → 工程师确认 → 受控试切
+```bash
+bash scripts/start_workbench_spark.sh runs/demo 8795 18096
 ```
 
-首版优先完成图片到参数化 CAD，以及毛坯匹配的数字验证。真实机床代码接入以工厂配置和实际验证为前提。
+这个启动器只建立模型隧道：**模型在 Spark，CAD 在本机**。Spark 全链运行另见 [全链运行与证据](docs/spark-full-chain-evidence.md)；不可混为同一种验收。
 
-## 文档入口
+## 输入与输出
 
-- [架构重置说明](docs/rebuild-architecture.md)：新的工程数据流、P0/P1 门槛，以及旧视觉实验的冻结边界。
-- [CAD Agent 后端评估](docs/cad-agent-backends.md)：MiMo、FreeCAD MCP、GenCAD 与 Zoo 的职责边界和接入顺序。
-- [单组辐条曲面研究](docs/sector-surface.md)：六组结构标注、可编辑局部灰模、原图对照与独立观察；整轮验收尚未通过。
-- [产品与技术框架](docs/framework.md)：输入边界、产品模块、数据流、技术选型、工程验证和扩展方向。
-- [首版范围与实施路线](docs/mvp.md)：阶段交付物、验收依据、待补资料和近期开发顺序。
-- [本地工作台](docs/local-workbench.md)：当前实现、启动、数据保存和模板限制。
-- [验证记录](docs/validation.md)：本版本实际完成的检查与未覆盖范围。
+- **图片路径**：照片 + 已知规格；缺失尺寸保持未知或明确假设。
+- **文字路径**：支持的轮毂模板 + 明确尺寸；不保证任意自由形状生成。
+- **持续修改**：对白名单内的造型参数修改、重建与检查；工程尺寸单独确认。
+- **交付路径**：从选定配方重新生成加工 STEP、工程图、加工准备包和验证记录。预览修改后，旧交付包不能代表新版本。
 
-## 预期成果
+输出保存在 `runs/` 或 `artifacts/`，不随源码分发。STEP 是几何交换格式，不携带原生 CAD 特征历史；配方用于参数化重建。详细操作见 [SKILL.md](SKILL.md)、[文字输入](docs/text-to-wheel.md)、[最终 Demo PRD](docs/prd-final-demo.md)。
 
-| 成果 | 用途 |
+## 目录与维护边界
+
+| 目录 | 用途 |
 | --- | --- |
-| 轮毂参数、模板版本和建模配方 | 可修改、可重建、可追溯 |
-| STEP 工程模型 | 与 CAD/CAM 软件交换几何 |
-| GLB 预览模型 | 在浏览器里旋转、剖切、对照造型 |
-| 经标注与审核的工程图 | 表达尺寸、公差、基准和技术要求 |
-| 毛坯匹配及工艺检查报告 | 判断是否具备加工条件 |
-| CAM 工程、刀路和仿真结果 | 复核加工过程 |
-| 指定机床的 NC 文件、装夹单、刀具单 | 工厂接入后的加工交付包 |
+| `SKILL.md` | 唯一维护的 Skill 使用契约 |
+| `services/wheelcam/` | 当前工作台、技能、几何、验证与交付模块 |
+| `scripts/` | 全链编排、启动、评测与工具脚本 |
+| `tests/` | 功能、工程边界与隐私检查 |
+| `docs/` | 产品、架构、部署、评测证据与历史设计记录 |
+| `demo-video/` | 演示视频源码；运行素材不入库 |
+| `experiments/` | 研究与评测工具，不是默认生产链路 |
+| `apps/web/` | 较早的 Web 界面；当前参赛工作台使用 `workbench.html` |
+| `data/`、`runs/`、`artifacts/` | 本地输入和产物，Git 忽略 |
 
-上表为完整规划；本地 v0.8 已实现参数配方、STEP、GLB、几何与准备报告及工艺交接草案；工程图、CAM 和加工验证仍按路线接入。三维预览、CAD 几何检查、程序仿真、实际试切和轮毂产品验证分别记录状态。
+Python 包名 `wheelcam` 和环境变量 `WHEELCAM_*` 保留兼容现有部署；产品名称不要求同步更改内部导入路径。
 
-## 单图案例复用与评估
+## 证据与限制
 
-右侧「案例」可收录成功版本、预览并套用造型；照片对照中可独立标注边界，计算其到实际 GLB 投影边界的像素误差。当前按类型和组数排序，尚未自动识别任意款式；局部轮廓指标不代表整轮精度。操作、来源和下一阶段边界见 [案例库与轮廓评估](docs/case-library.md)。
+- [Spark 全链及工作台复测](docs/workbench-hardening.md)：明确执行设备与产物版本。
+- [有／无 Skill 对照](docs/skill-comparison-results.md)：只适用于记录的模型和协议，不能泛化成所有通用模型的结论。
+- [评测契约](docs/skill-evaluation.md)：冻结配置、记录失败、分离视觉与工程指标。
+- 13 个真实订单参与过模板标定，不能当作独立泛化测试集。
+- 视觉同图边缘分数不等于工程尺寸精度；采样无过切不等于完整加工仿真通过。
+- 当前没有结构强度、疲劳或制造审核批准。
 
-## Git 与版本
+## 团队与数据安全
 
-Git 跟踪源码、测试、文档及依赖锁文件；`data/`、`artifacts/`、依赖、缓存和日志被忽略。v2 基线提交为 `e8ae34f`，v3 加工准备独立提交。当前未配置远端。源码提交不能替代本地项目数据备份，备份方式见本地工作台。
+团队仓库归 VortoTech 管理，默认保持私有。源码不包含运行所需的私人照片、工厂 CAD、模型权重或配置密钥。复现实验需要团队按授权单独准备数据。
+
+```bash
+.venv/bin/python -m pytest tests/test_privacy.py -q
+```
+
+`.env`、`.env.*`（模板除外）、运行产物与缓存被忽略。路径脱敏只清理当前文件，不会自动删除旧 Git 历史。公开仓库前仍需复查历史、附件及数据使用授权。见 [隐私与发布检查](docs/privacy-release.md)。

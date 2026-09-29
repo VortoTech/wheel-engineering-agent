@@ -11,7 +11,7 @@
 - `test_compare.py`：合成测试。旋转、镜像后的同一图案应能对齐回来；组数画错应能识别出来。
 
 ```bash
-P="/Users/happyding/Desktop/轮毂/Weixin Image_20260728215534_27232_4.jpg"
+P="/path/to/wheel-photos/front.jpg"
 .venv/bin/python experiments/genviews/generate.py "$P" --model wan2.7-image --out artifacts/genviews/wan2.7-image
 .venv/bin/python experiments/genviews/compare.py artifacts/genviews/wan2.7-image/front_silhouette.png \
     --ref-mask artifacts/window-spike/sam_arms.png --ref-context artifacts/window-spike/context.json

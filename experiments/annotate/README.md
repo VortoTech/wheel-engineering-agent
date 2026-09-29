@@ -5,7 +5,7 @@
 ## 启动
 
 ```bash
-.venv/bin/python experiments/annotate/serve.py "/Users/happyding/Desktop/轮毂"
+.venv/bin/python experiments/annotate/serve.py "/path/to/wheel-photos"
 ```
 
 浏览器打开 `http://127.0.0.1:8770/`（只监听本机）。
