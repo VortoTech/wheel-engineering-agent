@@ -45,7 +45,7 @@ body{background:#0c0f13;font-size:13px}button{border-radius:7px;transition:backg
 </div>
 <dialog id="drawing-viewer" aria-labelledby="drawing-viewer-title"><div class="drawing-toolbar"><h2 id="drawing-viewer-title">工程图 · 审阅</h2><button id="drawing-fit">适应窗口</button><button id="drawing-out" aria-label="缩小工程图">−</button><output id="drawing-zoom">100%</output><button id="drawing-in" aria-label="放大工程图">＋</button><a id="drawing-download" download>下载 SVG</a><button id="drawing-close">关闭图纸</button></div><div class="drawing-meta"><div id="drawing-version"></div><div class="specs" id="drawing-specs"></div><p id="drawing-warning"></p></div><div id="drawing-paper"><img id="drawing-sheet" alt="轮毂工程图：左侧正视图，右侧 A-A 剖面，下方技术要求与标题栏"></div><div class="drawing-key">左：正视与孔系 · 右：A-A 剖面、总宽与 ET · 下：技术要求。正视投影不展示盲窗底面，外观请结合三维模型核对。放大后滚动查看。</div></dialog>
 <div id="task-status" role="status" aria-live="polite"></div>
-<dialog id="text-dialog" aria-labelledby="text-title"><h2 id="text-title">用文字新建轮毂</h2><p>写下尺寸和造型。未提供的工程规格会标为默认值，生成结果需工程师审核。</p>
+<dialog id="text-dialog" aria-labelledby="text-title"><h2 id="text-title">用文字新建轮毂</h2><p>写下尺寸和造型。优先使用匹配的造型库；无匹配时使用简化参数模板，分叉与骨架参数预设仍为实验造型。未提供的工程规格标为默认值。</p>
   <textarea aria-label="轮毂尺寸与造型描述" id="text-input" placeholder="20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，外圈加 15 个盲窗。"></textarea>
   <p id="text-status" role="status"></p><div class="actions"><button id="text-cancel">取消</button><button class="primary" id="text-submit">生成草案</button></div></dialog>
 <dialog id="engineering-dialog" aria-labelledby="engineering-title">
@@ -170,10 +170,10 @@ function selectTab(t){
   document.querySelectorAll(".tab").forEach(d => d.classList.toggle("on", d.id === t));
   $("#chat").classList.toggle("on", t === "chat");
 }
-document.addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)selectTab(b.dataset.t);const start=e.target.closest('[data-start]');if(start&&!busy){if(start.dataset.start==='image')showEngineering(true);else $('#text-dialog').showModal();}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)selectTab(b.dataset.t);const start=e.target.closest('[data-start]');if(start&&!busy){if(start.dataset.start==='image')showEngineering(true);else openTextForm();}});
 $('#tabs').onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const buttons=[...document.querySelectorAll('#tabs button')];const i=buttons.indexOf(document.activeElement);const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;buttons[next].focus();selectTab(buttons[next].dataset.t);};
 
-const LABEL = {single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
+const LABEL = {independent_lip_pockets:"独立盲窗刀具数量", single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
   offset_et:"ET", rotational_symmetry:"旋转对称", valid_single_solid:"单一有效实体", step_roundtrip:"STEP 回读",
   no_sliver_faces:"无碎面", lip_od_mm:"外径 mm", overall_width_mm:"总宽 mm", et_mm:"ET mm", pcd_mm:"PCD mm",
   bolts:"孔数", bolt_hole_d_mm:"螺栓孔 mm", center_bore_mm:"中心孔 mm"};
@@ -181,7 +181,7 @@ const STEP = {reconstruct:"重建", style:"造型 agent", machining:"加工级 S
 const f = p => `/files/${run}/${p}`;
 const checksTable = c => `<table>${Object.entries(c || {}).map(([k, v]) =>
   `<tr><td>${LABEL[k] || esc(k)}</td><td class="${v.pass === false ? "fail" : v.pass ? "pass" : ""}">${v.pass === false ? "未通过" : v.pass ? "通过" : "—"}</td>
-   <td>${num(v.measured_mm ?? v.derived_mm ?? v.holes_found ?? v.faces_under_5mm2 ?? "")}</td></tr>`).join("")}</table>`;
+   <td>${num(v.measured_mm ?? v.derived_mm ?? v.holes_found ?? v.tool_components ?? v.faces_under_5mm2 ?? "")}</td></tr>`).join("")}</table>`;
 
 const SOURCE = {user:'用户提供',drawing:'图纸提供',measurement:'测量提供',default:'默认值 · 待确认',unspecified:'来源待确认',catalog:'目录参考',rule:'规则推导',estimate:'估计',agent:'Agent 修改',spec:'输入规格',photo:'照片候选',model_choice:'模型选择'};
 function specSource(key){return data.engineering_report?.engineering_understanding?.spec_evidence?.[key]?.source || data.engineering_report?.parameters?.[key]?.source || 'unspecified';}
@@ -380,7 +380,8 @@ $("#deliver").onclick = async () => {
   } catch(e){ $("#task-status").textContent = '生成失败：' + e.message; }
   finally { setBusy(false); }
 };
-$("#new-text").onclick = () => $("#text-dialog").showModal();
+function openTextForm(){ $("#text-input").value=""; $("#text-status").textContent=""; $("#text-dialog").showModal(); }
+$("#new-text").onclick = openTextForm;
 $("#text-cancel").onclick = () => $("#text-dialog").close();
 $("#text-submit").onclick = async () => {
   const message = $("#text-input").value.trim(); if (!message) return;
@@ -390,8 +391,8 @@ $("#text-submit").onclick = async () => {
     const response = await fetch("/api/runs/text", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({message})});
     const result = await response.json(); if (!response.ok) throw new Error(result.detail || "生成失败");
     const option = document.createElement("option"); option.value=result.name; option.textContent=versionLabel(result.name); $("#run").prepend(option); $("#run").value = result.name;
-    $("#text-dialog").close(); $("#task-status").textContent="文字草案已生成。请查看工程尺寸与默认项。"; controls.userMoved = false; selectTab("chat"); await open(result.name);
-  } catch (error) { $("#text-status").textContent = "出错：" + error.message; }
+    $("#text-dialog").close(); controls.userMoved = false; selectTab("chat"); await open(result.name); $("#task-status").textContent="已完成：文字草案已生成。请查看工程尺寸与默认项。";
+  } catch (error) { $("#text-status").textContent = "出错：" + error.message; $("#task-status").textContent="文字新建未完成：" + error.message; }
   button.disabled = false; setBusy(false);
 };
 $("#run").onchange = e => { controls.userMoved = false; open(e.target.value); };

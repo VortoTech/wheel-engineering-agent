@@ -3,6 +3,11 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolated_style_library(monkeypatch, tmp_path):
+    monkeypatch.setenv('WHEELCAM_STYLE_LIBRARY', str(tmp_path / 'missing-catalog.json'))
+
+
 EXAMPLE = "20×10.5 ET15，5×112，中心孔 66.6，孔型 15X32X60。做 5 辐直辐，辐条宽一点，凹深一点，外圈加一圈 15 个盲窗。"
 
 
@@ -86,3 +91,80 @@ def test_hole_form_cannot_be_misread_as_wheel_dimensions():
     from wheelcam.text_wheel import specs_in_text
     spec, form = specs_in_text("只知道孔型 15X32X60，轮毂尺寸还没量")
     assert spec == {} and form == "15X32X60"
+
+
+def synthetic_catalog(tmp_path, monkeypatch, spokes=5):
+    from wheelcam.text_wheel import review
+    d = review(f'20寸{spokes}辐直辐', {})['recipe']
+    entry = {'id': 'style-001', 'description': f'{spokes} 辐直辐', 'spokes': spokes, 'family': 'single',
+             'outlines': [[[r / d['lip_r'], a] for r, a in loop] for loop in d['outlines']],
+             'style': {'flank_w': 4, 'flank_depth': 6, 'hub_z': -80, 'spoke_pad_depth': 10,
+                       'pcd': 999, 'bolts': 9, 'width': 999},
+             'radial': {'window_r_out': d['window_r_out'] / d['lip_r'], 'pcd': 999}}
+    p = tmp_path / 'catalog.json'
+    p.write_text(json.dumps({'entries': [entry]}))
+    monkeypatch.setenv('WHEELCAM_STYLE_LIBRARY', str(p))
+    return entry
+
+
+def test_private_template_scales_only_style_and_preserves_text_specs(tmp_path, monkeypatch):
+    from wheelcam.text_wheel import review
+    e = synthetic_catalog(tmp_path, monkeypatch)
+    d = review('21寸5辐直辐，孔距5×114.3', {'style_id': e['id']})
+    assert d['style_template']['kind'] == 'private_outline'
+    assert d['recipe']['pcd'] == 114.3 and d['recipe']['bolts'] == 5
+    assert d['recipe']['width'] != 999
+    assert d['recipe']['outlines'][0][0][0] == pytest.approx(e['outlines'][0][0][0] * d['recipe']['lip_r'])
+    assert d['parameters']['flank_w']['source'] == 'default'
+    mismatch = review('6辐直辐', {'style_id': e['id']})
+    assert mismatch['style_template']['kind'] == 'parametric'
+    assert '参数模板，造型较简化' in mismatch['reply']
+
+
+def test_missing_and_invalid_style_values_keep_nonzero_defaults():
+    from wheelcam.text_wheel import review
+    d = review('20寸5辐直辐', {'shape': {'stem_w_hub': ''},
+                            'style': {'flank_w': '', 'flank_depth': 'Y形分叉'}})
+    assert d['recipe']['flank_w'] == 4 and d['recipe']['flank_depth'] == 6
+    assert d['parameters']['flank_w']['source'] == 'default'
+    assert {r['param'] for r in d['rejected']} == {'flank_depth'}
+    assert d['recipe']['hub_z'] == -80
+
+
+@pytest.mark.parametrize('spokes', [5, 6])
+def test_ring_of_pockets_has_separate_components(tmp_path, monkeypatch, spokes):
+    from wheelcam.text_wheel import run
+    synthetic_catalog(tmp_path, monkeypatch, spokes)
+    r = run(f'20寸{spokes}辐轮毂，外圈加一圈盲窗', tmp_path / 'result', ask=lambda _: {'style': {'lip_pockets': ''}})
+    assert r['all_checks_pass']
+    assert r['checks']['independent_lip_pockets']['tool_components'] == spokes * 3
+    assert r['parameters']['lip_pockets'] == {'value': spokes * 3, 'source': 'default'}
+    assert any('盲窗数量' in q for q in r['questions'])
+    assert any('et_mm' in q for q in r['questions'])
+
+
+@pytest.mark.parametrize("spokes", [5, 7, 9])
+def test_parametric_boundary_window_not_duplicated(spokes):
+    from wheelcam.text_wheel import review
+    from wheelcam.mesh_build import lip_window_tools
+    from wheelcam.forged_blank import recipe_from_dict
+    d = review(f'20寸{spokes}辐直辐，外圈{spokes * 3}个盲窗', {})
+    tools = lip_window_tools(recipe_from_dict(d['recipe']))
+    assert len(d['recipe']['outlines']) == 1
+    assert len(tools) == len(sum(tools[1:], tools[0]).decompose()) == spokes * 3
+
+
+def test_library_generator_strips_order_data_and_limits_output(tmp_path, monkeypatch):
+    from wheelcam import text_style_library as lib
+    monkeypatch.setattr(lib, 'ROOT', tmp_path)
+    source = tmp_path / 'source/private-order/build'
+    source.mkdir(parents=True)
+    (source / 'recipe.json').write_text(json.dumps({'family': 'outline', 'spokes': 5, 'lip_r': 250,
+       'outlines': [[[100, 10], [200, 20], [100, 30]]], 'pcd': 999, 'customer': 'secret-client',
+       'width': 777, 'flank_w': 4}))
+    output = tmp_path / 'runs/style-library/catalog.json'
+    assert lib.generate(tmp_path / 'source', output) == 1
+    content = output.read_text()
+    assert not any(x in content for x in ['secret-client', 'private-order', 'pcd', 'width', '250'])
+    with pytest.raises(ValueError, match='runs'):
+        lib.generate(tmp_path / 'source', tmp_path / 'public.json')
