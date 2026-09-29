@@ -4,7 +4,15 @@
 
 输入轮毂照片或文字需求，补充已知尺寸，通过 **Wheel Engineering Skill** 理解结构、记录未知、生成配方、构建模型并检查结果。工程师可以在工作台中持续对话修改造型、查看渲染，再生成当前版本的工程交付草案。
 
-[技能入口](skills/wheel-engineering/SKILL.md) · [安装说明](skills/wheel-engineering/references/setup.md) · [架构说明](docs/architecture.md) · [Spark 实测](docs/workbench-hardening.md)
+[产品全貌：架构 · 当前 PRD · 路线图](docs/product-architecture-roadmap.md) · [技能入口](skills/wheel-engineering/SKILL.md) · [安装说明](skills/wheel-engineering/references/setup.md) · [架构说明](docs/architecture.md) · [Spark 实测](docs/workbench-hardening.md)
+
+## 产品核心与方向
+
+核心是 **Wheel Engineering Skill 中的工程约束与证据层**：把模型建议转成受控配方，保留尺寸来源和未知项，构建几何并验证实际产物。当前工作台支持图片／文字新建、造型对话、版本检查与工程交付草案；LocalPilot 是可选的模型部署衔接。
+
+当前重点是做深轮毂闭环：**共享工程约束 → 完整造型 STEP 稳定性 → 独立新款验收 → 工程师修正数据**。多品类 Skill、CAE 与制造优化属于后续规划。
+
+查看 [产品全貌与发展路线](docs/product-architecture-roadmap.md)，了解当前 PRD、三条几何路线的区别、已有证据，以及各阶段的验收门槛。
 
 ## 产品与效果
 

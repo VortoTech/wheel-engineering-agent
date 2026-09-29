@@ -1,5 +1,7 @@
 # 当前架构与目录导航
 
+产品定位、当前 PRD 与后续规划统一见 [产品全貌与发展路线](product-architecture-roadmap.md)。
+
 本页描述当前实现，不把平台规划当作已实现能力。根目录 README 是产品入口，`skills/wheel-engineering/SKILL.md` 是技能调用契约，本页是开发维护入口。历史版本记录继续保留在原文档中。
 
 ## 1. 产品入口
