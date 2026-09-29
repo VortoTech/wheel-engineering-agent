@@ -30,15 +30,35 @@ def main():
     ap.add_argument("case", nargs="?", type=Path, help="runs/real-orders/case-XX/<size>")
     ap.add_argument("--text", help="从文字新建轮毂，替代订单目录")
     ap.add_argument("--snapshot", type=Path, help="已确认配方快照 JSON；不重新调用模型")
+    ap.add_argument("--front", type=Path, help="正面图；与 --spec 一起替代订单目录（写入 <out>/input/）")
+    ap.add_argument("--oblique", type=Path, help="可选斜视图（配合 --front）")
+    ap.add_argument("--spec", help='已知规格 JSON，例如 {"diameter_in":20,"width_in":9,"pcd_mm":114.3,"bolts":5,"center_bore_mm":73.1,"et_mm":35}')
+    ap.add_argument("--spec-evidence", help='规格来源 JSON，例如 {"pcd_mm":{"source":"drawing","reference":"确认单"}}；未给的记为 unspecified')
+    ap.add_argument("--hole-form", help="确认单孔型，例如 15X32X60")
     ap.add_argument("--preview-only", action="store_true", help="只重建并校验预览")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
-    if sum(map(bool, (a.case, a.text, a.snapshot))) != 1:
-        ap.error("请选择订单目录、--text 或 --snapshot 其中一个输入")
+    if sum(map(bool, (a.case, a.text, a.snapshot, a.front))) != 1:
+        ap.error("请选择订单目录、--front、--text 或 --snapshot 其中一个输入")
+    if a.front and not a.spec:
+        ap.error("--front 需要 --spec（未知的规格可以不写，但要用 JSON 对象给出已知项）")
     case, out = a.case, a.out
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} is not empty; use a new directory")
     out.mkdir(parents=True, exist_ok=True)
+    if a.front:                                  # an order directory built from the arguments, kept with the run
+        from PIL import Image
+        case = out / "input"
+        case.mkdir()
+        for src, name in ((a.front, "front.jpg"), (a.oblique, "oblique.jpg")):
+            if src:
+                Image.open(src).convert("RGB").save(case / name, "JPEG", quality=95)
+        spec_in = json.loads(a.spec)
+        evidence = json.loads(a.spec_evidence) if a.spec_evidence else {}
+        (case / "spec.json").write_text(json.dumps({
+            "spec": spec_in, "hole_form": a.hole_form,
+            "spec_evidence": {k: evidence.get(k, {"source": "unspecified"}) for k in spec_in}},
+            ensure_ascii=False, indent=1))
     snapshot = json.loads(a.snapshot.read_text()) if a.snapshot else None
     order = snapshot or (json.loads((case / "spec.json").read_text()) if case else {})
     reference = Path(snapshot["reference"]) if snapshot and snapshot.get("reference") else case
@@ -197,7 +217,10 @@ def main():
                                                         "bytes": p.stat().st_size}
                               for p in sorted(out.rglob("*")) if p.is_file()}}
     (out / "delivery_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+    from wheelcam.delivery_report import write as write_report
+    report = write_report(out)                   # REPORT.md: the run's own files, summarized for the reviewer
     print(f"chain: {sum(s['ok'] for s in steps)}/{len(steps)} steps ok in {chain['seconds']} s -> {out}")
+    print(f"report: {report}")
 
 
 if __name__ == "__main__":

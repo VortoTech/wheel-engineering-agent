@@ -255,7 +255,7 @@ def style_features(recipe: dict, style: dict | None = None) -> tuple[dict, dict,
     return upd, prov, questions
 
 
-def _hold_hub_web(recipe: dict) -> str | None:
+def _hold_hub_web(recipe: dict, depth_from="斜视图测得的凹面深度") -> str | None:
     """Keep the hub web (hub face to mounting face, set by ET) within WEB_HUB by moving the hub face.
 
     The photo's dish depth is overruled when it leaves the web outside forging practice: HF6-5's 3/4
@@ -270,7 +270,7 @@ def _hold_hub_web(recipe: dict) -> str | None:
     recipe["hub_z"] = round(recipe["hub_z"] + fixed - web, 1)
     recipe["web_thick_hub"] = fixed
     recipe["ring_z"] = min(max(recipe["ring_z"], recipe["hub_z"] + 10), RING_Z_MAX)
-    return f'斜视图测得的凹面深度会让中心盘厚 {web} mm，超出锻造常用 {WEB_HUB[0]:.0f}–{WEB_HUB[1]:.0f} mm，已按 {fixed:.0f} mm 建模'
+    return f'{depth_from}会让中心盘厚 {web} mm，超出锻造常用 {WEB_HUB[0]:.0f}–{WEB_HUB[1]:.0f} mm，已按 {fixed:.0f} mm 建模'
 
 
 def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None, oblique_rim_hub=None,
@@ -320,7 +320,7 @@ def reconstruct(front_image, spec: dict, oblique_image=None, front_rim_hub=None,
     if et is not None:
         recipe["web_thick_hub"] = round(recipe["hub_z"] + recipe["width"] / 2 - et, 1)
         prov["et"] = _record(et, "spec", None, "由 ET 反推安装面位置（中心背面厚度随之调整）；来源见 spec_evidence")
-        note = _hold_hub_web(recipe)
+        note = _hold_hub_web(recipe, "斜视图测得的凹面深度" if oblique_image is not None else "模板默认的凹面深度（没有斜视图）")
         if note:
             prov["dish_depth"] = _record({"hub_z": recipe["hub_z"], "ring_z": recipe["ring_z"]}, "rule", None, note)
             questions.append(f'{note}（ET {et}）：请核对 ET，或提供更清晰的斜视图 / 凹面深度。')

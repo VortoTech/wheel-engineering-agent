@@ -11,7 +11,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--runtime', default=os.getenv('WHEEL_ENGINEERING_RUNTIME'))
     p.add_argument('--python', dest='python', default=os.getenv('WHEEL_ENGINEERING_PYTHON'))
-    p.add_argument('command', choices=['doctor', 'photo', 'text', 'chain'])
+    p.add_argument('command', choices=['doctor', 'photo', 'text', 'chain', 'report'])
     p.add_argument('arguments', nargs=argparse.REMAINDER)
     a = p.parse_args(argv)
     if not a.runtime:
@@ -29,6 +29,8 @@ def main(argv=None):
     if a.command == 'doctor':
         probe = "import sys,json; import wheelcam.wheel_skill, wheelcam.text_wheel, cadquery, manifold3d; print(json.dumps({'runtime_imports':'ok','python':sys.version.split()[0]}))"
         return subprocess.run([str(executable), '-c', probe], env=env).returncode
+    if a.command == 'report':                    # rewrite REPORT.md for an existing chain run; creates no run
+        return subprocess.run([str(executable), '-m', 'wheelcam.delivery_report', *args], env=env).returncode
     # Resolve input/output paths in the caller's cwd, never relative to the installed skill.
     if '--help' not in args and '-h' not in args:
         output = next((v.split('=', 1)[1] for v in args if v.startswith('--out=')), None)

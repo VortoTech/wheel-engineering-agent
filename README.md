@@ -1,10 +1,10 @@
-# Wheel Engineering Agent
+# 轮毂智图 -- Wheel Engineering Skill
 
 **VortoTech · 从轮毂参考与工程需求，到可调整、可追溯的 CAD 草稿。**
 
 输入轮毂照片或文字需求，补充已知尺寸，通过 **Wheel Engineering Skill** 理解结构、记录未知、生成配方、构建模型并检查结果。工程师可以在工作台中持续对话修改造型、查看渲染，再生成当前版本的工程交付草案。
 
-[产品全貌：架构 · 当前 PRD · 路线图](docs/product-architecture-roadmap.md) · [技能入口](skills/wheel-engineering/SKILL.md) · [安装说明](skills/wheel-engineering/references/setup.md) · [架构说明](docs/architecture.md) · [Spark 实测](docs/workbench-hardening.md)
+[产品全貌：架构 · 当前 PRD · 路线图](docs/product-architecture-roadmap.md) · [团队参赛历程](docs/team-hackathon-journey.md) · [技能入口](skills/wheel-engineering/SKILL.md) · [安装说明](skills/wheel-engineering/references/setup.md) · [架构说明](docs/architecture.md) · [Spark 实测](docs/workbench-hardening.md)
 
 ## 产品核心与方向
 
@@ -103,6 +103,8 @@ skills/wheel-engineering/
 
 ## 快速开始
 
+> **Agent 用 Skill 从文字或图片走完全链路并出交付报告：[docs/skill-walkthrough.md](docs/skill-walkthrough.md)**
+>
 > **评委复现请看 [REPRODUCE.md](REPRODUCE.md)**：最低运行配置、无模型也能跑的公开示例订单（`examples/sample-order/`）、预期输出和两台机器上的实测耗时。
 
 以下命令适用于 macOS / Linux Shell。需要 Python 3.12 或 3.13、Git 和 `uv`（没有 uv 也可用 pip，见 [REPRODUCE.md](REPRODUCE.md)）。

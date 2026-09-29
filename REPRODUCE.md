@@ -51,10 +51,11 @@ Linux 先安装系统库：`sudo apt-get install -y libgl1 libglib2.0-0 libxrend
 .venv/bin/python -m pytest -q \
   tests/test_privacy.py tests/test_skill_package.py tests/test_localpilot_skill.py \
   tests/test_workbench.py tests/test_workbench_revision.py tests/test_text_wheel.py \
-  tests/test_wheel_skill.py tests/test_machining_step.py tests/test_manufacturing_step_demo.py
+  tests/test_wheel_skill.py tests/test_machining_step.py tests/test_manufacturing_step_demo.py \
+  tests/test_delivery_report.py
 ```
 
-预期：**72 passed, 4 skipped**。跳过的 4 项需要私有订单或本机模型，缺少时自动跳过。
+预期：**75 passed, 4 skipped**（2026-09-29 两台机器实测为 72 项，其后新增 3 项报告测试）。跳过的 4 项需要私有订单或本机模型，缺少时自动跳过。
 实测：Spark 1 分 31 秒，Mac 4 分 38 秒。
 
 ### 3. 公开示例订单全链路（约 30–60 秒）
@@ -77,6 +78,11 @@ PYTHONPATH=services .venv/bin/python scripts/demo_chain.py examples/sample-order
 | **合计** | `chain.json`、`delivery_manifest.json`（全部产物的 SHA-256） | **26 s / 53 s** |
 
 锥座深度会被自动上提并记录在 `adjustments`：示例孔型在该 ET 下直孔余量不足，这是预期的工程调整，报告要求工程师确认。
+
+### 3b. 用 Agent + Skill 走全链路
+
+同样的示例订单，也可以让 Claude Code 或 Codex 按 Wheel Engineering Skill 从图片或文字走到交付报告（`REPORT.md`），
+不需要工作台。步骤、实测结果以及有无 Skill 的对照见 [Agent 使用 Skill 走完全链路](docs/skill-walkthrough.md)。
 
 ### 4. 全量测试（约 1 小时，可选）
 
