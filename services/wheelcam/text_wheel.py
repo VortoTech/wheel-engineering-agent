@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from . import mesh_build, recipe_chat
-from .forged_blank import ForgedWheel, hole_form, recipe_from_dict, window_outlines
+from .forged_blank import ForgedWheel, hole_form, recipe_from_dict, window_outlines, seat_cone_height
 from .wheel_skill import KEY_SPECS, envelope_from_specs
 from .text_style_library import load_catalog, style_recipe
 
@@ -137,6 +137,28 @@ def _prepare_pockets(recipe):
     return recipe
 
 
+def minimum_hub_thickness(recipe):
+    p = recipe_from_dict(recipe)
+    from .machining_step import MIN_HOLE_LAND_MM
+    return max(32.0, p.seat_depth + (seat_cone_height(p) if p.seat_cone_deg > 0 else 0) + MIN_HOLE_LAND_MM)
+
+
+def _hold_text_hub(recipe, et, adjustments):
+    """Move the styling face, never the mounting face or ET."""
+    before = float(recipe['hub_z'])
+    web = before + recipe['width'] / 2 - et
+    minimum = minimum_hub_thickness(recipe)
+    if web < minimum:
+        recipe['hub_z'] = math.ceil((et - recipe['width'] / 2 + minimum) * 10000) / 10000
+        if recipe.get('hub_crease_r', 0) > recipe['hub_r']:
+            recipe['hub_crease_z'] += recipe['hub_z'] - before
+        adjustments.append({'param': 'hub_z', 'before': before, 'after': recipe['hub_z'],
+                            'web_before_mm': round(web, 4), 'minimum_mm': minimum, 'et_mm': et,
+                            'reason': '保持 ET，抬高中心面以保留中心盘厚度及孔座直孔余量'})
+    recipe['web_thick_hub'] = round(recipe['hub_z'] + recipe['width'] / 2 - et, 4)
+    return recipe['hub_z'] != before
+
+
 def review(message: str, proposal: dict) -> dict:
     """Deterministic gate: text owns specs and topology; the model may choose only bounded styling."""
     if re.search(r"扭转辐|旋转辐|涡轮辐|像.{0,20}(品牌|某款)|(?:品牌|某款).{0,20}(一样|同款)", message):
@@ -144,7 +166,7 @@ def review(message: str, proposal: dict) -> dict:
     proposal = proposal if isinstance(proposal, dict) else {}
     explicit, form = specs_in_text(message)
     spec = {**DEFAULT_SPEC, **explicit}
-    rejected, clipped, questions = [], [], []
+    rejected, clipped, questions, adjustments = [], [], [], []
     model_spec = proposal.get("spec") or {}
     if not isinstance(model_spec, dict):
         rejected.append({"param": "spec", "value": str(model_spec)[:120], "reason": "模型规格不是对象，已只按原文解析"})
@@ -207,8 +229,13 @@ def review(message: str, proposal: dict) -> dict:
     recipe.update(STYLE_DEFAULTS)
     if selected:
         recipe.update(style_recipe(selected, recipe['lip_r']))
+        if family == 'single' and spokes == 5:
+            recipe.update(flank_w=4., flank_depth=6.)
     # Keep ET fixed before applying the style editor's thickness safeguards.
     recipe['web_thick_hub'] = round(recipe['hub_z'] + recipe['width'] / 2 - spec['et_mm'], 2)
+    recipe.update(hole_form(form) if form else {})
+    _hold_text_hub(recipe, spec['et_mm'], adjustments)
+    initial_hub_z = recipe['hub_z']
     shape_sources = {}
     model_shape = proposal.get("shape") or {}
     if not isinstance(model_shape, dict):
@@ -255,7 +282,15 @@ def review(message: str, proposal: dict) -> dict:
     style_review = recipe_chat.review(recipe, style_proposal)
     rejected += style_review["refused"]
     clipped += [{"param": note.split()[0], "note": note} for note in style_review["notes"]]
+    # A request for more concavity is not a request to remove window bevels.
+    deeper = bool(re.search(r'凹深|凹.{0,3}深|中心.{0,3}深|深凹', message))
+    if deeper and not re.search(r'斜面|倒角', message):
+        for key in ('flank_w', 'flank_depth'):
+            if key in style_review['accepted']:
+                rejected.append({'param': key, 'reason': '凹深请求只调整中心深度，保留窗口斜面'})
+                del style_review['accepted'][key]
     # A count explicitly requested by the user wins over a model omission or conflicting number.
+    no_pockets = bool(re.search(r'(?:不要|不加|不需要|不带|无|去掉|取消|移除)[^，。；;！？!?]{0,12}盲窗|盲窗[^，。；;！？!?]{0,6}(?:不要|去掉|取消|移除)', message))
     pocket_match = re.search(r"(?:外圈|轮缘).{0,8}?(\d{1,2})\s*(?:个|处)?\s*盲窗", message)
     if pocket_match:
         count = int(pocket_match.group(1))
@@ -266,10 +301,26 @@ def review(message: str, proposal: dict) -> dict:
             rejected.append({"param": "lip_pockets", "value": style_review["accepted"]["lip_pockets"],
                              "reason": "以用户原文盲窗数量为准"})
         style_review["accepted"]["lip_pockets"] = count
-    default_pockets = not pocket_match and bool(re.search(r'(?:一圈|外圈|轮缘).*盲窗', message))
+    default_pockets = not no_pockets and not pocket_match and bool(re.search(r'(?:一圈|外圈|轮缘).*盲窗', message))
     if default_pockets:
         style_review['accepted']['lip_pockets'] = spokes * 3
         questions.append(f'请确认盲窗数量；当前默认每辐 3 个，共 {spokes * 3} 个。')
+    if no_pockets:
+        style_review['accepted']['lip_pockets'] = 0
+    # Clamp hub proposals before the generic editor: its thickness guard must not abort a repairable draft.
+    requested_hub = style_review['accepted'].pop('hub_z', None)
+    if deeper:
+        requested_hub = initial_hub_z - 10
+    if requested_hub is not None:
+        previous_hub = recipe['hub_z']
+        recipe['hub_z'] = requested_hub
+        if recipe.get('hub_crease_r', 0) > recipe['hub_r']:
+            recipe['hub_crease_z'] += requested_hub - previous_hub
+        constrained = _hold_text_hub(recipe, spec['et_mm'], adjustments)
+        if recipe['hub_z'] != initial_hub_z:
+            shape_sources['hub_z'] = 'rule' if constrained else 'user' if deeper else 'model_choice'
+        elif deeper:
+            questions.append('中心盘厚度已到下限，凹深未增加；ET 保持不变。')
     if style_review["accepted"]:
         recipe = recipe_chat.apply_edit(recipe, style_review["accepted"])
     if selected and re.search(r"辐条.{0,4}宽一点|辐条.{0,4}加宽", message):
@@ -279,11 +330,7 @@ def review(message: str, proposal: dict) -> dict:
         for key in ("stem_w_hub", "stem_w_split") if family == "single" else ("stem_w_hub", "arm_w"):
             recipe[key] = round(float(recipe[key]) * 1.2, 2)
             shape_sources[key] = "user"
-    if "深" in message and recipe["hub_z"] > -80:
-        recipe["hub_z"] = -80.0
-    if "深" in message:
-        shape_sources["hub_z"] = "user"
-    recipe["web_thick_hub"] = round(recipe["hub_z"] + recipe["width"] / 2 - spec["et_mm"], 2)
+    _hold_text_hub(recipe, spec['et_mm'], adjustments)
     parsed_form = hole_form(form) if form else {}
     recipe.update(parsed_form)
     if form and recipe["seat_d"] >= spec["pcd_mm"] - spec["center_bore_mm"] - 6:
@@ -298,15 +345,17 @@ def review(message: str, proposal: dict) -> dict:
     provenance["family"] = {"value": family, "source": "user" if _explicit_family(message) else "model_choice"}
     provenance["preset"] = {"value": preset, "source": "model_choice"}
     provenance.update({k: {"value": recipe[k], "source": v} for k, v in shape_sources.items()})
-    provenance.update({k: {"value": recipe[k], "source": ("user" if pocket_match else "default" if default_pockets else "model_choice") if k == "lip_pockets" else "model_choice"}
+    provenance.update({k: {"value": recipe[k], "source": ("user" if pocket_match or no_pockets else "default" if default_pockets else "model_choice") if k == "lip_pockets" else "model_choice"}
                        for k in style_review["accepted"]})
     for key in STYLE_DEFAULTS:
         provenance.setdefault(key, {'value': recipe[key], 'source': 'default'})
     provenance['preset'] = {'value': selected['id'] if selected else preset, 'source': 'model_choice' if selected and selected['id'] == proposal.get('style_id') else 'default'}
     if 'lip_pockets' not in provenance:
         provenance['lip_pockets'] = {'value': recipe['lip_pockets'], 'source': 'default'}
-    if "深" in message:
-        provenance["hub_z"] = {"value": recipe["hub_z"], "source": "user"}
+    if adjustments:
+        provenance['hub_z'] = {'value': recipe['hub_z'], 'source': 'rule',
+                               'note': '中心盘最小厚度约束，ET 不变'}
+        questions.append('中心深度已受中心盘最小厚度约束；调整记录见 adjustments，须工程师确认。')
     recipe_sources = {k: {"value": len(v) if k == "outlines" else v, "source": "default"}
                       for k, v in recipe.items()}
     recipe_sources["outlines"].update({"source": "default" if selected else "model_choice", "note": "私有造型库归一化轮廓，按当前外径缩放" if selected else "由参数化辐条生成的单组窗口轮廓数量"})
@@ -331,6 +380,9 @@ def review(message: str, proposal: dict) -> dict:
         recipe_sources["lip_pocket_r"]["note"] = "按盲窗数量选择轮缘带半径"
     if "hub_z" in provenance:
         recipe_sources["hub_z"]["source"] = provenance["hub_z"]["source"]
+    if adjustments:
+        recipe_sources['web_thick_hub']['source'] = 'rule'
+        recipe_sources['web_thick_hub']['note'] = '中心深度受最小厚度约束；安装面 ET 保持原值'
     summary = f"已生成 {spokes} 辐{'直辐' if family == 'single' else 'Y 形分叉' if family == 'y_split' else '骨架'}视觉草案。"
     if recipe["lip_pockets"]:
         summary += f"外圈盲窗 {recipe['lip_pockets']} 个。"
@@ -346,7 +398,7 @@ def review(message: str, proposal: dict) -> dict:
                               'experimental': not selected and preset in EXPERIMENTAL},
             "spec": spec, "hole_form": form, "recipe": recipe, "parameters": provenance,
             "recipe_parameters": recipe_sources,
-            "questions": questions, "unknown": unknown, "rejected": rejected, "clipped": clipped,
+            "questions": questions, "unknown": unknown, "rejected": rejected, "clipped": clipped, "adjustments": adjustments,
             "reply": summary}
 
 
@@ -364,6 +416,10 @@ def run(message: str, out, ask=ask_model) -> dict:
     build_seconds = time.monotonic() - t0
     checks = mesh_build.verify(body, recipe_from_dict(decision["recipe"]), decision["spec"])
     p = recipe_from_dict(decision['recipe'])
+    minimum = minimum_hub_thickness(decision['recipe'])
+    actual_web = p.hub_z + p.width / 2 - decision['spec']['et_mm']
+    checks['hub_web_thickness'] = {'pass': actual_web >= minimum - 1e-6 and abs(actual_web - p.web_thick_hub) < 1e-3,
+                                   'measured_mm': actual_web, 'minimum_mm': minimum}
     if p.lip_pockets:
         import manifold3d as m3
         tools = mesh_build.lip_window_tools(p)

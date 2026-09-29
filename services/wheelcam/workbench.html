@@ -173,7 +173,7 @@ function selectTab(t){
 document.addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)selectTab(b.dataset.t);const start=e.target.closest('[data-start]');if(start&&!busy){if(start.dataset.start==='image')showEngineering(true);else openTextForm();}});
 $('#tabs').onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const buttons=[...document.querySelectorAll('#tabs button')];const i=buttons.indexOf(document.activeElement);const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;buttons[next].focus();selectTab(buttons[next].dataset.t);};
 
-const LABEL = {independent_lip_pockets:"独立盲窗刀具数量", single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
+const LABEL = {hub_web_thickness:"中心盘厚度", independent_lip_pockets:"独立盲窗刀具数量", single_valid_solid:"单一有效实体", outer_diameter:"外径", overall_width:"总宽", bolt_pattern:"孔系",
   offset_et:"ET", rotational_symmetry:"旋转对称", valid_single_solid:"单一有效实体", step_roundtrip:"STEP 回读",
   no_sliver_faces:"无碎面", lip_od_mm:"外径 mm", overall_width_mm:"总宽 mm", et_mm:"ET mm", pcd_mm:"PCD mm",
   bolts:"孔数", bolt_hole_d_mm:"螺栓孔 mm", center_bore_mm:"中心孔 mm"};

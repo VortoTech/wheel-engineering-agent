@@ -128,7 +128,7 @@ def test_missing_and_invalid_style_values_keep_nonzero_defaults():
     assert d['recipe']['flank_w'] == 4 and d['recipe']['flank_depth'] == 6
     assert d['parameters']['flank_w']['source'] == 'default'
     assert {r['param'] for r in d['rejected']} == {'flank_depth'}
-    assert d['recipe']['hub_z'] == -80
+    assert d['recipe']['web_thick_hub'] >= 32
 
 
 @pytest.mark.parametrize('spokes', [5, 6])
@@ -168,3 +168,54 @@ def test_library_generator_strips_order_data_and_limits_output(tmp_path, monkeyp
     assert not any(x in content for x in ['secret-client', 'private-order', 'pcd', 'width', '250'])
     with pytest.raises(ValueError, match='runs'):
         lib.generate(tmp_path / 'source', tmp_path / 'public.json')
+
+
+@pytest.mark.parametrize('phrase', ['外圈不要盲窗', '外圈不加盲窗', '无盲窗', '去掉外圈盲窗', '外圈盲窗取消'])
+def test_negative_pockets_override_model(phrase):
+    from wheelcam.text_wheel import review
+    d = review('20寸5辐直辐，' + phrase, {'style': {'lip_pockets': 15}})
+    assert d['recipe']['lip_pockets'] == 0
+    assert d['parameters']['lip_pockets']['source'] == 'user'
+    assert not any('确认盲窗数量' in q for q in d['questions'])
+
+
+def test_thin_template_repaired_without_moving_et(tmp_path, monkeypatch):
+    from wheelcam.text_wheel import review
+    synthetic_catalog(tmp_path, monkeypatch)
+    path = tmp_path / 'catalog.json'
+    catalog = json.loads(path.read_text())
+    catalog['entries'][0]['style'].update(hub_z=-95.8, flank_w=16, flank_depth=22)
+    path.write_text(json.dumps(catalog))
+    d = review('20寸5辐直辐，外圈15个盲窗，孔距5×112', {})
+    r = d['recipe']
+    assert r['web_thick_hub'] >= 32
+    assert r['hub_z'] + r['width'] / 2 - r['web_thick_hub'] == pytest.approx(35)
+    assert d['adjustments'][0]['web_before_mm'] == pytest.approx(3.5)
+    assert d['parameters']['hub_z']['source'] == 'rule'
+    assert (r['flank_w'], r['flank_depth']) == (4, 6)
+
+
+def test_deeper_request_preserves_bevel_and_records_only_real_change():
+    from wheelcam.text_wheel import review
+    a = review('20×10.5 ET15，5辐直辐', {})
+    b = review('20×10.5 ET15，5辐直辐，凹深一点', {'style': {'flank_depth': 0}})
+    assert b['recipe']['hub_z'] < a['recipe']['hub_z']
+    assert b['recipe']['flank_depth'] == 6
+    assert b['parameters']['hub_z']['source'] == 'user'
+    c = review('20寸5辐直辐，凹深一点', {'style': {'flank_depth': 0}})
+    assert c['recipe']['web_thick_hub'] >= 32
+    assert c['parameters']['hub_z']['source'] != 'user'
+
+
+def test_run_cannot_pass_thin_center_even_if_mesh_checks_pass(tmp_path, monkeypatch):
+    from wheelcam import text_wheel as tw
+    original = tw.review
+    def bad_review(*args):
+        d = original(*args)
+        d['recipe']['hub_z'] = -95.8
+        d['recipe']['web_thick_hub'] = 3.5
+        return d
+    monkeypatch.setattr(tw, 'review', bad_review)
+    result = tw.run('20寸5辐直辐', tmp_path / 'thin', ask=lambda _: {})
+    assert not result['checks']['hub_web_thickness']['pass']
+    assert not result['all_checks_pass']

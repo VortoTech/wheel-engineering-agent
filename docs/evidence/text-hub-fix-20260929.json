@@ -1,0 +1,157 @@
+{
+  "scope": "text center thickness and negative pocket intent",
+  "runtime": {
+    "model": "Spark step3-vl-10b-fp8",
+    "cad": "Mac"
+  },
+  "manufacturing_status": "not_released",
+  "cases": [
+    {
+      "input": "20寸5辐直辐，外圈15个盲窗，孔距5×112",
+      "checks": {
+        "single_valid_solid": {
+          "pass": true
+        },
+        "outer_diameter": {
+          "pass": true,
+          "measured_mm": 547.8,
+          "expected_mm": 547.8
+        },
+        "overall_width": {
+          "pass": true,
+          "measured_mm": 268.6,
+          "expected_mm": 268.6
+        },
+        "bolt_pattern": {
+          "pass": true,
+          "holes_found": 5,
+          "expected": 5,
+          "pcd_mm": 112.0
+        },
+        "offset_et": {
+          "pass": true,
+          "measured_mm": 35.0,
+          "expected_mm": 35
+        },
+        "rotational_symmetry": {
+          "pass": true,
+          "sector_volume_spread": 0.0
+        },
+        "hub_web_thickness": {
+          "pass": true,
+          "measured_mm": 32.000000000000014,
+          "minimum_mm": 32.0
+        },
+        "independent_lip_pockets": {
+          "pass": true,
+          "expected": 15,
+          "tool_components": 15
+        }
+      },
+      "all_checks_pass": true,
+      "adjustments": [
+        {
+          "param": "hub_z",
+          "before": -95.8,
+          "after": -67.3,
+          "web_before_mm": 3.5,
+          "minimum_mm": 32.0,
+          "et_mm": 35,
+          "reason": "保持 ET，抬高中心面以保留中心盘厚度及孔座直孔余量"
+        },
+        {
+          "param": "hub_z",
+          "before": -85.0,
+          "after": -67.3,
+          "web_before_mm": 14.3,
+          "minimum_mm": 32.0,
+          "et_mm": 35,
+          "reason": "保持 ET，抬高中心面以保留中心盘厚度及孔座直孔余量"
+        }
+      ],
+      "recipe": {
+        "hub_z": -67.3,
+        "web_thick_hub": 32.0,
+        "flank_w": 4.0,
+        "flank_depth": 6.0,
+        "lip_pockets": 15
+      }
+    },
+    {
+      "input": "20寸5辐直辐，外圈不要盲窗，孔距5×112",
+      "checks": {
+        "single_valid_solid": {
+          "pass": true
+        },
+        "outer_diameter": {
+          "pass": true,
+          "measured_mm": 547.8,
+          "expected_mm": 547.8
+        },
+        "overall_width": {
+          "pass": true,
+          "measured_mm": 268.6,
+          "expected_mm": 268.6
+        },
+        "bolt_pattern": {
+          "pass": true,
+          "holes_found": 5,
+          "expected": 5,
+          "pcd_mm": 112.0
+        },
+        "offset_et": {
+          "pass": true,
+          "measured_mm": 35.0,
+          "expected_mm": 35
+        },
+        "rotational_symmetry": {
+          "pass": true,
+          "sector_volume_spread": 0.0
+        },
+        "hub_web_thickness": {
+          "pass": true,
+          "measured_mm": 32.000000000000014,
+          "minimum_mm": 32.0
+        }
+      },
+      "all_checks_pass": true,
+      "adjustments": [
+        {
+          "param": "hub_z",
+          "before": -95.8,
+          "after": -67.3,
+          "web_before_mm": 3.5,
+          "minimum_mm": 32.0,
+          "et_mm": 35,
+          "reason": "保持 ET，抬高中心面以保留中心盘厚度及孔座直孔余量"
+        }
+      ],
+      "recipe": {
+        "hub_z": -67.3,
+        "web_thick_hub": 32.0,
+        "flank_w": 4.0,
+        "flank_depth": 6.0,
+        "lip_pockets": 0
+      }
+    }
+  ],
+  "machining_checks": {
+    "valid_single_solid": {
+      "pass": true
+    },
+    "step_roundtrip": {
+      "pass": true,
+      "relative_volume_delta": 1.3022918315733698e-09
+    },
+    "no_sliver_faces": {
+      "pass": true,
+      "faces_under_5mm2": 0
+    },
+    "offset_et": {
+      "derived_mm": 35.0,
+      "expected_mm": 35,
+      "pass": true
+    }
+  },
+  "machining_seat_depth_mm": 22.0
+}
