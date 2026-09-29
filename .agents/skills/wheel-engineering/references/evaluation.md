@@ -1,1 +1,0 @@
-../../../../docs/skill-evaluation.md

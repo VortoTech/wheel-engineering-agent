@@ -4,7 +4,7 @@
 
 把轮毂图片或文字需求、已知工程尺寸与专业规则转化为可调整、可追溯、可验证的 CAD **草稿**。
 
-核心能力是 **[Wheel Engineering Skill](SKILL.md)**：理解结构 → 区分已知与未知 → 生成配方 → 重建 → 校验 → 报告。工作台允许工程师持续对话修改、查看渲染和重新生成交付包。
+核心能力是 **[Wheel Engineering Skill](skills/wheel-engineering/SKILL.md)**：理解结构 → 区分已知与未知 → 生成配方 → 重建 → 校验 → 报告。工作台允许工程师持续对话修改、查看渲染和重新生成交付包。
 
 > 当前为工程辅助原型。GLB 是 L0 视觉预览；加工级 STEP 使用简化几何，不包含全部造型曲面。工程图、参考 NC 和采样材料去除仿真均未经过制造批准，输出保持 `not_released`。
 
@@ -21,10 +21,24 @@
 
 **Skill 有两个层面：**
 
-- 根目录 [`SKILL.md`](SKILL.md) 是给开发助手调用和评审能力的使用契约。
+- 独立目录 [`skills/wheel-engineering/SKILL.md`](skills/wheel-engineering/SKILL.md) 是给开发助手调用和评审能力的使用契约。
 - `services/wheelcam/` 中的 Python 模块是实际执行的技能。工作台调用这些代码，不读取 Markdown 来运行建模。
 
-`.agents/skills/wheel-engineering/` 与 `.claude/skills/wheel-engineering/` 仅提供工具发现入口，`SKILL.md` 都链接到根目录同一文件。当前仓库没有 `.codex/skills`。保留两个入口是为了兼容不同开发助手，不表示运行了两个 Agent，也不表示工作台依赖 Codex 或 Claude。
+`.agents/skills/wheel-engineering/` 与 `.claude/skills/wheel-engineering/` 仅提供工具发现入口，两个目录都链接到 `skills/wheel-engineering/` 同一技能包。当前仓库没有 `.codex/skills`。保留两个入口是为了兼容不同开发助手，不表示运行了两个 Agent，也不表示工作台依赖 Codex 或 Claude。
+
+## 安装与复用 Skill
+
+技能目录：[skills/wheel-engineering](skills/wheel-engineering)。将整个目录安装到其他项目或助手的技能目录；不能只复制 Markdown。它不包含 CAD 引擎，需要独立安装本项目运行环境并设置 `WHEEL_ENGINEERING_RUNTIME`。
+
+```bash
+export WHEEL_ENGINEERING_RUNTIME=/absolute/path/to/wheel-engineering-agent
+python3 /absolute/path/to/installed/wheel-engineering/scripts/run.py doctor
+python3 /absolute/path/to/installed/wheel-engineering/scripts/run.py photo --help
+```
+
+安装步骤和模型配置见 [setup.md](skills/wheel-engineering/references/setup.md)。输入路径按调用者的工作目录解释，输出必须是新目录或空目录。调用脚本不自动部署模型、不读取 `.env`、不复制工厂数据。
+
+仓库当前私有，复用者需要授权访问；本次没有新增开源许可。根目录 `SKILL.md` 仅是旧链接兼容入口，实际内容统一维护在 `skills/wheel-engineering/`。
 
 ## 当前运行架构
 
@@ -83,13 +97,13 @@ bash scripts/start_workbench_spark.sh runs/demo 8795 18096
 - **持续修改**：对白名单内的造型参数修改、重建与检查；工程尺寸单独确认。
 - **交付路径**：从选定配方重新生成加工 STEP、工程图、加工准备包和验证记录。预览修改后，旧交付包不能代表新版本。
 
-输出保存在 `runs/` 或 `artifacts/`，不随源码分发。STEP 是几何交换格式，不携带原生 CAD 特征历史；配方用于参数化重建。详细操作见 [SKILL.md](SKILL.md)、[文字输入](docs/text-to-wheel.md)、[最终 Demo PRD](docs/prd-final-demo.md)。
+输出保存在 `runs/` 或 `artifacts/`，不随源码分发。STEP 是几何交换格式，不携带原生 CAD 特征历史；配方用于参数化重建。详细操作见 [SKILL.md](skills/wheel-engineering/SKILL.md)、[文字输入](docs/text-to-wheel.md)、[最终 Demo PRD](docs/prd-final-demo.md)。
 
 ## 目录与维护边界
 
 | 目录 | 用途 |
 | --- | --- |
-| `SKILL.md` | 唯一维护的 Skill 使用契约 |
+| `skills/wheel-engineering/` | 可独立复制安装的 Skill 包：契约、调用脚本、参考文档 |
 | `services/wheelcam/` | 当前工作台、技能、几何、验证与交付模块 |
 | `scripts/` | 全链编排、启动、评测与工具脚本 |
 | `tests/` | 功能、工程边界与隐私检查 |
