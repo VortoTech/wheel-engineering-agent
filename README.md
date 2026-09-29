@@ -103,6 +103,8 @@ skills/wheel-engineering/
 
 ## 快速开始
 
+> **评委复现请看 [REPRODUCE.md](REPRODUCE.md)**：最低运行配置、无模型也能跑的公开示例订单（`examples/sample-order/`）、预期输出和两台机器上的实测耗时。
+
 以下命令适用于 macOS / Linux Shell。需要 Python 3.12 或 3.13、Git 和 `uv`；私有仓库需要访问权限。
 
 ### 1. 安装运行环境

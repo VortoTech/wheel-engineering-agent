@@ -151,8 +151,11 @@ def main():
                           source="参数来源见 engineering_report.json；工程草案，未经制造审核",
                           machining_report=json.loads((out / "machining/machining_report.json").read_text()))
         (out / "drawing.svg").write_text(svg)
-        chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-        if chrome.exists():                      # A3 PDF where a Chrome is at hand (the Mac)
+        import shutil
+        mac = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        found = [shutil.which(n) for n in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")]
+        chrome = mac if mac.exists() else Path(next((f for f in found if f), "")) if any(found) else None
+        if chrome:                               # A3 PDF where a Chrome/Chromium is at hand; SVG otherwise
             html = out / "drawing.html"
             html.write_text('<!doctype html><meta charset="utf-8"><style>@page{size:420mm 297mm;margin:0}'
                             'body{margin:0}img{width:420mm;height:297mm}</style><img src="drawing.svg">')

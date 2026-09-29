@@ -54,14 +54,12 @@ def test_window_grid_clips_outer_rim_region(monkeypatch):
     assert not target[center, center + 35]
 
 
-def test_m59_sampled_stock_removal_has_no_design_gouge(tmp_path):
-    """Private local M59 order fixture; skipped in exported source-only checkouts."""
-    root = Path(__file__).resolve().parents[1]
-    recipe_path = root / "runs/m59-v1/recipe.json"
-    spec_path = root / "runs/real-orders/case-03/d20w10.5/spec.json"
-    if not recipe_path.exists() or not spec_path.exists():
-        pytest.skip("private M59 order fixture is unavailable")
-    recipe, spec = json.loads(recipe_path.read_text()), json.loads(spec_path.read_text())
+def test_sample_sampled_stock_removal_has_no_design_gouge(tmp_path):
+    """Legacy mesh-only package (scripts/build_manufacturing_demo.py) on the public sample order.
+    The demo chain uses the STEP-pair package instead (tests/test_manufacturing_step_demo.py)."""
+    sample = Path(__file__).resolve().parents[1] / "examples/sample-order"
+    recipe = json.loads((sample / "sample_truth.json").read_text())["recipe"]
+    spec = json.loads((sample / "spec.json").read_text())
     p = recipe_from_dict(confirmed_recipe(recipe, spec))
     from wheelcam.mesh_build import build
     design, _ = build(p)

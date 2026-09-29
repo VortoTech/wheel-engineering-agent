@@ -38,6 +38,25 @@ def test_m59_step_pair_drives_simulation_and_reference_nc(tmp_path):
     assert json.loads((output / "process_plan.json").read_text())["source"] == plan["source"]
 
 
+def test_public_sample_step_pair_has_no_gouge(tmp_path):
+    """The chain's package path on the public sample order (examples/sample-order): runs anywhere."""
+    from wheelcam.machining_step import export
+    root = Path(__file__).resolve().parents[1]
+    sample = root / "examples/sample-order"
+    order = json.loads((sample / "spec.json").read_text())
+    recipe = json.loads((sample / "sample_truth.json").read_text())["recipe"]
+    report = export(recipe, tmp_path / "machining", order["hole_form"], order["spec"]["et_mm"])
+    assert all(c["pass"] is not False for c in report["checks"].values())
+    plan = create_step_package(tmp_path / "machining", tmp_path / "package", spec_path=sample / "spec.json")
+    assert plan["simulation"]["status"] == "sampled_no_gouge"
+    assert plan["simulation"]["gouge_vs_machining_step_mm3"] < 1
+    assert plan["simulation"]["remaining_vs_machining_step_mm3"] > 0
+    nc = (tmp_path / "package/reference.nc").read_text()
+    assert nc.count("(G81 X") == order["spec"]["bolts"]
+    assert all(line.startswith("(") and line.endswith(")") for line in nc.splitlines())
+    assert plan["status"] == "not_released"
+
+
 def test_missing_step_pair_is_rejected(tmp_path):
     with pytest.raises(FileNotFoundError, match="Missing machining STEP inputs"):
         create_step_package(tmp_path, tmp_path / "out")

@@ -1,0 +1,38 @@
+{
+ "spec": {
+  "diameter_in": 20.0,
+  "width_in": 9.0,
+  "pcd_mm": 114.3,
+  "bolts": 5,
+  "center_bore_mm": 73.1,
+  "et_mm": 35.0
+ },
+ "hole_form": "14X28X60",
+ "spec_evidence": {
+  "diameter_in": {
+   "source": "drawing",
+   "reference": "public sample order"
+  },
+  "width_in": {
+   "source": "drawing",
+   "reference": "public sample order"
+  },
+  "pcd_mm": {
+   "source": "drawing",
+   "reference": "public sample order"
+  },
+  "bolts": {
+   "source": "drawing",
+   "reference": "public sample order"
+  },
+  "center_bore_mm": {
+   "source": "drawing",
+   "reference": "public sample order"
+  },
+  "et_mm": {
+   "source": "drawing",
+   "reference": "public sample order"
+  }
+ },
+ "note": "公开示例订单：由仓库内参数预设生成，不含任何客户数据"
+}
