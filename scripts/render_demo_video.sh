@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../demo-video"
 python3 scripts/prepare.py
-python3 scripts/voiceover.py --voice "${DEMO_VOICE:-Tingting}" --rate "${DEMO_VOICE_RATE:-200}"
+../.venv/bin/python scripts/voiceover.py --provider "${DEMO_TTS_PROVIDER:-neural}" --voice "${DEMO_VOICE:-}" --rate="${DEMO_VOICE_RATE:-}"
 if [[ ! -d node_modules ]]; then npm ci; fi
 npx tsc --noEmit
 mkdir -p ../runs/demo-video
