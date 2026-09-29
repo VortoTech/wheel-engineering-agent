@@ -1,0 +1,36 @@
+name: Core regression
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system libraries and locked tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 libxrender1 libsm6
+          python -m pip install uv==0.12.9
+      - name: Verify dependency export and install runtime only
+        run: |
+          uv export --locked --no-dev --no-emit-project --no-header --output-file /tmp/runtime.txt
+          diff -u requirements-runtime.txt /tmp/runtime.txt
+          uv sync --locked --no-dev
+          .venv/bin/python -c "import httpx; from wheelcam.workbench import create_app; from wheelcam.text_wheel import ask_model; create_app('runs/ci')"
+      - name: Install test dependencies
+        run: uv sync --locked --no-dev --extra test
+      - name: Check engineering and workbench contracts
+        run: >-
+          uv run --locked --extra test pytest -q
+          tests/test_privacy.py tests/test_skill_package.py tests/test_localpilot_skill.py
+          tests/test_workbench.py tests/test_workbench_revision.py tests/test_text_wheel.py
+          tests/test_wheel_skill.py tests/test_machining_step.py
+      - name: Check patch formatting
+        run: git diff --check

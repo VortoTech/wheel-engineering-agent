@@ -221,7 +221,7 @@ function render(){
   $('#cad').innerHTML=`<div class="subnav"><button data-t="ref">返回参考图</button></div>`+(cmp?`${versionNote}<h3>工厂 CAD 尺寸对照</h3><table><tr><th>尺寸</th><th>重建</th><th>CAD</th><th>误差</th></tr>${Object.entries(cmp.dimensions).map(([k,v])=>`<tr><td>${esc(LABEL[k]||k)}</td><td>${num(v.reconstruction)}</td><td>${num(v.cad)}</td><td>${num(v.error)}</td></tr>`).join('')}</table><img class="fig" src="${f('compare_section.png')}" alt="截面对照"><p class="note">本批 CAD 曾用于模板标定，截面不含辐条；这些残差不代表新款精度。</p>`:'<h3>本版本没有工厂 CAD 对照</h3><p class="muted">历史对照不会自动沿用到新版本。</p>');
   $('#deliverables').innerHTML=`<h2>当前版本交付</h2><p class="muted">${esc(run)}</p>${versionNote}
     <div class="download-card"><h3>造型预览 <span class="badge">L0</span></h3><p>当前显示的轮毂外观；可继续对话调整。</p><div class="links"><a href="${f(data.glb)}" download>下载 GLB</a><a href="${f(preview.revision+'/recipe.json')}" download>参数配方</a></div></div>
-    <div class="download-card"><h3>加工级 STEP <span class="badge ${ready('machining')?'ok':'warn'}">${ready('machining')?stale?'修改前版本':'已校验':'未生成'}</span></h3><p>回转体、通窗和孔系；不包含完整造型曲面。</p>${ready('machining')?`<div class="links"><a href="${f('machining/machining.step')}" download>零件 STEP</a><a href="${f('machining/stock.step')}" download>毛坯 STEP</a></div>`:''}</div>
+    <div class="download-card"><h3>加工级 STEP <span class="badge ${ready('machining')?'ok':'warn'}">${ready('machining')?stale?'修改前版本':'已校验':'未生成'}</span></h3><p>回转体、通窗和孔系；不包含完整造型曲面。</p>${machiningScope(data.machining)}${ready('machining')?`<div class="links"><a href="${f('machining/machining.step')}" download>零件 STEP</a><a href="${f('machining/stock.step')}" download>毛坯 STEP</a></div>`:''}</div>
     <div class="download-card"><h3>工程图 <span class="badge">${ready('drawing')?stale?'修改前版本':'已生成':'未生成'}</span></h3><p>尺寸与加工调整说明，需工程师审核。</p><button data-t="drawing">查看工程图</button></div>
     <div class="download-card"><h3>加工准备 <span class="badge ${ready('package')?'ok':'warn'}">${ready('package')?stale?'修改前版本':'已生成':step('package')?'未通过':'未生成'}</span></h3><p>工序、刀具表与采样仿真。参考轨迹不可上机。</p><button data-t="cam">查看加工包</button></div>
     <details><summary>STEP 包含内容与限制</summary><p>${esc((m.in_step||[]).join('；'))}</p><p class="note">${esc((m.not_in_step||[]).join('；')||'完整造型曲面、结构仿真与制造审核未完成。')}</p></details>`;
@@ -240,6 +240,16 @@ function understandingPanel(report){
     return entries.length ? `<details${["supplied","unknown"].includes(group) ? " open" : ""}><summary>${title} · ${entries.length} 项</summary><table>${entries.map(([key,v]) => `<tr><td>${LABEL[key] || esc(key)}</td><td>${num(v.value)}</td><td>${esc(SOURCE[v.source]||v.source)}${v.reason ? " · " + esc(v.reason) : ""}</td></tr>`).join("")}</table></details>` : "";
   }).join("")}${(report.questions || []).map(q => `<p class="note">${esc(q)}</p>`).join("")}`;
 }
+function machiningScope(report){
+  if(!report)return '<p class="note">尚无加工实体报告，无法确认特征覆盖范围。</p>';
+  const list=(items)=>items.map(x=>`<li>${esc(x)}</li>`).join('');
+  const included=report.in_step||[], omitted=report.not_in_step||[], adjustments=report.adjustments||[];
+  return `<div class="note"><strong>本次 STEP 的特征范围</strong>
+    ${included.length?`<p>已包含</p><ul>${list(included)}</ul>`:'<p>报告未列出已包含特征，请人工核对。</p>'}
+    ${omitted.length?`<p>未包含 · 预览中的这些细节不会随本次 STEP 导出</p><ul>${list(omitted)}</ul>`:'<p>报告未列出缺失特征，不据此认定完整造型已构建。</p>'}
+    ${adjustments.length?`<p>需工程师确认的调整</p><ul>${list(adjustments)}</ul>`:''}</div>`;
+}
+
 function agentPanel(a){
   if (!a) return "";
   const rows = a.steps.map(s => s.step === "look"

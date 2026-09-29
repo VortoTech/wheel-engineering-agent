@@ -1205,6 +1205,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cadquery" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "manifold3d" },
     { name = "numpy" },
     { name = "pillow" },
@@ -1216,7 +1217,6 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -1224,7 +1224,7 @@ test = [
 requires-dist = [
     { name = "cadquery", specifier = ">=2.6,<3" },
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "manifold3d", specifier = ">=3,<4" },
     { name = "numpy", specifier = ">=2,<3" },
     { name = "pillow", specifier = ">=11,<13" },

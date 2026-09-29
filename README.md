@@ -102,7 +102,7 @@ skills/wheel-engineering/
 ```bash
 git clone https://github.com/VortoTech/wheel-engineering-agent.git
 cd wheel-engineering-agent
-uv sync --extra test
+uv sync --locked --no-dev
 
 export WHEEL_ENGINEERING_RUNTIME="$PWD"
 python3 skills/wheel-engineering/scripts/run.py doctor
@@ -260,10 +260,23 @@ Spark 为模型与工程工具提供同机运行环境；当前没有实现 GPU 
 技能包已验证独立复制后的调用、环境检查和真实照片的理解与配方流程。运行相关检查：
 
 ```bash
+uv sync --locked --extra test
 .venv/bin/python -m pytest tests/test_skill_package.py tests/test_privacy.py -q
 ```
 
 评测结论按范围解读：13 个真实订单参与过模板标定；同图视觉拟合不代表新款泛化或制造精度；采样无过切不代表机床、夹具和刀柄的完整碰撞验证。当前未取得结构强度、疲劳或制造审核批准。
+
+## 回归与可复现安装
+
+GitHub Actions 的 [Core regression](.github/workflows/core-regression.yml) 在提交和 PR 时检查正式依赖安装，以及文字建模、工程约束、工作台版本、STEP 和 Skill 接口。测试使用合成数据和模拟模型响应；通过不代表真实模型或 Spark 全链重新验收。
+
+`uv.lock` 是 Python 依赖的唯一锁定来源。容器通过生成的 `requirements-runtime.txt` 安装固定版本并校验包哈希；CI 检查导出文件与锁文件一致。更新依赖后执行：
+
+```bash
+uv export --locked --no-dev --no-emit-project --no-header --output-file requirements-runtime.txt
+```
+
+基础容器和系统软件包仍需按部署环境验证，这不是逐字节镜像复现保证。STEP 下载页直接展示报告中的已包含特征、未包含特征与工程调整，帮助核对预览和交付的实际差别。
 
 ## 文档与协作
 
