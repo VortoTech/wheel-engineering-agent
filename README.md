@@ -215,12 +215,47 @@ LocalPilot 配置与评测 → 实际推理引擎端点 → Wheel Engineering Sk
 
 提供的端点检查工具只验证模型发现与可选文字请求，不自动部署、不切换现有服务，也不把文字探测当作视觉或轮毂验收。全新节点仍需先准备驱动、推理引擎、LocalPilot CLI 等基础环境。详见 [接入与新节点说明](skills/localpilot/references/setup.md)。
 
-## DGX Spark 与验证
+## DGX Spark 运行背景
 
-有两种不同的运行方式：
+DGX Spark 承担本项目的本地模型推理与整链执行验证。图片、规格、模型调用和 CAD 产物可以在同一节点内处理；实际是否保持本地取决于模型端点配置。现有链路使用 StepFun 视觉语言模型和 NVIDIA vLLM 容器，几何构建由独立 ARM64 应用环境执行。
+
+### 已核对的环境
+
+以下为 **2026-09-28 实机只读检查**；环境清单见 [可复核记录](docs/evidence/spark-environment-20260928.json)。
+
+| 层级 | 实际环境 |
+| --- | --- |
+| 硬件 | NVIDIA GB10；ARM64 / `aarch64`；系统报告约 119 GiB 内存 |
+| 操作系统与驱动 | Ubuntu 24.04.3 LTS；NVIDIA 驱动 `580.82.09` |
+| 推理容器 | `nvcr.io/nvidia/vllm:26.02-py3` |
+| 推理软件 | vLLM `0.15.1+nv26.2`；PyTorch `2.11.0a0+eb65b36914.nv26.2` |
+| 模型服务 | `step3-vl-10b-fp8`；服务报告最大上下文 8192 tokens |
+| CAD 应用 | Python 3.12 容器，CadQuery / OCCT、manifold3d；见 [Dockerfile.spark](Dockerfile.spark) |
+| 已记录全链的应用资源限制 | 6 CPU、16 GiB；不包含独立模型容器的资源占用 |
+
+### GPU 与 CAD 的分工
+
+```text
+DGX Spark
+├── 模型服务：Step3-VL + vLLM → GPU 推理
+└── 工程应用：Wheel Skill
+    ├── 参数约束、任务编排与来源记录
+    ├── CAD / B-Rep / STEP → 主要由 CPU 构建和检查
+    └── 工程图、加工准备、采样仿真与验证报告
+```
+
+Spark 为模型与工程工具提供同机运行环境；当前没有实现 GPU 加速 B-Rep 布尔构建，也没有据此声称 CAD 构建获得 GPU 加速。既有 57.7 秒结果是一个开发案例在上述应用资源限制下的整链记录，不是 GPU 加速比或通用耗时承诺。
+
+### 两种连接与执行方式
+
+
 
 - **本机工作台 + Spark 模型**：配置 SSH 别名 `spark` 和已有模型服务后，使用 `bash scripts/start_workbench_spark.sh runs/demo 8795 18096`。CAD 仍在本机执行。
 - **Spark 全链**：在 Spark 上执行 `scripts/demo_chain.py`，模型和 CAD 均在该设备运行。参见 [全链运行证据](docs/spark-full-chain-evidence.md) 和 [后续复测](docs/workbench-hardening.md)。
+
+模型端点通过回环地址与 SSH 隧道访问，README 不包含分配节点的地址、登录账号或凭据。应用与模型分开运行；本次环境核对没有重启模型、修改驱动或重跑全链。历史结果与当前服务状态分别记录。
+
+### 验证范围
 
 技能包已验证独立复制后的调用、环境检查和真实照片的理解与配方流程。运行相关检查：
 

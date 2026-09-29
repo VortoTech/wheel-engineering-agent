@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-28",
+  "scope": "Read-only live environment inspection; existing benchmark results were not rerun",
+  "hardware": {
+    "gpu": "NVIDIA GB10",
+    "architecture": "aarch64",
+    "system_memory_reported": "119 GiB"
+  },
+  "host": {
+    "os": "Ubuntu 24.04.3 LTS",
+    "nvidia_driver": "580.82.09"
+  },
+  "model_service": {
+    "container_image": "nvcr.io/nvidia/vllm:26.02-py3",
+    "vllm": "0.15.1+nv26.2",
+    "torch": "2.11.0a0+eb65b36914.nv26.2",
+    "served_model": "step3-vl-10b-fp8",
+    "max_model_len": 8192
+  },
+  "app_image": {
+    "name": "wheelcam-app:spark-20260928",
+    "architecture": "arm64",
+    "id": "sha256:668410682ed48c24e6c93b3f9876c9a8ea783f7426fd8d09b47def975f9afcaf"
+  },
+  "benchmark_context": {
+    "source": "workbench-hardening-20260928.json",
+    "application_cpu_limit": 6,
+    "application_memory_limit_gib": 16,
+    "note": "Application limits exclude the separately running model container"
+  },
+  "privacy": "Hostnames, addresses, account names and credentials omitted"
+}
