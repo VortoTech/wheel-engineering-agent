@@ -34,3 +34,7 @@ Text and chat use `WHEELCAM_CHAT_BASE_URL`, `WHEELCAM_CHAT_MODEL` and, if needed
 Supply secrets through the environment or your secret manager, never committed examples. Photos may leave the device when the configured endpoint is remote. Confirm permission for that endpoint and those inputs. Deterministic photo reconstruction can run without requesting model-based styling.
 
 The skill does not deploy models. Run it on the intended machine to place CAD computation there. A remote model endpoint alone does not relocate CAD computation.
+
+## Optional LocalPilot preparation
+
+If the separately installed `localpilot` integration skill is available, use it to prepare or assess a supported inference target and obtain an actual engine endpoint. It is optional; existing compatible services work directly. The upstream authoritative skill is `local-ai-autopilot`. LocalPilot is not a driver or inference-engine installer. Keep image/history traffic on the underlying engine until its gateway is verified for those modalities.

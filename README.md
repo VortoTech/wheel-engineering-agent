@@ -161,6 +161,16 @@ STEP 不携带本项目的原生参数化特征历史，参数编辑通过配方
 
 Python 包名 `wheelcam` 与 `WHEELCAM_*` 环境变量保留兼容现有部署。详细模块职责见 [架构说明](docs/architecture.md)。
 
+## 可选接入：LocalPilot
+
+[`skills/localpilot/`](skills/localpilot/SKILL.md) 是轻量接入技能，引用 LocalPilot 上游 `local-ai-autopilot` 工作流。它帮助检查节点前置条件、取得模型端点，再交给 Wheel Engineering 使用；已有模型服务时可直接跳过 LocalPilot。
+
+```text
+LocalPilot 配置与评测 → 实际推理引擎端点 → Wheel Engineering Skill
+```
+
+提供的端点检查工具只验证模型发现与可选文字请求，不自动部署、不切换现有服务，也不把文字探测当作视觉或轮毂验收。全新节点仍需先准备驱动、推理引擎、LocalPilot CLI 等基础环境。详见 [接入与新节点说明](skills/localpilot/references/setup.md)。
+
 ## DGX Spark 与验证
 
 有两种不同的运行方式：
