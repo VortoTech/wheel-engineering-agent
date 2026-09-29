@@ -105,7 +105,7 @@ skills/wheel-engineering/
 
 > **评委复现请看 [REPRODUCE.md](REPRODUCE.md)**：最低运行配置、无模型也能跑的公开示例订单（`examples/sample-order/`）、预期输出和两台机器上的实测耗时。
 
-以下命令适用于 macOS / Linux Shell。需要 Python 3.12 或 3.13、Git 和 `uv`；私有仓库需要访问权限。
+以下命令适用于 macOS / Linux Shell。需要 Python 3.12 或 3.13、Git 和 `uv`（没有 uv 也可用 pip，见 [REPRODUCE.md](REPRODUCE.md)）。
 
 ### 1. 安装运行环境
 
@@ -296,4 +296,4 @@ uv export --locked --no-dev --no-emit-project --no-header --output-file requirem
 - [最终 Demo PRD](docs/prd-final-demo.md)
 - [隐私与发布检查](docs/privacy-release.md)
 
-由 **VortoTech 团队**维护，仓库保持私有，目前未授予公开开源许可。真实照片、工厂 CAD、模型权重和密钥需要按授权单独准备；`data/`、`runs/`、`artifacts/` 与环境配置不随源码分发。公开前应复查 Git 历史、附件和数据授权。
+由 **VortoTech 团队**维护，仓库自 2026-09-29 起公开，供查看与复现；目前未附开源许可证。真实照片、工厂 CAD、模型权重和密钥需要按授权单独准备；`data/`、`runs/`、`artifacts/` 与环境配置不随源码分发。公开前应复查 Git 历史、附件和数据授权。
