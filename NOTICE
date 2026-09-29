@@ -1,0 +1,32 @@
+Wheel Engineering Skill (轮毂智图)
+Copyright 2026 VortoTech
+
+The source code, Skill package and documentation text in this repository are licensed under the
+Apache License, Version 2.0 (see LICENSE), except as noted below.
+
+Not covered by the Apache License 2.0
+-------------------------------------
+The following are provided for viewing and reproducing the published results only. No licence to
+copy, modify or redistribute them is granted:
+
+- docs/assets/readme/ (screenshots and renders). Some show a customer order image and product
+  derived from a real order, including the centre-cap emblem of that product.
+- experiments/forged-blank/benchmarks/hf64.json, hf64.scores.json and experiments/forged-blank/evalset.json:
+  outlines and references derived from public product pages of Vossen Wheels. Vossen and product names
+  are trademarks of their owners; no affiliation or endorsement is implied, and no Vossen images are
+  included in this repository.
+
+Real order photographs, factory CAD, the private style catalogue, model weights and credentials are
+not part of this repository.
+
+Third-party components
+----------------------
+- three.js (services/wheelcam/static/three/), MIT License, Copyright 2010-2023 three.js authors;
+  see services/wheelcam/static/three/LICENSE.
+
+Runtime dependencies are installed separately and keep their own licences: CadQuery, cadquery-ocp and
+manifold3d (Apache-2.0); the Open CASCADE Technology kernel inside cadquery-ocp (LGPL-2.1 with
+exception); trimesh and FastAPI (MIT); NumPy and SciPy (BSD); Pillow (MIT-CMU).
+
+Models are not distributed here; Step3-VL-10B and Step-3.7-Flash are published by StepFun under
+their own licences.

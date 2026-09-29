@@ -168,5 +168,5 @@ GPU 用于模型推理；B-Rep 与 STEP 由 CPU 构建，不声称 CAD 获得 GP
 
 ## 许可与数据
 
-由 **VortoTech 团队**维护。仓库自 2026-09-29 起公开，供查看与复现；目前未附开源许可证。
+由 **VortoTech 团队**维护，代码与文档以 [Apache License 2.0](LICENSE) 开源。README 截图（`docs/assets/readme/`，含真实订单图）与 Vossen 基准配方不在许可范围内，仅供查看与复现，详见 [NOTICE](NOTICE)。
 真实订单照片、工厂 CAD、私有造型库、模型权重和密钥不随源码分发（`data/`、`runs/`、`artifacts/` 与 `.env` 均被忽略）。隐私检查见 [隐私与发布检查](docs/privacy-release.md)。
