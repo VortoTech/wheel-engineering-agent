@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-28",
+  "method": "Original existing screenshots/renders copied without retouching",
+  "scope": "Development cases; local UI screenshots and separate Spark run; no manufacturing approval",
+  "files": [
+    {
+      "file": "workbench.jpg",
+      "source": "runs/workbench-hardening-20260928/workbench-quality.png",
+      "sha256": "5b545e0f4eca9ed56684624e5655ac2c1f670313af94b6584ad92a5a199d0340"
+    },
+    {
+      "file": "style-before.png",
+      "source": "runs/workbench-hardening-20260928/spark/reconstruct/style/before_render.png",
+      "sha256": "56d344ae4455455350691e55234751225914f676d137a7631a31f11956736123"
+    },
+    {
+      "file": "style-after.png",
+      "source": "runs/workbench-hardening-20260928/spark/reconstruct/style/after_render.png",
+      "sha256": "8866ba49aa96c35328cef5c49690aefd8a6670ef19d7721a63befc71a1e36fb2"
+    },
+    {
+      "file": "drawing-viewer.jpg",
+      "source": "runs/workbench-refinement-20260928/drawing-viewer.png",
+      "sha256": "b4179adcf884be1f20e77dde804f14b576b468f75fb7b79ea070bc98d30059db"
+    },
+    {
+      "file": "machining-simulation.png",
+      "source": "runs/workbench-hardening-20260928/spark/simulation_3d.png",
+      "sha256": "75ed54518250dd5cc0985c3a6113c3dba4c73c42a5b5ec3ee59a1f54a6cddf53"
+    }
+  ]
+}

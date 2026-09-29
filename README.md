@@ -6,6 +6,50 @@
 
 [技能入口](skills/wheel-engineering/SKILL.md) · [安装说明](skills/wheel-engineering/references/setup.md) · [架构说明](docs/architecture.md) · [Spark 实测](docs/workbench-hardening.md)
 
+## 产品与效果
+
+### 工程工作台
+
+![轮毂工程工作台：参考图、确认尺寸、三维预览与造型对照](docs/assets/readme/workbench.jpg)
+
+左侧保留输入与工程尺寸，中间查看三维模型，右侧进行造型对话、校验和版本对照。图为真实本机工作台截图（模型服务在 Spark、CAD 在 Mac）；对话修改后，界面会提示旧照片评分已过期。截图中的旧名称 WheelCAM 对应本项目现有界面。
+
+### 造型 Agent 修正前后
+
+| 初始预设 | Agent 修正后 |
+| :---: | :---: |
+| ![初始轮毂造型：未构建外圈盲窗](docs/assets/readme/style-before.png) | ![修正后的造型：补充外圈盲窗并调整窗口斜面](docs/assets/readme/style-after.png) |
+| 外圈盲窗 0 个；斜面宽 16 mm、深 22 mm | 外圈盲窗 15 个；斜面宽 4 mm、深 6 mm |
+
+两张图来自同一次 Spark 造型 Agent 运行。Agent 根据参考图调整预设造型，保持已提供的工程尺寸不变；修正后的 GLB 仍是 **L0 视觉草稿**，不代表完整造型 STEP 已构建。原始记录见 [Spark 复测摘要](docs/evidence/workbench-hardening-20260928.json)。
+
+### 工程图审阅
+
+![工作台中的工程图审阅：正视图、剖面、尺寸和技术要求](docs/assets/readme/drawing-viewer.jpg)
+
+工作台支持放大审阅、查看图纸所属版本与导出 SVG。图为独立的本机交付版本，包含正视图、A–A 剖面、孔系尺寸与技术要求；它不是工厂原始图纸，也未经过制造审核。
+
+### 加工准备与采样仿真
+
+![同一对加工级 STEP：毛坯、采样窗口粗加工结果、目标零件](docs/assets/readme/machining-simulation.png)
+
+从左到右为 `stock.step` 毛坯、采样窗口粗加工结果、`machining.step` 目标零件。该次运行在 1.5 mm 栅格下未发现相对加工级 STEP 的新增采样过切，剩余约 **0.467 L** 待精加工。加工级几何已简化，此结果不包含完整机床、刀柄与夹具碰撞验证。
+
+## 已取得的验证结果
+
+以下为 **2026-09-28 的已记录运行**，不是新款泛化保证或当前机器的实时状态。
+
+| 项目 | 已记录结果 | 证据范围 |
+| --- | --- | --- |
+| Spark 端到端链路 | **5/5 步完成，57.7 s** | 一款 M59 开发案例；重建、加工 STEP、加工包、SVG 工程图、参考对照；本次未生成 PDF |
+| 预览检查 | **6/6 通过** | 单实体、外径、总宽、孔系、ET、对称性；仅代表对应检查覆盖范围 |
+| 加工级 STEP | 有效单实体、STEP 回读通过 | 简化加工几何，不含全部造型曲面 |
+| 参考 CAD 对照 | 外径残差 **0.00 mm**；总宽残差 **−0.26 mm** | 该款参与过模板标定，不能解释为独立测试精度 |
+| 三组开发集对照 | Skill 与 Skill＋造型 Agent 两组各 **4/4** 输出有效 STEP；通用受限基线 **0/4** | 两款 × 完整／缺 ET 四场景，预算和工具能力不同，不能归结为普遍质量优势 |
+| Skill 可移植性 | 独立复制后可检查环境并调用真实照片理解流程 | 不代表已在全新节点验证完整安装与 CAD 全链 |
+
+详见 [完整复测记录](docs/workbench-hardening.md)、[三组对照协议与结果](docs/skill-comparison-results.md)。图片来源与文件校验值见 [素材清单](docs/assets/readme/provenance.json)。
+
 ## 能做什么
 
 | 能力 | 当前实现 |
