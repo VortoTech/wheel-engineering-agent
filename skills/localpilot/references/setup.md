@@ -4,7 +4,13 @@
 
 Set `LOCALPILOT_PROJECT` to an authorized LocalPilot checkout. Its canonical skill is `.agents/skills/local-ai-autopilot/SKILL.md` (name `local-ai-autopilot`, CLI contract 0.2.x). The source inspected for this integration was commit `88be21a36749db5c0ab8b5882f37da793f984a58`.
 
-The inspected checkout has no Git remote configured. No repository URL is guessed here. Once the owner supplies or publishes its authorized repository URL, record it here with the supported revision. This integration package grants no additional access to that project and does not copy its implementation.
+Upstream repository: [DingHappy/localpilot](https://github.com/DingHappy/localpilot) (verified public on 2026-09-28). Canonical skill: [local-ai-autopilot](https://github.com/DingHappy/localpilot/tree/main/.agents/skills/local-ai-autopilot).
+
+```bash
+git clone https://github.com/DingHappy/localpilot.git
+```
+
+The local checkout now points to this origin and was at `846fad00c8d93c58feac74265b3926209c6c4c4e` when the URL was refreshed. The integration review above used the earlier recorded commit; checking the repository URL does not certify compatibility of every later change. Follow the upstream installation instructions and license. This integration does not copy its implementation.
 
 ## What a new node needs
 
