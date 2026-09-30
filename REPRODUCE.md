@@ -155,7 +155,27 @@ export WHEELCAM_VLM_BASE_URL=<阶跃星辰 API 地址>/v1   WHEELCAM_VLM_API_KEY
 
 权重公开（Apache-2.0）：1980 亿参数混合专家模型，每 token 激活约 110 亿，含 18 亿参数视觉编码器。量化版大小：
 BF16 394 GB，FP8/Q8_0 约 209 GB，NVFP4 官方要求 ≥ 120 GB 统一内存，Q4_K_S 112 GB，IQ4_XS 105 GB，Q3_K_M 94 GB，IQ3_XXS 76 GB，另加 4 GB 视觉投影；GGUF 需阶跃星辰的 llama.cpp 分支。
-一台 Spark 共 119.7 GiB 统一内存，**独占时**可跑 Q4 及以下；我们的节点上已有 Step3-VL-10B 服务占用约 58 GiB，二者不能同时运行，因此**未部署**。
+一台 Spark 共 119.7 GiB 统一内存；我们的节点上 Step3-VL-10B 服务占用约 58 GiB，二者不能同时运行，所以默认链路仍用 Step3-VL-10B。
+
+2026-09-30 暂停 Step3-VL-10B 后实测 Q3_K_M（阶跃星辰 llama.cpp 分支 `step3.7@8f34864`，CUDA sm_121）：
+
+```bash
+llama-server -m Step-3.7-flash-Q3_K_M-00001-of-00003.gguf --mmproj mmproj-step3.7-flash-f16.gguf \
+  -c 16384 -ngl 99 -fa on --jinja --host 127.0.0.1 --port 8001 --alias step-3.7-flash
+export WHEELCAM_CHAT_BASE_URL=http://127.0.0.1:8001/v1 WHEELCAM_CHAT_MODEL=step-3.7-flash
+export WHEELCAM_VLM_BASE_URL=http://127.0.0.1:8001/v1  WHEELCAM_VLM_MODEL=step-3.7-flash
+```
+
+| 项目 | 结果 |
+|---|---|
+| 加载 / 内存 | 约 7 分钟；运行时统一内存占用 98–101 GiB，余约 17 GiB |
+| 速度（单请求） | 生成 24–26 token/s；读入 64–390 token/s（越长越快），带一张图约 134 token/s |
+| 思考开销 | 每次先思考：简单问题约 400 token（约 15 s）；项目提示词约 850 token 以上，靠自动加大额度完成 |
+| 文字新建全链路 | 4/4，170 s；六项规格标为“用户提供”，孔型列为待确认 |
+| 示例订单 + 造型 Agent | 4/4，160 s；判断“无盲窗”正确，未返回概率（显示“模型未提供概率”） |
+| 对话：改斜面 / 拒改 PCD | 执行（14 s）/ 拒绝（21 s） |
+
+结论：能在一台独占的 Spark 上跑通全链路，结果与云端一致，但比 Step3-VL-10B 慢 3–7 倍。IQ4_XS（105 GB）按上面的内存占用推算放不下，未测。
 想在本地用 3.7 的评委，需要一台 ≥ 128 GB 统一内存且不跑其他模型的机器（官方列出 DGX Spark、Mac Studio、Ryzen AI Max+ 395）。
 
 换用其他视觉语言模型（未测）时要自行确认两点：能按要求只输出 JSON；支持续写助手消息（`continue_final_message`），造型 Agent 用它让模型直接回答“是/否”并读取概率。换用其他模型时，JSON 输出格式和“是/否”判断的稳定性需要自行确认；审核层会拒绝不合规的提案，不会让模型改工程尺寸。

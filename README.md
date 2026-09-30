@@ -120,7 +120,7 @@ Understand        Reason              Reconstruct         Verify               R
 
 造型 Agent 把工作分给擅长的工具：视觉模型只回答“外圈有没有盲窗”这类是非题；数量从照片的周期里数；斜面宽度靠渲染候选、比对照片边缘来选；每项修改都走白名单并重建校验。
 三维几何全部由 manifold3d（网格）和 OpenCascade（STEP）生成，不用三维生成模型；PartPacker 等试过，未达到轮毂装配要求。
-模型选择、配置需求与 Step-3.7-Flash 的本地部署见 [REPRODUCE.md](REPRODUCE.md#用哪个模型需要什么配置)。
+模型选择、配置需求与 Step-3.7-Flash 在 Spark 上的本地实测见 [REPRODUCE.md](REPRODUCE.md#用哪个模型需要什么配置)。
 
 ### 本地模型从哪来：LocalPilot
 
